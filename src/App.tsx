@@ -26,60 +26,29 @@ import WorkerDashboard from './components/WorkerDashboard';
 import ManagerDashboard from './components/ManagerDashboard';
 import StockManagement from './components/StockManagement';
 import PlanningModule from './components/PlanningModule';
+import { db, handleFirestoreError, OperationType } from './firebase';
+import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDoc } from 'firebase/firestore';
 
 export default function App() {
-  // --- STATE PERSISTENCE IN LOCALSTORAGE ---
-  const [profiles, setProfiles] = useState<UserProfile[]>(() => {
-    const saved = localStorage.getItem('epp_profiles');
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved) as UserProfile[];
-        // Auto-migrate to new simplified credentials if 'gonzalo' is missing
-        const hasGonzalo = parsed.some((p) => p.username === 'gonzalo');
-        if (!hasGonzalo) {
-          return MOCK_PROFILES;
-        }
-        return parsed;
-      } catch (e) {
-        return MOCK_PROFILES;
-      }
-    }
-    return MOCK_PROFILES;
-  });
-
-  const [stockEntries, setStockEntries] = useState<StockEntry[]>(() => {
-    const saved = localStorage.getItem('epp_stock_entries');
-    return saved ? JSON.parse(saved) : INITIAL_STOCK_ENTRIES;
-  });
-
-  const [plans, setPlans] = useState<ProductionPlan[]>(() => {
-    const saved = localStorage.getItem('epp_plans');
-    return saved ? JSON.parse(saved) : INITIAL_PLANS;
-  });
+  // --- DATABASE AND LOCAL STORAGE PERSISTENCE ---
+  const [dbLoading, setDbLoading] = useState<boolean>(true);
+  const [profiles, setProfiles] = useState<UserProfile[]>([]);
+  const [stockEntries, setStockEntries] = useState<StockEntry[]>([]);
+  const [plans, setPlans] = useState<ProductionPlan[]>([]);
 
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('epp_current_user');
     return saved ? JSON.parse(saved) : null;
   });
 
-  const [dailyTargets, setDailyTargets] = useState<Record<string, number>>(() => {
-    const saved = localStorage.getItem('epp_daily_targets');
-    if (saved) {
-      try {
-        return JSON.parse(saved);
-      } catch (e) {
-        return {};
-      }
-    }
-    return {
-      '2026-06-01': 250,
-      '2026-06-02': 300,
-      '2026-06-03': 300,
-      '2026-06-04': 250,
-      '2026-06-05': 300,
-      '2026-06-06': 350,
-      '2026-06-07': 300,
-    };
+  const [dailyTargets, setDailyTargets] = useState<Record<string, number>>({
+    '2026-06-01': 250,
+    '2026-06-02': 300,
+    '2026-06-03': 300,
+    '2026-06-04': 250,
+    '2026-06-05': 300,
+    '2026-06-06': 350,
+    '2026-06-07': 300,
   });
 
   // Navigation State
@@ -125,18 +94,120 @@ export default function App() {
   // Toast Notification State
   const [toasts, setToasts] = useState<ToastMessage[]>([]);
 
-  // Push profile/data mutations back to localStorage
+  // --- REAL-TIME CLOUD FIRESTORE SYNCHRONIZATION ---
   useEffect(() => {
-    localStorage.setItem('epp_profiles', JSON.stringify(profiles));
-  }, [profiles]);
+    let active = true;
+    let unsubProfiles: (() => void) | null = null;
+    let unsubStock: (() => void) | null = null;
+    let unsubPlans: (() => void) | null = null;
+    let unsubTargets: (() => void) | null = null;
 
-  useEffect(() => {
-    localStorage.setItem('epp_stock_entries', JSON.stringify(stockEntries));
-  }, [stockEntries]);
+    const setupSubscriptions = () => {
+      if (!active) return;
 
-  useEffect(() => {
-    localStorage.setItem('epp_plans', JSON.stringify(plans));
-  }, [plans]);
+      // 1. Sync Profiles
+      unsubProfiles = onSnapshot(collection(db, 'profiles'), (snapshot) => {
+        const list: UserProfile[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as UserProfile);
+        });
+        setProfiles(list);
+      }, (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'profiles');
+      });
+
+      // 2. Sync Stock Entries
+      unsubStock = onSnapshot(collection(db, 'stock_entries'), (snapshot) => {
+        const list: StockEntry[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as StockEntry);
+        });
+        // Sort desc by createdAt
+        list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setStockEntries(list);
+      }, (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'stock_entries');
+      });
+
+      // 3. Sync Production Plans
+      unsubPlans = onSnapshot(collection(db, 'production_plans'), (snapshot) => {
+        const list: ProductionPlan[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as ProductionPlan);
+        });
+        // Sort desc by planDate / createdAt
+        list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setPlans(list);
+      }, (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'production_plans');
+      });
+
+      // 4. Sync Daily Targets
+      unsubTargets = onSnapshot(doc(db, 'settings', 'daily_targets'), (docSnap) => {
+        if (docSnap.exists()) {
+          const data = docSnap.data();
+          if (data && data.targets) {
+            setDailyTargets(data.targets);
+          }
+        }
+        setDbLoading(false);
+      }, (err) => {
+        handleFirestoreError(err, OperationType.GET, 'settings/daily_targets');
+      });
+    };
+
+    const initializeAndSubscribe = async () => {
+      try {
+        const initDocRef = doc(db, 'settings', 'init_status');
+        const initDocSnap = await getDoc(initDocRef);
+
+        if (!initDocSnap.exists()) {
+          // First setup: Seed all initial data in one atomic batch
+          const batch = writeBatch(db);
+
+          MOCK_PROFILES.forEach((profile) => {
+            batch.set(doc(db, 'profiles', profile.id), profile);
+          });
+
+          INITIAL_STOCK_ENTRIES.forEach((entry) => {
+            batch.set(doc(db, 'stock_entries', entry.id), entry);
+          });
+
+          INITIAL_PLANS.forEach((plan) => {
+            batch.set(doc(db, 'production_plans', plan.id), plan);
+          });
+
+          const defaultTargets = {
+            '2026-06-01': 250,
+            '2026-06-02': 300,
+            '2026-06-03': 300,
+            '2026-06-04': 250,
+            '2026-06-05': 300,
+            '2026-06-06': 350,
+            '2026-06-07': 300,
+          };
+          batch.set(doc(db, 'settings', 'daily_targets'), { targets: defaultTargets });
+          batch.set(initDocRef, { seeded: true });
+
+          await batch.commit();
+        }
+      } catch (err) {
+        console.error("Database initialization failed, subscribing anyway: ", err);
+      } finally {
+        setupSubscriptions();
+      }
+    };
+
+    initializeAndSubscribe();
+
+    return () => {
+      active = false;
+      if (unsubProfiles) unsubProfiles();
+      if (unsubStock) unsubStock();
+      if (unsubPlans) unsubPlans();
+      if (unsubTargets) unsubTargets();
+    };
+  }, []);
 
   useEffect(() => {
     if (currentUser) {
@@ -145,10 +216,6 @@ export default function App() {
       localStorage.removeItem('epp_current_user');
     }
   }, [currentUser]);
-
-  useEffect(() => {
-    localStorage.setItem('epp_daily_targets', JSON.stringify(dailyTargets));
-  }, [dailyTargets]);
 
   // --- TOAST DISPATCHERS ---
   const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -228,15 +295,21 @@ export default function App() {
       station: signUpStation ? signUpStation.trim() : (signUpRole === 'worker' ? 'Line Station X' : 'Main Center')
     };
 
-    setProfiles((prev) => [...prev, newProfile]);
-    setCurrentUser(newProfile);
-    setSignUpMode(false);
-    setSignUpName('');
-    setSignUpUsername('');
-    setSignUpPassword('');
-    setSignUpStation('');
-    setActiveTab('dashboard');
-    addToast(`Successfully registered and authenticated. Welcome, ${newProfile.name}!`, 'success');
+    setDoc(doc(db, 'profiles', newProfile.id), newProfile)
+      .then(() => {
+        setCurrentUser(newProfile);
+        setSignUpMode(false);
+        setSignUpName('');
+        setSignUpUsername('');
+        setSignUpPassword('');
+        setSignUpStation('');
+        setActiveTab('dashboard');
+        addToast(`Successfully registered and authenticated. Welcome, ${newProfile.name}!`, 'success');
+      })
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.CREATE, `profiles/${newProfile.id}`);
+        setAuthError('Failed to register operator profile inside Cloud Database context.');
+      });
   };
 
   const handleLogout = () => {
@@ -255,8 +328,14 @@ export default function App() {
       createdAt: new Date().toISOString()
     };
 
-    setStockEntries((prev) => [newEntry, ...prev]);
-    addToast(`Registered output level: ${entry.quantity} units of ${entry.modelId} saved!`, 'success');
+    setDoc(doc(db, 'stock_entries', newEntry.id), newEntry)
+      .then(() => {
+        addToast(`Registered output level: ${entry.quantity} units of ${entry.modelId} saved!`, 'success');
+      })
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.CREATE, `stock_entries/${newEntry.id}`);
+        addToast('Failed to save stock entry to Cloud Database.', 'error');
+      });
   };
 
   const handleDeleteStockEntry = (id: string) => {
@@ -266,34 +345,56 @@ export default function App() {
       'Confirm Entry Removal',
       `Are you sure you want to permanently delete the stock entry recording ${entry.quantity} units of ${entry.modelId}?`,
       () => {
-        setStockEntries((prev) => prev.filter((e) => e.id !== id));
-        addToast(`Removed ${entry.quantity} units of ${entry.modelId} from stockpile records.`, 'success');
+        deleteDoc(doc(db, 'stock_entries', id))
+          .then(() => {
+            addToast(`Removed ${entry.quantity} units of ${entry.modelId} from stockpile records.`, 'success');
+          })
+          .catch((err) => {
+            handleFirestoreError(err, OperationType.DELETE, `stock_entries/${id}`);
+            addToast('Failed to remove stock entry from Cloud Database.', 'error');
+          });
       }
     );
   };
 
   const handleAddProductionPlan = (plan: Omit<ProductionPlan, 'id' | 'createdAt' | 'status'>) => {
-    const newPlan: ProductionPlan = {
-      ...plan,
+    // Construct the production plan explicitly, leaving out optional keys if undefined
+    const newPlan: any = {
       id: `pl-${Date.now()}`,
+      planDate: plan.planDate,
+      machine: plan.machine,
+      shift: plan.shift,
+      model: plan.model,
+      quantityPlanned: plan.quantityPlanned,
+      assignedWorker: plan.assignedWorker,
+      createdBy: plan.createdBy,
       status: 'Pending',
       createdAt: new Date().toISOString()
     };
 
-    setPlans((prev) => [newPlan, ...prev]);
-    addToast(`Successfully authorized production target of ${plan.quantityPlanned} units of ${plan.model}!`, 'success');
+    if (plan.notes !== undefined && plan.notes.trim() !== '') {
+      newPlan.notes = plan.notes.trim();
+    }
+
+    setDoc(doc(db, 'production_plans', newPlan.id), newPlan as ProductionPlan)
+      .then(() => {
+        addToast(`Successfully authorized production target of ${plan.quantityPlanned} units of ${plan.model}!`, 'success');
+      })
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.CREATE, `production_plans/${newPlan.id}`);
+        addToast('Failed to save production plan to Cloud Database.', 'error');
+      });
   };
 
   const handleUpdatePlanStatus = (id: string, status: 'Pending' | 'Completed' | 'Delayed') => {
-    setPlans((prev) =>
-      prev.map((p) => {
-        if (p.id === id) {
-          return { ...p, status };
-        }
-        return p;
+    updateDoc(doc(db, 'production_plans', id), { status })
+      .then(() => {
+        addToast(`Marked plan target status as ${status.toUpperCase()}!`, 'success');
       })
-    );
-    addToast(`Marked plan target status as ${status.toUpperCase()}!`, 'success');
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.UPDATE, `production_plans/${id}`);
+        addToast('Failed to update plan status in Cloud Database.', 'error');
+      });
   };
 
   const handleDeleteProductionPlan = (id: string) => {
@@ -303,17 +404,28 @@ export default function App() {
       'Delete Shift Schedule',
       `Remove the scheduled shift target for ${plan.model} (${plan.quantityPlanned} planned units) from planning whiteboard?`,
       () => {
-        setPlans((prev) => prev.filter((p) => p.id !== id));
-        addToast(`Successfully removed scheduled target of ${plan.quantityPlanned} units from planning whiteboard.`, 'success');
+        deleteDoc(doc(db, 'production_plans', id))
+          .then(() => {
+            addToast(`Successfully removed scheduled target of ${plan.quantityPlanned} units from planning whiteboard.`, 'success');
+          })
+          .catch((err) => {
+            handleFirestoreError(err, OperationType.DELETE, `production_plans/${id}`);
+            addToast('Failed to remove production plan from Cloud Database.', 'error');
+          });
       }
     );
   };
 
   const handleUpdateDailyTarget = (dateStr: string, targetValue: number) => {
-    setDailyTargets((prev) => ({
-      ...prev,
+    const newTargets = {
+      ...dailyTargets,
       [dateStr]: targetValue
-    }));
+    };
+    setDoc(doc(db, 'settings', 'daily_targets'), { targets: newTargets })
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.UPDATE, 'settings/daily_targets');
+        addToast('Failed to update daily targets in Cloud Database.', 'error');
+      });
   };
 
   const handleClearStockEntries = () => {
@@ -321,8 +433,18 @@ export default function App() {
       'Purge Stock stockpile Ledger',
       'Are you absolutely sure you want to permanently clear all stock entries in the ledger? This action cannot be undone.',
       () => {
-        setStockEntries([]);
-        addToast('Manufactured stock stockpile ledger cleared successfully.', 'success');
+        const batch = writeBatch(db);
+        stockEntries.forEach((e) => {
+          batch.delete(doc(db, 'stock_entries', e.id));
+        });
+        batch.commit()
+          .then(() => {
+            addToast('Manufactured stock stockpile ledger cleared successfully.', 'success');
+          })
+          .catch((err) => {
+            handleFirestoreError(err, OperationType.DELETE, 'stock_entries');
+            addToast('Failed to clear stock entries from Cloud Database.', 'error');
+          });
       }
     );
   };
@@ -332,8 +454,18 @@ export default function App() {
       'Wipe Shift Schedules',
       'Are you sure you want to permanently clear all production plans? This action cannot be undone.',
       () => {
-        setPlans([]);
-        addToast('Production schedule plans cleared successfully. All scheduled week matrix entries have been cleaned.', 'success');
+        const batch = writeBatch(db);
+        plans.forEach((p) => {
+          batch.delete(doc(db, 'production_plans', p.id));
+        });
+        batch.commit()
+          .then(() => {
+            addToast('Production schedule plans cleared successfully. All scheduled week matrix entries have been cleaned.', 'success');
+          })
+          .catch((err) => {
+            handleFirestoreError(err, OperationType.DELETE, 'production_plans');
+            addToast('Failed to clear production plans from Cloud Database.', 'error');
+          });
       }
     );
   };
@@ -343,18 +475,32 @@ export default function App() {
       'Restore Factory Defaults',
       'Are you sure you want to restore the stock ledger, targets, and schedules to original presets?',
       () => {
-        setStockEntries(INITIAL_STOCK_ENTRIES);
-        setPlans(INITIAL_PLANS);
-        setDailyTargets({
-          '2026-06-01': 250,
-          '2026-06-02': 300,
-          '2026-06-03': 300,
-          '2026-06-04': 250,
-          '2026-06-05': 300,
-          '2026-06-06': 350,
-          '2026-06-07': 300,
+        const batch = writeBatch(db);
+        stockEntries.forEach((e) => batch.delete(doc(db, 'stock_entries', e.id)));
+        plans.forEach((p) => batch.delete(doc(db, 'production_plans', p.id)));
+
+        INITIAL_STOCK_ENTRIES.forEach((e) => batch.set(doc(db, 'stock_entries', e.id), e));
+        INITIAL_PLANS.forEach((p) => batch.set(doc(db, 'production_plans', p.id), p));
+        batch.set(doc(db, 'settings', 'daily_targets'), {
+          targets: {
+            '2026-06-01': 250,
+            '2026-06-02': 300,
+            '2026-06-03': 300,
+            '2026-06-04': 250,
+            '2026-06-05': 300,
+            '2026-06-06': 350,
+            '2026-06-07': 300,
+          }
         });
-        addToast('System database restored to demo presets.', 'success');
+
+        batch.commit()
+          .then(() => {
+            addToast('System database restored to demo presets.', 'success');
+          })
+          .catch((err) => {
+            handleFirestoreError(err, OperationType.WRITE, 'batch_reset');
+            addToast('Failed to restore factory defaults.', 'error');
+          });
       }
     );
   };
@@ -437,8 +583,24 @@ export default function App() {
       <Notification toasts={toasts} removeToast={removeToast} />
 
       {/* RENDER AUTHENTICATION WALL IF USER IS LOGGED OUT */}
-      <AnimatePresence mode="wait">
-        {!currentUser ? (
+      {dbLoading ? (
+        <div className="flex-1 flex flex-col justify-center items-center bg-slate-900 min-h-screen">
+          <div className="space-y-4 text-center">
+            <div className="relative inline-block w-16 h-16">
+              <div className="w-16 h-16 border-4 border-emerald-500/25 rounded-full animate-pulse"></div>
+              <div className="absolute inset-0 w-16 h-16 border-4 border-emerald-500 border-t-transparent rounded-full animate-spin"></div>
+            </div>
+            <h2 className="text-sm font-bold tracking-widest text-slate-100 uppercase font-mono">
+              Connecting Cloud Database...
+            </h2>
+            <p className="text-xs text-slate-400 font-medium font-sans">
+              Initializing EPP Airbag manufacturing whiteboard environment.
+            </p>
+          </div>
+        </div>
+      ) : (
+        <AnimatePresence mode="wait">
+          {!currentUser ? (
           <motion.div
             key="login"
             initial={{ opacity: 0 }}
@@ -820,6 +982,7 @@ export default function App() {
           </motion.div>
         )}
       </AnimatePresence>
+      )}
 
       {/* GLOBAL CUSTOM CONFIRMATION DIALOG MODAL */}
       <AnimatePresence>

@@ -1,0 +1,79 @@
+{
+  "entities": {
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "User profile with role, station, username, and password",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "role": { "type": "string", "enum": ["manager", "worker"] },
+        "username": { "type": "string" },
+        "password": { "type": "string" },
+        "station": { "type": "string" }
+      },
+      "required": ["id", "name", "role", "username", "password"]
+    },
+    "StockEntry": {
+      "title": "StockEntry",
+      "description": "Record of stock manufactured by a worker on a specific date",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "modelId": { "type": "string" },
+        "workerName": { "type": "string" },
+        "date": { "type": "string" },
+        "quantity": { "type": "integer" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "modelId", "workerName", "date", "quantity", "createdBy", "createdAt"]
+    },
+    "ProductionPlan": {
+      "title": "ProductionPlan",
+      "description": "Planned production target for a specific machine, shift, and model",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "planDate": { "type": "string" },
+        "machine": { "type": "string" },
+        "shift": { "type": "string" },
+        "model": { "type": "string" },
+        "quantityPlanned": { "type": "integer" },
+        "assignedWorker": { "type": "string" },
+        "notes": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "status": { "type": "string", "enum": ["Pending", "Completed", "Delayed"] }
+      },
+      "required": ["id", "planDate", "machine", "shift", "model", "quantityPlanned", "assignedWorker", "status", "createdBy", "createdAt"]
+    },
+    "DailyTargets": {
+      "title": "DailyTargets",
+      "description": "Dynamic mapping of date strings to target quantity values",
+      "type": "object",
+      "properties": {
+        "targets": { "type": "object" }
+      },
+      "required": ["targets"]
+    }
+  },
+  "firestore": {
+    "profiles/{profileId}": {
+      "schema": "UserProfile",
+      "description": "User profile definitions inside the system"
+    },
+    "stock_entries/{entryId}": {
+      "schema": "StockEntry",
+      "description": "Submitted stock entries for each airbag model"
+    },
+    "production_plans/{planId}": {
+      "schema": "ProductionPlan",
+      "description": "Production plans or schedules for shifts"
+    },
+    "settings/daily_targets": {
+      "schema": "DailyTargets",
+      "description": "Custom daily targets mapping"
+    }
+  }
+}

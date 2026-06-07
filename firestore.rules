@@ -1,0 +1,63 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    // Global Safety Net default-deny
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // Profiles Collection
+    match /profiles/{profileId} {
+      allow read: if true;
+      allow create, update: if isValidId(profileId) 
+        && request.resource.data.id == profileId
+        && request.resource.data.name is string && request.resource.data.name.size() <= 100
+        && request.resource.data.role is string && (request.resource.data.role == 'manager' || request.resource.data.role == 'worker')
+        && request.resource.data.username is string && request.resource.data.username.size() <= 100
+        && request.resource.data.password is string && request.resource.data.password.size() <= 100;
+      allow delete: if true;
+    }
+
+    // Stock Entries Collection
+    match /stock_entries/{entryId} {
+      allow read: if true;
+      allow create, update: if isValidId(entryId)
+        && request.resource.data.id == entryId
+        && request.resource.data.modelId is string && request.resource.data.modelId.size() <= 50
+        && request.resource.data.workerName is string && request.resource.data.workerName.size() <= 100
+        && request.resource.data.date is string && request.resource.data.date.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && request.resource.data.quantity is int && request.resource.data.quantity >= 0
+        && request.resource.data.createdBy is string
+        && request.resource.data.createdAt is string;
+      allow delete: if true;
+    }
+
+    // Production Plans Collection
+    match /production_plans/{planId} {
+      allow read: if true;
+      allow create, update: if isValidId(planId)
+        && request.resource.data.id == planId
+        && request.resource.data.planDate is string && request.resource.data.planDate.matches('^\\d{4}-\\d{2}-\\d{2}$')
+        && request.resource.data.machine is string && request.resource.data.machine.size() <= 50
+        && request.resource.data.shift is string && request.resource.data.shift.size() <= 50
+        && request.resource.data.model is string && request.resource.data.model.size() <= 50
+        && request.resource.data.quantityPlanned is int && request.resource.data.quantityPlanned >= 0
+        && request.resource.data.assignedWorker is string && request.resource.data.assignedWorker.size() <= 100
+        && request.resource.data.status is string && (request.resource.data.status == 'Pending' || request.resource.data.status == 'Completed' || request.resource.data.status == 'Delayed')
+        && request.resource.data.createdBy is string
+        && request.resource.data.createdAt is string;
+      allow delete: if true;
+    }
+
+    // Settings / Daily Targets Document
+    match /settings/{document} {
+      allow read, write: if true;
+    }
+  }
+}
