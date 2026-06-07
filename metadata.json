@@ -1,0 +1,6 @@
+{
+  "name": "EPP Airbag System",
+  "description": "Premium industrial manufacturing dashboard for managing airbag stock entries and production plans.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
