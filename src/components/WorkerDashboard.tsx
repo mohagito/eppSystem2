@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
 import { UserProfile, StockEntry, ProductionPlan } from '../types';
 import { AIRBAG_MODELS } from '../data';
@@ -6,7 +6,8 @@ import {
   ClipboardCheck,
   Boxes,
   ArrowRight,
-  Target
+  Check,
+  CheckSquare
 } from 'lucide-react';
 
 interface WorkerProps {
@@ -16,14 +17,22 @@ interface WorkerProps {
   dailyTargets?: Record<string, number>;
   onNavigate: (tab: string) => void;
   onUpdatePlanStatus?: (id: string, status: 'Pending' | 'Completed' | 'Delayed') => void;
+  onUpdatePlanProgress?: (id: string, additionalQuantity: number) => void;
+  onAddStockEntry?: (entry: Omit<StockEntry, 'id' | 'createdAt'>) => void;
 }
 
 export default function WorkerDashboard({
   currentUser,
   entries,
   plans,
-  onNavigate
+  onNavigate,
+  onUpdatePlanStatus,
+  onUpdatePlanProgress,
+  onAddStockEntry
 }: WorkerProps) {
+  const [filterType, setFilterType] = useState<'my' | 'all'>('my');
+  const [progressInputs, setProgressInputs] = useState<Record<string, string>>({});
+
   // 1. Get recent stock entries submitted by this specific worker
   const workerEntries = useMemo(() => {
     return entries
@@ -32,30 +41,63 @@ export default function WorkerDashboard({
       .slice(0, 5);
   }, [entries, currentUser.name]);
 
-  // Calculate dynamic model-specific targets – perfectly linked & synced with StockManagement
-  const modelProgressData = useMemo(() => {
-    return AIRBAG_MODELS.map((model) => {
-      // Show actual total stockpile production for this model (unrestricted by worker/date to align with Stock ledger metrics)
-      const stock = entries
-        .filter((e) => e.modelId === model)
-        .reduce((sum, e) => sum + e.quantity, 0);
-
-      // Show overall planned level for this model
-      const planned = plans
-        .filter((p) => p.model === model)
-        .reduce((sum, p) => sum + p.quantityPlanned, 0);
-
-      return {
-        name: model,
-        stock,
-        planned,
-      };
+  // Filter plans based on selected tab ('my' or 'all')
+  const myPlans = useMemo(() => {
+    return plans.filter((p) => {
+      if (!p.assignedWorker) return false;
+      return p.assignedWorker.toLowerCase().includes(currentUser.name.toLowerCase()) || 
+             currentUser.name.toLowerCase().includes(p.assignedWorker.toLowerCase());
     });
-  }, [entries, plans]);
+  }, [plans, currentUser.name]);
 
-  const maxStock = useMemo(() => {
-    return Math.max(...modelProgressData.map((d) => d.stock), 100);
-  }, [modelProgressData]);
+  const filteredPlans = useMemo(() => {
+    return filterType === 'my' ? myPlans : plans;
+  }, [filterType, myPlans, plans]);
+
+  const handleLogProgress = (plan: ProductionPlan, val: string) => {
+    const amt = parseInt(val, 10);
+    if (isNaN(amt) || amt <= 0) return;
+
+    if (onAddStockEntry) {
+      const today = new Date().toISOString().split('T')[0];
+      onAddStockEntry({
+        modelId: plan.model,
+        workerName: currentUser.name,
+        date: today,
+        quantity: amt,
+        createdBy: currentUser.id
+      });
+    }
+
+    if (onUpdatePlanProgress) {
+      onUpdatePlanProgress(plan.id, amt);
+    }
+
+    // Reset input
+    setProgressInputs((prev) => ({ ...prev, [plan.id]: '' }));
+  };
+
+  const handleCompleteProduction = (plan: ProductionPlan) => {
+    const remaining = plan.quantityPlanned - (plan.quantityCompleted || 0);
+    const amtToLog = remaining > 0 ? remaining : plan.quantityPlanned;
+
+    if (onAddStockEntry) {
+      const today = new Date().toISOString().split('T')[0];
+      onAddStockEntry({
+        modelId: plan.model,
+        workerName: currentUser.name,
+        date: today,
+        quantity: amtToLog,
+        createdBy: currentUser.id
+      });
+    }
+
+    if (onUpdatePlanProgress) {
+      onUpdatePlanProgress(plan.id, amtToLog);
+    } else if (onUpdatePlanStatus) {
+      onUpdatePlanStatus(plan.id, 'Completed');
+    }
+  };
 
   return (
     <div className="space-y-8" id="worker-dashboard-view">
@@ -88,102 +130,195 @@ export default function WorkerDashboard({
         </div>
       </div>
 
-      {/* TARGETS & PROGRESS MONITOR BOARD */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-3xs" id="worker-goals-board">
-        <div className="flex items-center justify-between border-b border-slate-100 pb-4 mb-5">
+      {/* PRODUCTION - ACTIVE SHIFTS BOARD */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-3xs animate-fade-in" id="worker-production-whiteboard">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between border-b border-slate-100 pb-4 mb-5 gap-3">
           <div>
             <h3 className="text-xs font-extrabold uppercase text-slate-950 tracking-wider flex items-center gap-2">
-              <Target size={17} className="text-emerald-555 animate-pulse shrink-0" />
-              Cushion Models – Live Production Targets
+              <ClipboardCheck size={18} className="text-emerald-600 shrink-0 animate-pulse" />
+              PRODUCTION
             </h3>
             <p className="text-[11px] text-slate-500 mt-1 font-semibold">
-              Track actual stockpile levels against accumulated planned targets.
+              Assigned orders scheduled by managers. Completing a request automatically updates the status and registers the completed units into the active Stock levels.
             </p>
           </div>
-          <span className="text-[10px] bg-slate-50 border border-slate-150 text-slate-600 px-3 py-1 rounded-lg font-mono font-bold">
-            6 Models Tracked
-          </span>
+          <div className="flex gap-1.5 p-1 bg-slate-50 border border-slate-200 rounded-lg shrink-0 self-start sm:self-center">
+            <button
+              onClick={() => setFilterType('my')}
+              className={`px-3 py-1.5 text-[10.5px] font-bold rounded-md transition-colors cursor-pointer ${
+                filterType === 'my'
+                  ? 'bg-slate-900 text-white shadow-3xs font-extrabold'
+                  : 'text-slate-550 hover:text-slate-800 font-semibold'
+              }`}
+            >
+              My Orders ({myPlans.length})
+            </button>
+            <button
+              onClick={() => setFilterType('all')}
+              className={`px-3 py-1.5 text-[10.5px] font-bold rounded-md transition-colors cursor-pointer ${
+                filterType === 'all'
+                  ? 'bg-slate-900 text-white shadow-3xs font-extrabold'
+                  : 'text-slate-550 hover:text-slate-800 font-semibold'
+              }`}
+            >
+              All Factory Plans ({plans.length})
+            </button>
+          </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-5">
-          {modelProgressData.map((data, index) => {
-            const hasGoal = data.planned > 0;
-            const percentage = hasGoal 
-              ? Math.round((data.stock / data.planned) * 100) 
-              : (maxStock > 0 ? Math.round((data.stock / maxStock) * 100) : 0);
-            
-            // If stock is exactly 0, set visual width to 0% so there is no visual pill inside an empty progress bar.
-            const visualWidth = data.stock > 0 
-              ? Math.max(Math.min(percentage, 100), 5) 
-              : 0;
-              
-            const piecesLeft = hasGoal ? data.planned - data.stock : 0;
-
-            return (
-              <div key={data.name} className="space-y-1.5 p-3 rounded-xl border border-slate-100/90 bg-slate-50/20 hover:bg-slate-50/50 transition-colors" id={`worker-model-target-${data.name.replace(' ', '-')}`}>
-                <div className="flex items-center justify-between text-xs">
-                  <div className="flex items-center gap-2">
-                    <span className="w-1.5 h-6 bg-slate-300 rounded-full shrink-0 group-hover:bg-emerald-500 transition-colors" />
-                    <span className="font-extrabold text-slate-800">{data.name}</span>
-                  </div>
-
-                  <span className="text-emerald-700 font-extrabold bg-emerald-50 border border-emerald-100 px-2 py-0.5 rounded text-[10px] font-mono">
-                    {data.stock} Produced
-                  </span>
-                </div>
-
-                <div className="h-6.5 w-full bg-white rounded-xl overflow-hidden border border-slate-150 p-1 flex items-center shadow-3xs">
-                  {visualWidth > 0 ? (
-                    <motion.div
-                      initial={{ width: 0 }}
-                      animate={{ width: `${visualWidth}%` }}
-                      transition={{ duration: 0.8, delay: index * 0.05, ease: 'easeOut' }}
-                      className={`h-full bg-linear-to-r ${
-                        hasGoal && percentage >= 100
-                          ? 'from-emerald-500 to-teal-500' // Goal achieved
-                          : hasGoal
-                            ? 'from-rose-500 via-rose-450 to-pink-500 shadow-[0_0_6px_rgba(244,63,94,0.3)] animate-pulse' // Active goal in progress (deficit style - red)
-                            : 'from-sky-500 via-blue-500 to-indigo-500' // No active goal, but has production stockpile (blue indicator)
-                      } rounded-lg flex items-center justify-end px-2`}
-                    >
-                      {percentage > 15 && (
-                        <span className="text-[10px] font-extrabold text-white font-mono drop-shadow-xs">
-                          {percentage}%
-                        </span>
-                      )}
-                    </motion.div>
-                  ) : (
-                    <div className="h-full w-full rounded-lg bg-slate-50/50 border border-dashed border-slate-150 flex items-center justify-center">
-                      <span className="text-[9px] text-slate-400 font-mono font-bold uppercase tracking-wider">
-                        {hasGoal ? `0% Start Assigned` : `No production record`}
+        {filteredPlans.length === 0 ? (
+          <div className="py-12 text-center text-xs text-slate-450 font-semibold bg-slate-50/25 rounded-xl border border-dashed border-slate-200">
+            {filterType === 'my' 
+              ? 'You have no assigned production plans. Check "All Factory Plans" to see and claim other active shifts!'
+              : 'No scheduled production plans registered in system database yet.'
+            }
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {filteredPlans.map((plan) => {
+              const isComp = plan.status === 'Completed';
+              return (
+                <div
+                  key={plan.id}
+                  className={`p-4 rounded-xl border transition-all flex flex-col justify-between ${
+                    isComp
+                      ? 'border-emerald-100 bg-emerald-50/10'
+                      : 'border-slate-200 bg-white hover:border-slate-350 hover:shadow-2xs'
+                  }`}
+                  id={`prod-card-${plan.id}`}
+                >
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold font-mono bg-slate-50 border border-slate-200 text-slate-700 px-2.5 py-0.5 rounded-md">
+                        {plan.model}
+                      </span>
+                      <span
+                        className={`text-[9.5px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
+                          isComp
+                            ? 'bg-emerald-50 text-emerald-700 border-emerald-150 font-mono'
+                            : plan.status === 'Delayed'
+                            ? 'bg-rose-50 text-rose-700 border-rose-150 font-mono animate-pulse'
+                            : 'bg-amber-50 text-amber-700 border-amber-150 font-mono'
+                        }`}
+                      >
+                        {plan.status}
                       </span>
                     </div>
-                  )}
-                </div>
 
-                <div className="flex items-center justify-between text-[11px] font-mono text-slate-500 mt-1">
-                  <span className="font-semibold">
-                    {hasGoal ? `Shift Target: ${data.planned} pcs` : 'No shifts targeted'}
-                  </span>
-                  {hasGoal ? (
-                    piecesLeft > 0 ? (
-                      <span className="text-rose-600 font-extrabold font-mono flex items-center gap-1 bg-rose-50/70 border border-rose-100 px-1.5 py-0.5 rounded">
-                        <span className="w-1.5 h-1.5 rounded-full bg-rose-500 animate-ping shrink-0" />
-                        {piecesLeft} pcs left
-                      </span>
+                    <div className="space-y-2 text-xs">
+                      <div className="flex items-center justify-between text-slate-600 font-medium">
+                        <span>Target:</span>
+                        <span className="text-slate-900 font-extrabold font-mono bg-slate-50 border border-slate-150 px-1.5 py-0.5 rounded">
+                          {plan.quantityPlanned} units
+                        </span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-600 font-medium">
+                        <span>Progress:</span>
+                        <span className="text-emerald-700 font-extrabold font-mono bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">
+                          {plan.quantityCompleted || 0} / {plan.quantityPlanned} units
+                        </span>
+                      </div>
+
+                      {/* Dynamic interactive progress bar */}
+                      <div className="space-y-1 pt-1">
+                        <div className="flex justify-between text-[10px] text-slate-400 font-mono font-bold uppercase">
+                          <span>Completion Progress</span>
+                          <span>{Math.round(((plan.quantityCompleted || 0) / plan.quantityPlanned) * 100)}%</span>
+                        </div>
+                        <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200">
+                          <div 
+                            className="bg-emerald-500 h-full rounded-full transition-all duration-300"
+                            style={{ width: `${Math.min(Math.round(((plan.quantityCompleted || 0) / plan.quantityPlanned) * 100), 100)}%` }}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="flex items-center justify-between text-slate-500 text-[11px] font-medium">
+                        <span>Machine:</span>
+                        <span className="text-slate-800 font-bold">{plan.machine}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-500 text-[11px] font-medium">
+                        <span>Shift:</span>
+                        <span className="text-slate-800 font-bold">{plan.shift}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-500 text-[11px] font-medium">
+                        <span>Date:</span>
+                        <span className="text-slate-800 font-bold font-mono">{plan.planDate}</span>
+                      </div>
+                      <div className="flex items-center justify-between text-slate-500 text-[11px] font-medium pt-1">
+                        <span>Assigned Operator:</span>
+                        <span className="text-emerald-750 font-bold bg-slate-50 border border-slate-200 px-1.5 py-0.5 rounded text-[10px]">
+                          {plan.assignedWorker || 'Unassigned'}
+                        </span>
+                      </div>
+                      {plan.notes && (
+                        <div className="text-[10px] text-slate-500 italic bg-amber-50/35 border border-amber-100 rounded-md p-1.5 mt-2 line-clamp-2">
+                          Note: {plan.notes}
+                        </div>
+                      )}
+
+                      {!isComp && (
+                        <div className="pt-2.5 border-t border-slate-100 space-y-2">
+                          <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Log Finished Batch</label>
+                          <div className="flex gap-2">
+                            <input
+                              type="number"
+                              min="1"
+                              placeholder="e.g. 250"
+                              value={progressInputs[plan.id] || ''}
+                              onChange={(e) => setProgressInputs({ ...progressInputs, [plan.id]: e.target.value })}
+                              className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono shadow-3xs"
+                            />
+                            <button
+                              onClick={() => {
+                                handleLogProgress(plan, progressInputs[plan.id] || '');
+                              }}
+                              disabled={!(progressInputs[plan.id]) || parseInt(progressInputs[plan.id], 10) <= 0}
+                              className="bg-slate-900 hover:bg-slate-800 disabled:opacity-50 text-white font-extrabold text-[11px] rounded-lg px-3 py-1.5 shrink-0 hover:scale-[1.01] transition-transform cursor-pointer shadow-3xs"
+                            >
+                              Add
+                            </button>
+                          </div>
+                          
+                          {/* Quick preset buttons */}
+                          <div className="flex flex-wrap gap-1.5 pt-0.5">
+                            {[100, 250, 500].map((presetAmt) => (
+                              <button
+                                key={presetAmt}
+                                onClick={() => handleLogProgress(plan, presetAmt.toString())}
+                                className="text-[10px] font-extrabold bg-slate-50 hover:bg-emerald-50 border border-slate-200 hover:border-emerald-250 text-slate-700 hover:text-emerald-700 rounded-md py-1 px-2 cursor-pointer transition-colors shadow-3xs"
+                              >
+                                +{presetAmt}
+                              </button>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  </div>
+
+                  <div className="mt-4 pt-3 border-t border-slate-100">
+                    {isComp ? (
+                      <div className="w-full text-center py-2 px-3 bg-emerald-50 border border-emerald-150 text-emerald-700 font-bold text-[11px] rounded-lg flex items-center justify-center gap-1.5 shadow-3xs select-none">
+                        <Check className="text-emerald-600" size={13} />
+                        Completed & Added to Stock
+                      </div>
                     ) : (
-                      <span className="text-emerald-600 font-extrabold font-semibold flex items-center gap-1 bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">
-                        Completed! ✓
-                      </span>
-                    )
-                  ) : (
-                    <span className="text-slate-400 font-sans">Target not assigned</span>
-                  )}
+                      <button
+                        onClick={() => handleCompleteProduction(plan)}
+                        className="w-full text-center py-2 px-3 bg-emerald-600 hover:bg-emerald-700 text-white font-extrabold text-[11px] rounded-lg flex items-center justify-center gap-1.5 border border-transparent hover:scale-[1.01] transition-transform cursor-pointer shadow-3xs"
+                        id={`complete-btn-${plan.id}`}
+                      >
+                        <CheckSquare size={13} />
+                        Log Remaining ({plan.quantityPlanned - (plan.quantityCompleted || 0)} units) & Complete
+                      </button>
+                    )}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
+              );
+            })}
+          </div>
+        )}
       </div>
 
       {/* RECENT ENTRIES RECORDED */}

@@ -1,6 +1,6 @@
 import React, { useMemo } from 'react';
 import { motion } from 'motion/react';
-import { UserProfile, StockEntry, ProductionPlan } from '../types';
+import { UserProfile, StockEntry, ProductionPlan, DeliveryEntry } from '../types';
 import { AIRBAG_MODELS } from '../data';
 import {
   TrendingUp,
@@ -23,6 +23,7 @@ import AnalyticsCharts from './AnalyticsCharts';
 interface ManagerProps {
   currentUser: UserProfile;
   entries: StockEntry[];
+  deliveries?: DeliveryEntry[];
   plans: ProductionPlan[];
   dailyTargets: Record<string, number>;
   onNavigate: (tab: string) => void;
@@ -37,6 +38,7 @@ interface ManagerProps {
 export default function ManagerDashboard({
   currentUser,
   entries,
+  deliveries = [],
   plans,
   dailyTargets,
   onNavigate,
@@ -59,6 +61,11 @@ export default function ManagerDashboard({
   const totalStockpile = useMemo(() => {
     return entries.reduce((sum, e) => sum + e.quantity, 0);
   }, [entries]);
+
+  // 1.1 Total Deliveries dispatched
+  const totalDelivered = useMemo(() => {
+    return deliveries.reduce((sum, d) => sum + d.quantity, 0);
+  }, [deliveries]);
 
   // 2. Active Plans scheduled today
   const plansToday = useMemo(() => {
@@ -135,20 +142,34 @@ export default function ManagerDashboard({
       </div>
 
       {/* KPI METRICS OVERVIEW */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 md:gap-6" id="manager-kpi-grid">
-        {/* Metric 1: Total stockpile */}
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6" id="manager-kpi-grid">
+        {/* Metric 1: Available stockpile */}
         <div className="bg-white border border-slate-200 rounded-xl p-5 md:p-6 flex flex-col justify-between h-36 shadow-3xs">
           <div className="flex justify-between items-center text-slate-455">
-            <span className="text-[10px] md:text-xs font-bold uppercase tracking-wider font-sans">Total Stockpile</span>
+            <span className="text-[10px] md:text-xs font-bold uppercase tracking-wider font-sans">Available Stock</span>
             <span className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg"><Layers size={14} /></span>
           </div>
           <div>
-            <div className="text-2xl md:text-3xl font-black font-mono text-slate-900 select-all">{totalStockpile}</div>
-            <p className="text-[10px] md:text-xs text-slate-500 mt-1 pb-1">Assembled pcs in storage</p>
+            <div className="text-2xl md:text-3xl font-black font-mono text-slate-900 select-all">{totalStockpile - totalDelivered}</div>
+            <p className="text-[10px] md:text-xs text-slate-500 mt-1 pb-1 font-mono font-bold uppercase tracking-wide">
+              {totalStockpile} Prod / {totalDelivered} Shipped
+            </p>
           </div>
         </div>
 
-        {/* Metric 2: Target plans active */}
+        {/* Metric 2: Shipped Deliveries */}
+        <div className="bg-white border border-slate-200 rounded-xl p-5 md:p-6 flex flex-col justify-between h-36 shadow-3xs">
+          <div className="flex justify-between items-center text-slate-455">
+            <span className="text-[10px] md:text-xs font-bold uppercase tracking-wider font-sans">Delivered Shipped</span>
+            <span className="p-1.5 bg-amber-50 text-amber-600 rounded-lg"><History size={14} /></span>
+          </div>
+          <div>
+            <div className="text-2xl md:text-3xl font-black font-mono text-amber-700 select-all">{totalDelivered}</div>
+            <p className="text-[10px] md:text-xs text-slate-500 mt-1 pb-1">Units removed from stock</p>
+          </div>
+        </div>
+
+        {/* Metric 3: Target plans active */}
         <div className="bg-white border border-slate-200 rounded-xl p-5 md:p-6 flex flex-col justify-between h-36 shadow-3xs">
           <div className="flex justify-between items-center text-slate-455">
             <span className="text-[10px] md:text-xs font-bold uppercase tracking-wider font-sans">Schedules Today</span>
@@ -162,7 +183,7 @@ export default function ManagerDashboard({
       </div>
 
       {/* CHARTS GRAPH */}
-      <AnalyticsCharts entries={entries} plans={plans} />
+      <AnalyticsCharts entries={entries} plans={plans} deliveries={deliveries} />
 
       {/* WEEK SCHEDULES & RECENT LOGS */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-8" id="manager-recent-roster">
@@ -215,10 +236,12 @@ export default function ManagerDashboard({
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-3 shrink-0">
+                    <div className="flex items-center gap-4 shrink-0">
                       <div className="text-right">
-                        <div className="text-[9px] text-slate-400 font-bold uppercase">Planned</div>
-                        <div className="text-xs font-bold font-mono text-slate-800">{plan.quantityPlanned} pcs</div>
+                        <div className="text-[9px] text-slate-400 font-extrabold uppercase">Progress Status</div>
+                        <div className="text-xs font-black font-mono text-emerald-600">
+                          {plan.quantityCompleted || 0} <span className="text-slate-400 font-bold text-[10.5px]">/ {plan.quantityPlanned} pcs</span>
+                        </div>
                       </div>
 
                       {/* Dropdown status update */}
@@ -312,55 +335,6 @@ export default function ManagerDashboard({
         </div>
       </div>
 
-      {/* DATABASE & LEDGER ADMINISTRATIVE PURGE CONSOLE */}
-      <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 text-white space-y-4 shadow-xl relative overflow-hidden" id="admin-db-manager">
-        <div className="absolute top-0 right-0 w-48 h-48 bg-rose-500/5 rounded-full blur-2xl pointer-events-none" />
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-800 pb-4">
-          <div className="flex items-center gap-3">
-            <div className="p-2.5 bg-rose-500/10 text-rose-400 rounded-xl border border-rose-500/20 shrink-0">
-              <Database size={20} />
-            </div>
-            <div>
-              <h3 className="text-sm font-black tracking-tight flex items-center gap-2">
-                Local Database Configuration & Diagnostics
-                <span className="bg-amber-500/10 text-amber-500 border border-amber-500/20 px-2 py-0.5 rounded-full text-[9px] font-mono uppercase tracking-wider font-extrabold select-none">
-                  Admin Key Level
-                </span>
-              </h3>
-              <p className="text-2xs text-slate-400 mt-0.5">Manage in-browser storage schema (HTML5 Persistent LocalStorage). Use options to wipe logs or reload factory defaults safely.</p>
-            </div>
-          </div>
-          <div className="text-right text-[10px] font-mono text-slate-500 shrink-0 font-bold select-none">
-            ENGINE ID: browser_localstorage_db
-          </div>
-        </div>
-        
-        <div className="flex flex-wrap items-center gap-3 pt-2">
-          <button
-            onClick={onClearStock}
-            className="px-3.5 py-2 rounded-xl bg-slate-850 hover:bg-rose-950/30 border border-slate-800 hover:border-rose-905 text-slate-300 hover:text-rose-400 text-2xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5"
-          >
-            <XCircle size={13} />
-            Purge Stock stockpile Ledger
-          </button>
-          
-          <button
-            onClick={onClearPlans}
-            className="px-3.5 py-2 rounded-xl bg-slate-850 hover:bg-rose-950/30 border border-slate-800 hover:border-rose-905 text-slate-300 hover:text-rose-400 text-2xs font-extrabold transition-all cursor-pointer flex items-center gap-1.5"
-          >
-            <XCircle size={13} />
-            Wipe Shift Schedules
-          </button>
-          
-          <button
-            onClick={onResetDefaults}
-            className="px-4 py-2 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/25 text-emerald-400 text-2xs font-extrabold transition-all cursor-pointer sm:ml-auto flex items-center gap-1.5"
-          >
-            <RefreshCw size={13} className="animate-spin-slow" />
-            Restore Factory Preset Samples
-          </button>
-        </div>
-      </div>
     </div>
   );
 }

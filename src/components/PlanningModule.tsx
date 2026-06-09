@@ -18,7 +18,8 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Sparkles
+  Sparkles,
+  Pencil
 } from 'lucide-react';
 
 interface PlanningProps {
@@ -29,6 +30,7 @@ interface PlanningProps {
   onAddPlan: (plan: Omit<ProductionPlan, 'id' | 'createdAt' | 'status'>) => void;
   onUpdatePlanStatus?: (id: string, status: 'Pending' | 'Completed' | 'Delayed') => void;
   onDeletePlan?: (id: string) => void;
+  onEditPlan?: (id: string, updatedPlan: Partial<Omit<ProductionPlan, 'id' | 'createdAt'>>) => void;
 }
 
 export default function PlanningModule({
@@ -38,7 +40,8 @@ export default function PlanningModule({
   onUpdateDailyTarget,
   onAddPlan,
   onUpdatePlanStatus,
-  onDeletePlan
+  onDeletePlan,
+  onEditPlan
 }: PlanningProps) {
   const formatLocalDate = (d: Date) => {
     const yyyy = d.getFullYear();
@@ -56,6 +59,61 @@ export default function PlanningModule({
   const [assignedWorker, setAssignedWorker] = useState<string>(MOCK_PROFILES[1].name); // Default first worker
   const [notes, setNotes] = useState<string>('');
   const [formError, setFormError] = useState<string>('');
+
+  // Edit Plan Modal state
+  const [editingPlan, setEditingPlan] = useState<ProductionPlan | null>(null);
+  const [editPlanDate, setEditPlanDate] = useState<string>('');
+  const [editModel, setEditModel] = useState<AirbagModel>('BCB');
+  const [editMachine, setEditMachine] = useState<MachineType>('Big Machine');
+  const [editShift, setEditShift] = useState<ShiftType>('Morning');
+  const [editQtyPlanned, setEditQtyPlanned] = useState<string>('');
+  const [editAssignedWorker, setEditAssignedWorker] = useState<string>('');
+  const [editNotes, setEditNotes] = useState<string>('');
+  const [editStatus, setEditStatus] = useState<'Pending' | 'Completed' | 'Delayed'>('Pending');
+  const [editFormError, setEditFormError] = useState<string>('');
+
+  const handleStartEdit = (plan: ProductionPlan) => {
+    setEditingPlan(plan);
+    setEditPlanDate(plan.planDate);
+    setEditModel(plan.model);
+    setEditMachine(plan.machine);
+    setEditShift(plan.shift);
+    setEditQtyPlanned(plan.quantityPlanned.toString());
+    setEditAssignedWorker(plan.assignedWorker);
+    setEditNotes(plan.notes || '');
+    setEditStatus(plan.status);
+    setEditFormError('');
+  };
+
+  const handleEditSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setEditFormError('');
+
+    const parsedQty = parseInt(editQtyPlanned, 10);
+    if (!parsedQty || parsedQty <= 0) {
+      setEditFormError('Please input a valid planned quantity greater than zero.');
+      return;
+    }
+
+    if (!editPlanDate) {
+      setEditFormError('Planning date is required.');
+      return;
+    }
+
+    if (editingPlan && onEditPlan) {
+      onEditPlan(editingPlan.id, {
+        planDate: editPlanDate,
+        machine: editMachine,
+        shift: editShift,
+        model: editModel,
+        quantityPlanned: parsedQty,
+        assignedWorker: editAssignedWorker,
+        notes: editNotes.trim(),
+        status: editStatus
+      });
+      setEditingPlan(null);
+    }
+  };
 
   // Weekly Matrix Schedule Navigation
   const [weekBaseDate, setWeekBaseDate] = useState<string>('2026-06-05'); // Center around today / mock entries
@@ -229,6 +287,18 @@ export default function PlanningModule({
                   }`}>
                     {plan.status === 'Completed' ? '✓' : plan.status === 'Delayed' ? '⚠️' : '🕒'}
                   </span>
+                  {currentUser.role === 'manager' && onEditPlan && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleStartEdit(plan);
+                      }}
+                      className="text-slate-400 hover:text-emerald-650 hover:bg-emerald-50 p-0.5 rounded-md transition-all shrink-0 cursor-pointer"
+                      title="Edit this schedule target"
+                    >
+                      <Pencil size={10} strokeWidth={2.5} />
+                    </button>
+                  )}
                   {currentUser.role === 'manager' && onDeletePlan && (
                     <button
                       onClick={(e) => {
@@ -245,7 +315,7 @@ export default function PlanningModule({
               </div>
               
               <div className="text-[10px] font-bold font-mono text-slate-800 mt-1 leading-tight flex items-baseline justify-between">
-                <span>Qty: <span className="text-[11px] font-extrabold text-slate-900">{plan.quantityPlanned}</span></span>
+                <span>Progress: <span className="text-[11px] font-extrabold text-emerald-700">{plan.quantityCompleted || 0}</span><span className="text-slate-400">/{plan.quantityPlanned}</span></span>
                 <span className="text-[8px] text-slate-400 font-sans font-semibold">pcs</span>
               </div>
 
@@ -660,6 +730,188 @@ export default function PlanningModule({
           </form>
         </div>
       )}
+
+      {/* EDIT PLANNING TARGET DIALOG */}
+      <AnimatePresence>
+        {editingPlan && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4" id="edit-plan-modal">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xl w-full max-w-md space-y-5"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-emerald-50 rounded-xl text-emerald-600 border border-emerald-100">
+                    <Pencil size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Edit Production Plan</h3>
+                    <p className="text-xs text-slate-500 font-semibold">Modify schedule specifications</p>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setEditingPlan(null)}
+                  className="text-slate-450 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded-lg transition-all cursor-pointer"
+                >
+                  <Plus size={16} className="rotate-45" strokeWidth={2.5} id="close-edit-modal-btn" />
+                </button>
+              </div>
+
+              {editFormError && (
+                <div className="p-3 bg-rose-50 border border-rose-150 text-rose-705 rounded-xl text-xs font-semibold">
+                  {editFormError}
+                </div>
+              )}
+
+              <form onSubmit={handleEditSubmit} className="space-y-4">
+                {/* Date select */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Target Production Date</label>
+                  <input
+                    type="date"
+                    value={editPlanDate}
+                    onChange={(e) => setEditPlanDate(e.target.value)}
+                    className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all shadow-3xs"
+                    required
+                  />
+                </div>
+
+                {/* Model dropdown */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Select Airbag Model</label>
+                  <div className="relative">
+                    <select
+                      value={editModel}
+                      onChange={(e) => setEditModel(e.target.value as AirbagModel)}
+                      className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-semibold focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-3xs"
+                    >
+                      {AIRBAG_MODELS.map((model) => (
+                        <option key={model} value={model}>
+                          {model}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
+                </div>
+
+                {/* Machine and Shift Row */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Work Center</label>
+                    <div className="relative">
+                      <select
+                        value={editMachine}
+                        onChange={(e) => setEditMachine(e.target.value as MachineType)}
+                        className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-800 font-semibold focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-3xs"
+                      >
+                        <option value="Big Machine font-semibold">Big Machine</option>
+                        <option value="Small Machine font-semibold">Small Machine</option>
+                      </select>
+                      <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    </div>
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Shift Code</label>
+                    <div className="relative">
+                      <select
+                        value={editShift}
+                        onChange={(e) => setEditShift(e.target.value as ShiftType)}
+                        className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-800 font-semibold focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-3xs"
+                      >
+                        <option value="Morning">Morning (AM)</option>
+                        <option value="Evening">Evening (PM)</option>
+                      </select>
+                      <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Planned Quantity & Status Row */}
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Quantity (pcs)</label>
+                    <input
+                      type="number"
+                      value={editQtyPlanned}
+                      onChange={(e) => setEditQtyPlanned(e.target.value)}
+                      className="w-full bg-slate-50/40 hover:bg-slate-50/95 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-colors shadow-3xs"
+                      min="1"
+                      required
+                    />
+                  </div>
+
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Plan Status</label>
+                    <div className="relative">
+                      <select
+                        value={editStatus}
+                        onChange={(e) => setEditStatus(e.target.value as any)}
+                        className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-805 font-bold focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-3xs"
+                      >
+                        <option value="Pending">🕒 Pending</option>
+                        <option value="Completed">✓ Completed</option>
+                        <option value="Delayed">⚠️ Delayed</option>
+                      </select>
+                      <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Assigned worker */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Assigned Operator</label>
+                  <div className="relative">
+                    <select
+                      value={editAssignedWorker}
+                      onChange={(e) => setEditAssignedWorker(e.target.value)}
+                      className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-semibold focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-3xs"
+                    >
+                      {workers.map((worker) => (
+                        <option key={worker.id} value={worker.name}>
+                          {worker.name} ({worker.station?.split(' ')[0] || 'Operator'})
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-450 pointer-events-none" />
+                  </div>
+                </div>
+
+                {/* Notes */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Production Directives (Notes)</label>
+                  <textarea
+                    placeholder="Provide specific notes/tolerances/setup requests..."
+                    value={editNotes}
+                    onChange={(e) => setEditNotes(e.target.value)}
+                    className="w-full bg-slate-50/40 hover:bg-slate-50/95 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all shadow-3xs min-h-[70px] resize-none placeholder-slate-400"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditingPlan(null)}
+                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer text-center"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
+                    id="save-edited-plan-btn"
+                  >
+                    Save Changes
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

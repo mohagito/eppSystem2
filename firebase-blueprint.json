@@ -56,6 +56,21 @@
         "targets": { "type": "object" }
       },
       "required": ["targets"]
+    },
+    "DeliveryEntry": {
+      "title": "DeliveryEntry",
+      "description": "Record of stock delivered and removed from stockpile",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "modelId": { "type": "string" },
+        "workerName": { "type": "string" },
+        "date": { "type": "string" },
+        "quantity": { "type": "integer" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["id", "modelId", "workerName", "date", "quantity", "createdBy", "createdAt"]
     }
   },
   "firestore": {
@@ -70,6 +85,10 @@
     "production_plans/{planId}": {
       "schema": "ProductionPlan",
       "description": "Production plans or schedules for shifts"
+    },
+    "deliveries/{deliveryId}": {
+      "schema": "DeliveryEntry",
+      "description": "Shipped deliveries from stockpile"
     },
     "settings/daily_targets": {
       "schema": "DailyTargets",

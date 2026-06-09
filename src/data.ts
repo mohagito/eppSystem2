@@ -24,7 +24,7 @@ export const MOCK_PROFILES: UserProfile[] = [
     password: 'mohamed@epp',
     name: 'Mohamed',
     role: 'worker',
-    station: 'Line A (Big Machine)'
+    station: 'Both Machines (Big & Small)'
   },
   {
     id: 'wrk-2',
@@ -32,7 +32,7 @@ export const MOCK_PROFILES: UserProfile[] = [
     password: 'mouad@epp',
     name: 'Mouad',
     role: 'worker',
-    station: 'Line B (Small Machine)'
+    station: 'Both Machines (Big & Small)'
   }
 ];
 

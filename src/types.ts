@@ -23,6 +23,16 @@ export interface StockEntry {
   createdAt: string; // ISO string
 }
 
+export interface DeliveryEntry {
+  id: string;
+  modelId: AirbagModel;
+  workerName: string;
+  date: string; // YYYY-MM-DD
+  quantity: number;
+  createdBy: string; // Dynamic profile user ID
+  createdAt: string; // ISO string
+}
+
 export type MachineType = 'Big Machine' | 'Small Machine';
 export type ShiftType = 'Morning' | 'Evening';
 
@@ -33,6 +43,7 @@ export interface ProductionPlan {
   shift: ShiftType;
   model: AirbagModel;
   quantityPlanned: number;
+  quantityCompleted?: number; // Accumulated incremental completions (progress)
   assignedWorker: string; // Worker profile name or ID
   notes?: string;
   createdBy: string; // Manager ID

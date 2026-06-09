@@ -17,17 +17,19 @@ import {
   CheckCircle2,
   ChevronRight,
   MonitorCheck,
-  AlertCircle
+  AlertCircle,
+  Truck
 } from 'lucide-react';
-import { UserProfile, StockEntry, ProductionPlan, ToastMessage } from './types';
+import { UserProfile, StockEntry, ProductionPlan, ToastMessage, DeliveryEntry } from './types';
 import { MOCK_PROFILES, INITIAL_STOCK_ENTRIES, INITIAL_PLANS } from './data';
 import Notification from './components/Notification';
 import WorkerDashboard from './components/WorkerDashboard';
 import ManagerDashboard from './components/ManagerDashboard';
 import StockManagement from './components/StockManagement';
 import PlanningModule from './components/PlanningModule';
+import DeliveryModule from './components/DeliveryModule';
 import { db, handleFirestoreError, OperationType } from './firebase';
-import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDoc } from 'firebase/firestore';
+import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDoc, getDocs } from 'firebase/firestore';
 
 export default function App() {
   // --- DATABASE AND LOCAL STORAGE PERSISTENCE ---
@@ -35,6 +37,7 @@ export default function App() {
   const [profiles, setProfiles] = useState<UserProfile[]>([]);
   const [stockEntries, setStockEntries] = useState<StockEntry[]>([]);
   const [plans, setPlans] = useState<ProductionPlan[]>([]);
+  const [deliveries, setDeliveries] = useState<DeliveryEntry[]>([]);
 
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('epp_current_user');
@@ -101,6 +104,7 @@ export default function App() {
     let unsubStock: (() => void) | null = null;
     let unsubPlans: (() => void) | null = null;
     let unsubTargets: (() => void) | null = null;
+    let unsubDeliveries: (() => void) | null = null;
 
     const setupSubscriptions = () => {
       if (!active) return;
@@ -154,6 +158,18 @@ export default function App() {
       }, (err) => {
         handleFirestoreError(err, OperationType.GET, 'settings/daily_targets');
       });
+
+      // 5. Sync Deliveries
+      unsubDeliveries = onSnapshot(collection(db, 'deliveries'), (snapshot) => {
+        const list: DeliveryEntry[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as DeliveryEntry);
+        });
+        list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        setDeliveries(list);
+      }, (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'deliveries');
+      });
     };
 
     const initializeAndSubscribe = async () => {
@@ -162,19 +178,11 @@ export default function App() {
         const initDocSnap = await getDoc(initDocRef);
 
         if (!initDocSnap.exists()) {
-          // First setup: Seed all initial data in one atomic batch
+          // First setup: Seed ONLY profiles and targets in one atomic batch
           const batch = writeBatch(db);
 
           MOCK_PROFILES.forEach((profile) => {
             batch.set(doc(db, 'profiles', profile.id), profile);
-          });
-
-          INITIAL_STOCK_ENTRIES.forEach((entry) => {
-            batch.set(doc(db, 'stock_entries', entry.id), entry);
-          });
-
-          INITIAL_PLANS.forEach((plan) => {
-            batch.set(doc(db, 'production_plans', plan.id), plan);
           });
 
           const defaultTargets = {
@@ -191,6 +199,27 @@ export default function App() {
 
           await batch.commit();
         }
+
+        // ONE-TIME PURGE OF DEMO DATA FOR COMPANY PRODUCTION READINESS
+        const cleanDocRef = doc(db, 'settings', 'production_cleaned_v1');
+        const cleanDocSnap = await getDoc(cleanDocRef);
+        if (!cleanDocSnap.exists()) {
+          const batch = writeBatch(db);
+
+          const stockSnap = await getDocs(collection(db, 'stock_entries'));
+          stockSnap.forEach((docSnap) => {
+            batch.delete(docSnap.ref);
+          });
+
+          const plansSnap = await getDocs(collection(db, 'production_plans'));
+          plansSnap.forEach((docSnap) => {
+            batch.delete(docSnap.ref);
+          });
+
+          batch.set(cleanDocRef, { cleaned: true });
+          await batch.commit();
+          addToast("Database cleared and optimized for real production operations!", "success");
+        }
       } catch (err) {
         console.error("Database initialization failed, subscribing anyway: ", err);
       } finally {
@@ -206,6 +235,7 @@ export default function App() {
       if (unsubStock) unsubStock();
       if (unsubPlans) unsubPlans();
       if (unsubTargets) unsubTargets();
+      if (unsubDeliveries) unsubDeliveries();
     };
   }, []);
 
@@ -321,6 +351,46 @@ export default function App() {
   };
 
   // --- CORE DATA MUTATORS ---
+  const handleAddDelivery = (delivery: Omit<DeliveryEntry, 'id' | 'createdAt'>) => {
+    const newDelivery: DeliveryEntry = {
+      ...delivery,
+      id: `del-${Date.now()}`,
+      createdAt: new Date().toISOString()
+    };
+
+    setDoc(doc(db, 'deliveries', newDelivery.id), newDelivery)
+      .then(() => {
+        addToast(`Registered dispatch: ${delivery.quantity} units of ${delivery.modelId} shipped!`, 'success');
+      })
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.CREATE, `deliveries/${newDelivery.id}`);
+        addToast('Failed to save delivery shipment log to Cloud Database.', 'error');
+      });
+  };
+
+  const handleDeleteDelivery = (id: string) => {
+    if (!currentUser || currentUser.role !== 'manager') {
+      addToast('Security Block: Only managers are authorized to delete delivery entries.', 'error');
+      return;
+    }
+    const delivery = deliveries.find((d) => d.id === id);
+    if (!delivery) return;
+    triggerCustomConfirm(
+      'Confirm Delivery Removal',
+      `Are you sure you want to permanently delete the delivery entry recording ${delivery.quantity} units of ${delivery.modelId}? This will restore those units to available stock levels.`,
+      () => {
+        deleteDoc(doc(db, 'deliveries', id))
+          .then(() => {
+            addToast(`Removed delivery of ${delivery.quantity} units of ${delivery.modelId} from records.`, 'success');
+          })
+          .catch((err) => {
+            handleFirestoreError(err, OperationType.DELETE, `deliveries/${id}`);
+            addToast('Failed to delete delivery entry from Cloud Database.', 'error');
+          });
+      }
+    );
+  };
+
   const handleAddStockEntry = (entry: Omit<StockEntry, 'id' | 'createdAt'>) => {
     const newEntry: StockEntry = {
       ...entry,
@@ -339,6 +409,10 @@ export default function App() {
   };
 
   const handleDeleteStockEntry = (id: string) => {
+    if (!currentUser || currentUser.role !== 'manager') {
+      addToast('Security Block: Only managers are authorized to delete stock entries.', 'error');
+      return;
+    }
     const entry = stockEntries.find((e) => e.id === id);
     if (!entry) return;
     triggerCustomConfirm(
@@ -357,6 +431,21 @@ export default function App() {
     );
   };
 
+  const handleEditStockEntry = (id: string, updatedEntry: Partial<Omit<StockEntry, 'id' | 'createdAt'>>) => {
+    if (!currentUser || currentUser.role !== 'manager') {
+      addToast('Security Block: Only managers are authorized to update stock specifications or quantities.', 'error');
+      return;
+    }
+    updateDoc(doc(db, 'stock_entries', id), updatedEntry)
+      .then(() => {
+        addToast('Successfully updated the stock entry specifications!', 'success');
+      })
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.UPDATE, `stock_entries/${id}`);
+        addToast('Failed to update stock entry inside Cloud Database.', 'error');
+      });
+  };
+
   const handleAddProductionPlan = (plan: Omit<ProductionPlan, 'id' | 'createdAt' | 'status'>) => {
     // Construct the production plan explicitly, leaving out optional keys if undefined
     const newPlan: any = {
@@ -366,6 +455,7 @@ export default function App() {
       shift: plan.shift,
       model: plan.model,
       quantityPlanned: plan.quantityPlanned,
+      quantityCompleted: 0,
       assignedWorker: plan.assignedWorker,
       createdBy: plan.createdBy,
       status: 'Pending',
@@ -394,6 +484,43 @@ export default function App() {
       .catch((err) => {
         handleFirestoreError(err, OperationType.UPDATE, `production_plans/${id}`);
         addToast('Failed to update plan status in Cloud Database.', 'error');
+      });
+  };
+
+  const handleUpdatePlanProgress = (id: string, additionalQuantity: number) => {
+    const plan = plans.find((p) => p.id === id);
+    if (!plan) return;
+
+    const currentCompleted = plan.quantityCompleted || 0;
+    const newCompleted = currentCompleted + additionalQuantity;
+    const isNowCompleted = newCompleted >= plan.quantityPlanned;
+    const newStatus = isNowCompleted ? 'Completed' : plan.status;
+
+    updateDoc(doc(db, 'production_plans', id), {
+      quantityCompleted: newCompleted,
+      status: newStatus
+    })
+      .then(() => {
+        addToast(`Successfully logged +${additionalQuantity} units of ${plan.model}! Progress: ${newCompleted}/${plan.quantityPlanned}`, 'success');
+      })
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.UPDATE, `production_plans/${id}`);
+        addToast('Failed to update progress in Cloud Database.', 'error');
+      });
+  };
+
+  const handleEditProductionPlan = (id: string, updatedPlan: Partial<Omit<ProductionPlan, 'id' | 'createdAt'>>) => {
+    const updatePayload: any = { ...updatedPlan };
+    if (updatePayload.notes !== undefined) {
+      updatePayload.notes = updatePayload.notes.trim() === '' ? '' : updatePayload.notes.trim();
+    }
+    updateDoc(doc(db, 'production_plans', id), updatePayload)
+      .then(() => {
+        addToast('Successfully updated the production plan specifications!', 'success');
+      })
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.UPDATE, `production_plans/${id}`);
+        addToast('Failed to update plan details in Cloud Database.', 'error');
       });
   };
 
@@ -515,6 +642,7 @@ export default function App() {
           <ManagerDashboard
             currentUser={currentUser}
             entries={stockEntries}
+            deliveries={deliveries}
             plans={plans}
             dailyTargets={dailyTargets}
             onNavigate={(tab) => setActiveTab(tab)}
@@ -533,6 +661,8 @@ export default function App() {
             dailyTargets={dailyTargets}
             onNavigate={(tab) => setActiveTab(tab)}
             onUpdatePlanStatus={handleUpdatePlanStatus}
+            onUpdatePlanProgress={handleUpdatePlanProgress}
+            onAddStockEntry={handleAddStockEntry}
           />
         );
 
@@ -541,9 +671,11 @@ export default function App() {
           <StockManagement
             currentUser={currentUser}
             entries={stockEntries}
+            deliveries={deliveries}
             plans={plans}
             onAddEntry={handleAddStockEntry}
             onDeleteEntry={handleDeleteStockEntry}
+            onEditEntry={handleEditStockEntry}
           />
         );
 
@@ -557,6 +689,18 @@ export default function App() {
             onAddPlan={handleAddProductionPlan}
             onUpdatePlanStatus={handleUpdatePlanStatus}
             onDeletePlan={handleDeleteProductionPlan}
+            onEditPlan={handleEditProductionPlan}
+          />
+        );
+
+      case 'delivery':
+        return (
+          <DeliveryModule
+            currentUser={currentUser}
+            entries={stockEntries}
+            deliveries={deliveries}
+            onAddDelivery={handleAddDelivery}
+            onDeleteDelivery={handleDeleteDelivery}
           />
         );
 
@@ -573,7 +717,8 @@ export default function App() {
   const navigationItems = [
     { id: 'dashboard', label: 'Overview Control', icon: LayoutDashboard },
     { id: 'stock', label: 'Stock', icon: Database },
-    { id: 'plans', label: 'Planing', icon: CalendarRange }
+    { id: 'plans', label: 'Planing', icon: CalendarRange },
+    { id: 'delivery', label: 'Delivery', icon: Truck }
   ];
 
   return (
