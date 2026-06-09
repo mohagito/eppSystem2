@@ -968,9 +968,6 @@ export default function App() {
                     <span className="font-bold text-white tracking-tighter text-base italic leading-none block">
                       EPP AIRBAG
                     </span>
-                    <div className="text-[9px] text-slate-400 tracking-wider font-mono font-bold mt-1">
-                      V15.5 COMPONENT CORE
-                    </div>
                   </div>
                 </div>
 
