@@ -119,10 +119,10 @@ export default function ManagerDashboard({
         <div className="space-y-1.5">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs font-semibold animate-pulse">
             <Sparkles size={12} />
-            Central Manager Console (Admin Mode)
+            Manager Dashboard
           </div>
           <h2 className="text-xl md:text-2xl font-bold font-sans text-slate-900 tracking-tight">
-            EPP ASSEMBLY CONTROL DESK
+            Dashboard
           </h2>
           <p className="text-xs md:text-sm text-slate-600 leading-relaxed max-w-xl font-medium">
             Signed in as <span className="text-slate-800 font-extrabold">{currentUser.name}</span>. Configure daily manufacturing targets, purge database logs, and oversee operators.

@@ -715,10 +715,10 @@ export default function App() {
 
   // Side Navigation Menu definitions
   const navigationItems = [
-    { id: 'dashboard', label: 'Overview Control', icon: LayoutDashboard },
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'stock', label: 'Stock', icon: Database },
-    { id: 'plans', label: 'Planing', icon: CalendarRange },
-    { id: 'delivery', label: 'Delivery', icon: Truck }
+    { id: 'plans', label: 'Production Plan', icon: CalendarRange },
+    { id: 'delivery', label: 'Deliveries', icon: Truck }
   ];
 
   return (
@@ -1024,8 +1024,8 @@ export default function App() {
                   className="w-full py-3 px-3.5 bg-slate-950/60 border border-slate-800 hover:bg-slate-900 text-slate-400 hover:text-rose-450 rounded-lg text-xs font-semibold flex items-center gap-3 transition-colors cursor-pointer"
                   id="nav-logout-btn"
                 >
-                  <LogOut size={15.5} />
-                  Terminate Portal Session
+                  <LogOut size={15.5} className="text-slate-400 group-hover:text-rose-400 transition-colors" />
+                  Log Out
                 </button>
               </div>
             </aside>

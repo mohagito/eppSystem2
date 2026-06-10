@@ -260,13 +260,50 @@ export default function PlanningModule({
     }
   };
 
-  const renderCellContent = (cellPlans: ProductionPlan[]) => {
+  const handleCellClick = (machineType: MachineType, shiftType: ShiftType, dateStr: string) => {
+    if (currentUser.role !== 'manager') return;
+    setMachine(machineType);
+    setShift(shiftType);
+    setPlanDate(dateStr);
+
+    // Scroll to the "Create Production Plan" form container smoothly
+    const formContainer = document.getElementById('plan-creator-container');
+    if (formContainer) {
+      formContainer.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      formContainer.classList.add('ring-4', 'ring-emerald-400');
+      setTimeout(() => {
+        formContainer.classList.remove('ring-4', 'ring-emerald-400');
+      }, 1000);
+    }
+  };
+
+  const renderCellContent = (
+    cellPlans: ProductionPlan[],
+    machineType: MachineType,
+    shiftType: ShiftType,
+    dateStr: string
+  ) => {
     if (cellPlans.length === 0) {
-      return (
-        <div className="flex items-center justify-center h-full py-5 text-slate-350 select-none font-mono">
-          —
-        </div>
-      );
+      const isManager = currentUser.role === 'manager';
+      if (isManager) {
+        return (
+          <div
+            onClick={() => handleCellClick(machineType, shiftType, dateStr)}
+            className="flex items-center justify-center p-1.5 min-h-[80px] h-full transition-all group border border-dashed border-slate-200 hover:border-emerald-300 hover:bg-emerald-50/20 rounded-lg cursor-pointer active:scale-[0.98]"
+          >
+            <span className="text-[10px] font-bold text-slate-400 group-hover:text-emerald-700 bg-slate-50 border border-slate-200/60 group-hover:border-emerald-200 group-hover:bg-white shadow-3xs group-hover:shadow-xs py-1 px-2.5 rounded-lg transition-all flex items-center gap-1 font-sans">
+              <Plus size={11} className="text-slate-400 group-hover:text-emerald-500" />
+              Create a run
+            </span>
+          </div>
+        );
+      } else {
+        return (
+          <div className="flex items-center justify-center p-1.5 min-h-[80px] h-full border border-dashed border-slate-100/70 rounded-lg">
+            <span className="text-[10px] font-mono text-slate-300 select-none">—</span>
+          </div>
+        );
+      }
     }
 
     return (
@@ -359,14 +396,14 @@ export default function PlanningModule({
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold text-slate-900 font-sans tracking-tight">
-                  Weekly Production Layout Matrix
+                  Production Plan
                 </h3>
                 <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 text-[9px] font-mono font-bold uppercase tracking-wider">
                   Live View
                 </span>
               </div>
               <p className="text-[11px] text-slate-500 font-semibold font-sans mt-0.5">
-                Hand-drawing register transformed into an interactive factory whiteboard. Grid cells display planned model shifts.
+                Production schedule. Grid cells display scheduled shifts for each worker.
               </p>
             </div>
           </div>
@@ -489,7 +526,7 @@ export default function PlanningModule({
                           : ''
                       }`}
                     >
-                      {renderCellContent(cellPlans)}
+                      {renderCellContent(cellPlans, 'Small Machine', 'Morning', day.dateStr)}
                     </td>
                   );
                 })}
@@ -529,7 +566,7 @@ export default function PlanningModule({
                           : ''
                       }`}
                     >
-                      {renderCellContent(cellPlans)}
+                      {renderCellContent(cellPlans, 'Small Machine', 'Evening', day.dateStr)}
                     </td>
                   );
                 })}
@@ -569,7 +606,7 @@ export default function PlanningModule({
                           : ''
                       }`}
                     >
-                      {renderCellContent(cellPlans)}
+                      {renderCellContent(cellPlans, 'Big Machine', 'Morning', day.dateStr)}
                     </td>
                   );
                 })}
@@ -609,7 +646,7 @@ export default function PlanningModule({
                           : ''
                       }`}
                     >
-                      {renderCellContent(cellPlans)}
+                      {renderCellContent(cellPlans, 'Big Machine', 'Evening', day.dateStr)}
                     </td>
                   );
                 })}
