@@ -116,7 +116,13 @@ export default function PlanningModule({
   };
 
   // Weekly Matrix Schedule Navigation
-  const [weekBaseDate, setWeekBaseDate] = useState<string>('2026-06-05'); // Center around today / mock entries
+  const [weekBaseDate, setWeekBaseDate] = useState<string>(() => {
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    return `${yyyy}-${mm}-${dd}`;
+  }); // Default to actual today's local date
 
   const weekDays = useMemo(() => {
     const baseDate = new Date(weekBaseDate);
@@ -161,7 +167,11 @@ export default function PlanningModule({
   };
 
   const handleCurrentWeek = () => {
-    setWeekBaseDate('2026-06-05');
+    const d = new Date();
+    const yyyy = d.getFullYear();
+    const mm = String(d.getMonth() + 1).padStart(2, '0');
+    const dd = String(d.getDate()).padStart(2, '0');
+    setWeekBaseDate(`${yyyy}-${mm}-${dd}`);
   };
 
   // Filtering State
@@ -414,22 +424,34 @@ export default function PlanningModule({
                 <th className="w-40 bg-slate-150/40 text-[10px] text-slate-600 font-mono font-bold text-center border-r border-slate-200 px-3 uppercase tracking-wider">
                   SHIFT
                 </th>
-                {weekDays.map((day, idx) => (
-                  <th
-                    key={day.dateStr}
-                    className="bg-slate-50 text-center border-r border-slate-200 py-2.5 px-2 select-none"
-                  >
-                    <div className="text-[9px] text-slate-400 uppercase tracking-widest font-mono font-bold">
-                      {idx === 0 ? 'A' : String.fromCharCode(65 + idx)}
-                    </div>
-                    <div className="text-xs font-extrabold text-slate-800 capitalize font-sans leading-tight">
-                      {day.spanishName}
-                    </div>
-                    <div className="text-[9px] text-slate-400 font-mono font-semibold mt-0.5">
-                      {day.displayDate}
-                    </div>
-                  </th>
-                ))}
+                {weekDays.map((day, idx) => {
+                  const isToday = day.dateStr === todayStr;
+                  return (
+                    <th
+                      key={day.dateStr}
+                      className={`text-center border-r border-slate-200 py-2.5 px-2 select-none transition-all ${
+                        isToday
+                          ? 'bg-emerald-50/70 border-b-2 border-b-emerald-500 font-extrabold shadow-3xs'
+                          : 'bg-slate-50'
+                      }`}
+                    >
+                      <div className="text-[9px] text-slate-400 uppercase tracking-widest font-mono font-bold flex items-center justify-center gap-1">
+                        <span>{idx === 0 ? 'A' : String.fromCharCode(65 + idx)}</span>
+                        {isToday && (
+                          <span className="bg-emerald-600 text-white text-[8px] font-sans font-extrabold px-1 py-0.2 rounded transform scale-90 leading-none">
+                            HOY
+                          </span>
+                        )}
+                      </div>
+                      <div className={`text-xs font-extrabold capitalize font-sans leading-tight ${isToday ? 'text-emerald-950 font-black' : 'text-slate-800'}`}>
+                        {day.spanishName}
+                      </div>
+                      <div className={`text-[9px] font-mono mt-0.5 ${isToday ? 'text-emerald-700 font-bold' : 'text-slate-400 font-semibold'}`}>
+                        {day.displayDate}
+                      </div>
+                    </th>
+                  );
+                })}
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-200 text-xs text-slate-700">
@@ -455,12 +477,15 @@ export default function PlanningModule({
                 </td>
                 {weekDays.map((day) => {
                   const cellPlans = getCellPlans('Small Machine', 'Morning', day.dateStr);
+                  const isToday = day.dateStr === todayStr;
                   return (
                     <td
                       key={day.dateStr}
                       className={`p-2 border-r border-slate-205 align-top min-h-[90px] w-[11.5%] transition-all ${
                         cellPlans.some(p => p.assignedWorker === currentUser.name)
                           ? 'bg-teal-50/30'
+                          : isToday
+                          ? 'bg-emerald-50/15'
                           : ''
                       }`}
                     >
@@ -492,12 +517,15 @@ export default function PlanningModule({
                 </td>
                 {weekDays.map((day) => {
                   const cellPlans = getCellPlans('Small Machine', 'Evening', day.dateStr);
+                  const isToday = day.dateStr === todayStr;
                   return (
                     <td
                       key={day.dateStr}
                       className={`p-2 border-r border-slate-205 align-top min-h-[90px] w-[11.5%] transition-all ${
                         cellPlans.some(p => p.assignedWorker === currentUser.name)
                           ? 'bg-teal-50/30'
+                          : isToday
+                          ? 'bg-emerald-50/15'
                           : ''
                       }`}
                     >
@@ -529,12 +557,15 @@ export default function PlanningModule({
                 </td>
                 {weekDays.map((day) => {
                   const cellPlans = getCellPlans('Big Machine', 'Morning', day.dateStr);
+                  const isToday = day.dateStr === todayStr;
                   return (
                     <td
                       key={day.dateStr}
                       className={`p-2 border-r border-slate-205 align-top min-h-[90px] w-[11.5%] transition-all ${
                         cellPlans.some(p => p.assignedWorker === currentUser.name)
                           ? 'bg-teal-50/30'
+                          : isToday
+                          ? 'bg-emerald-50/15'
                           : ''
                       }`}
                     >
@@ -566,12 +597,15 @@ export default function PlanningModule({
                 </td>
                 {weekDays.map((day) => {
                   const cellPlans = getCellPlans('Big Machine', 'Evening', day.dateStr);
+                  const isToday = day.dateStr === todayStr;
                   return (
                     <td
                       key={day.dateStr}
                       className={`p-2 border-r border-slate-205 align-top min-h-[90px] w-[11.5%] transition-all ${
                         cellPlans.some(p => p.assignedWorker === currentUser.name)
                           ? 'bg-teal-50/30'
+                          : isToday
+                          ? 'bg-emerald-50/15'
                           : ''
                       }`}
                     >
