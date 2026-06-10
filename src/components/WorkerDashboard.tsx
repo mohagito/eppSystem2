@@ -9,6 +9,12 @@ import {
   Check,
   CheckSquare
 } from 'lucide-react';
+import {
+  getPlanActualProduced,
+  getAchievementPercent,
+  getAchievementStatus,
+  getAchievementColors
+} from '../utils/achievement';
 
 interface WorkerProps {
   currentUser: UserProfile;
@@ -78,7 +84,8 @@ export default function WorkerDashboard({
   };
 
   const handleCompleteProduction = (plan: ProductionPlan) => {
-    const remaining = plan.quantityPlanned - (plan.quantityCompleted || 0);
+    const actual = getPlanActualProduced(plan, entries);
+    const remaining = plan.quantityPlanned - actual;
     const amtToLog = remaining > 0 ? remaining : plan.quantityPlanned;
 
     if (onAddStockEntry) {
@@ -215,23 +222,35 @@ export default function WorkerDashboard({
                       <div className="flex items-center justify-between text-slate-600 font-medium">
                         <span>Progress:</span>
                         <span className="text-emerald-700 font-extrabold font-mono bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">
-                          {plan.quantityCompleted || 0} / {plan.quantityPlanned} units
+                          {getPlanActualProduced(plan, entries)} / {plan.quantityPlanned} units
                         </span>
                       </div>
 
                       {/* Dynamic interactive progress bar */}
-                      <div className="space-y-1 pt-1">
-                        <div className="flex justify-between text-[10px] text-slate-400 font-mono font-bold uppercase">
-                          <span>Completion Progress</span>
-                          <span>{Math.round(((plan.quantityCompleted || 0) / plan.quantityPlanned) * 100)}%</span>
-                        </div>
-                        <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200">
-                          <div 
-                            className="bg-emerald-500 h-full rounded-full transition-all duration-300"
-                            style={{ width: `${Math.min(Math.round(((plan.quantityCompleted || 0) / plan.quantityPlanned) * 100), 100)}%` }}
-                          />
-                        </div>
-                      </div>
+                      {(() => {
+                        const actualQty = getPlanActualProduced(plan, entries);
+                        const pctStr = getAchievementPercent(plan.quantityPlanned, actualQty);
+                        const pctVal = typeof pctStr === 'number' ? Math.round(pctStr) : 0;
+                        const colors = getAchievementColors(plan.quantityPlanned, actualQty);
+                        const statusText = getAchievementStatus(plan.quantityPlanned, actualQty);
+                        return (
+                          <div className="space-y-1.5 pt-1">
+                            <div className="flex justify-between text-[10px] text-slate-400 font-mono font-bold uppercase">
+                              <span>Achievement Rate</span>
+                              <span className={colors.text}>{typeof pctStr === 'number' ? `${pctVal}%` : 'No Target'}</span>
+                            </div>
+                            <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200">
+                              <div 
+                                className={`${colors.bar} h-full rounded-full transition-all duration-300`}
+                                style={{ width: `${Math.min(pctVal, 100)}%` }}
+                              />
+                            </div>
+                            <div className="text-[9.5px] font-bold uppercase tracking-wide flex items-center gap-1.5">
+                              Status: <span className={`px-1.5 py-0.5 rounded border uppercase font-mono text-[8.5px] ${colors.bg}`}>{statusText}</span>
+                            </div>
+                          </div>
+                        );
+                      })()}
 
                       <div className="flex items-center justify-between text-slate-500 text-[11px] font-medium">
                         <span>Machine:</span>
@@ -310,7 +329,7 @@ export default function WorkerDashboard({
                         id={`complete-btn-${plan.id}`}
                       >
                         <CheckSquare size={13} />
-                        Log Remaining ({plan.quantityPlanned - (plan.quantityCompleted || 0)} units) & Complete
+                        Log Remaining ({plan.quantityPlanned - getPlanActualProduced(plan, entries)} units) & Complete
                       </button>
                     )}
                   </div>

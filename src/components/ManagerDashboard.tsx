@@ -16,9 +16,17 @@ import {
   Trash2,
   Database,
   RefreshCw,
-  XCircle
+  XCircle,
+  CheckCircle,
+  AlertTriangle
 } from 'lucide-react';
 import AnalyticsCharts from './AnalyticsCharts';
+import {
+  getPlanActualProduced,
+  getAchievementPercent,
+  getAchievementStatus,
+  getAchievementColors
+} from '../utils/achievement';
 
 interface ManagerProps {
   currentUser: UserProfile;
@@ -112,6 +120,52 @@ export default function ManagerDashboard({
       .slice(0, 4);
   }, [plans, todayStr]);
 
+  // NEW: Memoized calculations for Production Achievement Stats
+  const totalPlannedOverall = useMemo(() => {
+    return plans.reduce((sum, p) => sum + p.quantityPlanned, 0);
+  }, [plans]);
+
+  const totalActualOverall = useMemo(() => {
+    return plans.reduce((sum, p) => sum + getPlanActualProduced(p, entries), 0);
+  }, [plans, entries]);
+
+  const overallAchievementPct = useMemo(() => {
+    return getAchievementPercent(totalPlannedOverall, totalActualOverall);
+  }, [totalPlannedOverall, totalActualOverall]);
+
+  const overallColors = useMemo(() => {
+    return getAchievementColors(totalPlannedOverall, totalActualOverall);
+  }, [totalPlannedOverall, totalActualOverall]);
+
+  const overallStatus = useMemo(() => {
+    return getAchievementStatus(totalPlannedOverall, totalActualOverall);
+  }, [totalPlannedOverall, totalActualOverall]);
+
+  const modelAchievementData = useMemo(() => {
+    return AIRBAG_MODELS.map((model) => {
+      const modelPlans = plans.filter((p) => p.model === model);
+      const planned = modelPlans.reduce((sum, p) => sum + p.quantityPlanned, 0);
+      const actual = modelPlans.reduce((sum, p) => sum + getPlanActualProduced(p, entries), 0);
+
+      const pct = getAchievementPercent(planned, actual);
+      const pctVal = typeof pct === 'number' ? Math.round(pct) : 0;
+      const pctString = typeof pct === 'number' ? `${pctVal}%` : 'No Target';
+      const colors = getAchievementColors(planned, actual);
+      const statusText = getAchievementStatus(planned, actual);
+
+      return {
+        model,
+        planned,
+        actual,
+        pct,
+        pctVal,
+        pctString,
+        colors,
+        statusText
+      };
+    });
+  }, [plans, entries]);
+
   return (
     <div className="space-y-8" id="manager-dashboard-view">
       {/* INDUSTRIAL GREETING CARD */}
@@ -142,7 +196,7 @@ export default function ManagerDashboard({
       </div>
 
       {/* KPI METRICS OVERVIEW */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 md:gap-6" id="manager-kpi-grid">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 md:gap-6" id="manager-kpi-grid">
         {/* Metric 1: Available stockpile */}
         <div className="bg-white border border-slate-200 rounded-xl p-5 md:p-6 flex flex-col justify-between h-36 shadow-3xs">
           <div className="flex justify-between items-center text-slate-455">
@@ -180,10 +234,131 @@ export default function ManagerDashboard({
             <p className="text-[10px] md:text-xs text-slate-500 mt-1 pb-1">Active manufacturing rosters</p>
           </div>
         </div>
+
+        {/* Metric 4: Production Achievement */}
+        <div className="bg-white border border-slate-200 rounded-xl p-5 md:p-6 flex flex-col justify-between h-36 shadow-3xs" id="achievement-kpi-card">
+          <div className="flex justify-between items-center text-slate-455">
+            <span className="text-[10px] md:text-xs font-bold uppercase tracking-wider font-sans">Production Achievement</span>
+            <span className={`p-1.5 rounded-lg border ${overallColors.bg} ${overallColors.text}`}><TrendingUp size={14} /></span>
+          </div>
+          <div>
+            <div className="text-xl md:text-2xl font-black font-mono text-slate-900 select-all">
+              {totalPlannedOverall === 0 ? 'No Targets' : `${totalActualOverall} / ${totalPlannedOverall}`}
+            </div>
+            <p className="text-[10px] md:text-xs text-slate-500 mt-1 pb-1 font-sans font-bold flex items-center justify-between">
+              <span>Overall rate:</span>
+              <span className={`px-1.5 py-0.5 rounded border uppercase font-mono text-[9px] font-black ${overallColors.bg} ${overallColors.text}`}>
+                {typeof overallAchievementPct === 'number' ? `${Math.round(overallAchievementPct)}%` : 'No Target'}
+              </span>
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* CHARTS GRAPH */}
       <AnalyticsCharts entries={entries} plans={plans} deliveries={deliveries} />
+
+      {/* PRODUCTION ACHIEVEMENT ANALYTICS & MODEL BREAKDOWN */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-3xs space-y-6" id="achievement-summary-panel">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+          <div>
+            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
+              <Activity size={16} className="text-emerald-600" />
+              Production Achievement Summary
+            </h3>
+            <p className="text-xs text-slate-500 mt-1">
+              Real-time synchronization of planned schedules against actual stock entries.
+            </p>
+          </div>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] uppercase font-bold text-slate-400">Roster Status:</span>
+            <span className={`px-2.5 py-0.5 rounded-full border text-xs font-black uppercase font-mono ${overallColors.bg} ${overallColors.text}`}>
+              {overallStatus}
+            </span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
+          {/* Column 1: Overall Factory Performance */}
+          <div className="md:col-span-1 bg-slate-50 border border-slate-150 rounded-2xl p-5 flex flex-col justify-between space-y-5">
+            <div className="space-y-2">
+              <h4 className="text-2xs font-extrabold uppercase tracking-widest text-slate-455">Overall Factory Rate</h4>
+              <div className="flex items-baseline gap-2">
+                <span className={`text-4xl font-black font-mono tracking-tight ${overallColors.text}`}>
+                  {typeof overallAchievementPct === 'number' ? `${Math.round(overallAchievementPct)}%` : 'No Target'}
+                </span>
+                {typeof overallAchievementPct === 'number' && (
+                  <span className="text-xs text-slate-400 font-bold font-sans">completed</span>
+                )}
+              </div>
+            </div>
+
+            {/* Horizontal progress bar with dynamic colors */}
+            <div className="space-y-1.5">
+              <div className="w-full bg-slate-200 h-3.5 rounded-full overflow-hidden border border-slate-300">
+                <div 
+                  className={`h-full rounded-full transition-all duration-500 ${overallColors.bar}`}
+                  style={{ width: `${Math.min(typeof overallAchievementPct === 'number' ? Math.round(overallAchievementPct) : 0, 100)}%` }}
+                />
+              </div>
+              <div className="flex justify-between text-[11px] font-mono text-slate-500">
+                <span>0%</span>
+                <span>50%</span>
+                <span>100%+</span>
+              </div>
+            </div>
+
+            <div className="pt-4 border-t border-slate-200 grid grid-cols-2 gap-4">
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block leading-tight">Total Target</span>
+                <span className="text-base font-black font-mono text-slate-800">{totalPlannedOverall} <span className="text-[10px] text-slate-400 font-normal">units</span></span>
+              </div>
+              <div>
+                <span className="text-[10px] uppercase font-bold text-slate-400 block leading-tight">Total Produced</span>
+                <span className="text-base font-black font-mono text-emerald-700">{totalActualOverall} <span className="text-[10px] text-slate-400 font-normal">units</span></span>
+              </div>
+            </div>
+          </div>
+
+          {/* Columns 2 & 3: Model-Level Breakdown */}
+          <div className="md:col-span-2 space-y-4">
+            <h4 className="text-2xs font-extrabold uppercase tracking-widest text-slate-455">Model-Level Performance</h4>
+            
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" id="model-achievement-list">
+              {modelAchievementData.map(({ model, planned, actual, pctVal, pctString, colors, statusText }) => (
+                <div 
+                  key={model} 
+                  className="bg-white border border-slate-205 hover:border-slate-350 rounded-xl p-3.5 space-y-2.5 transition-all shadow-2xs"
+                  id={`model-bar-${model}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-xs font-black font-mono bg-slate-100 border border-slate-200 text-slate-800 px-2.5 py-0.5 rounded-md">
+                      {model}
+                    </span>
+                    <span className={`px-2 py-0.5 rounded-full border text-[9px] font-black uppercase font-mono ${colors.bg} ${colors.text}`}>
+                      {statusText}
+                    </span>
+                  </div>
+
+                  <div className="space-y-1">
+                    <div className="flex justify-between text-[11px] text-slate-500 font-medium font-sans">
+                      <span>Target: <strong className="text-slate-800 font-bold font-mono">{planned}</strong> | Prod: <strong className="text-emerald-700 font-black font-mono">{actual}</strong></span>
+                      <span className={`font-black font-mono ${colors.text}`}>{pctString}</span>
+                    </div>
+                    
+                    <div className="w-full bg-slate-100 h-2 rounded-full overflow-hidden border border-slate-200">
+                      <div 
+                        className={`h-full rounded-full transition-all duration-300 ${colors.bar}`}
+                        style={{ width: `${Math.min(pctVal, 100)}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
 
       {/* WEEK SCHEDULES & RECENT LOGS */}
       <div className="grid grid-cols-1 lg:grid-cols-5 gap-8" id="manager-recent-roster">

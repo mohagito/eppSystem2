@@ -684,6 +684,7 @@ export default function App() {
           <PlanningModule
             currentUser={currentUser}
             plans={plans}
+            entries={stockEntries}
             dailyTargets={dailyTargets}
             onUpdateDailyTarget={handleUpdateDailyTarget}
             onAddPlan={handleAddProductionPlan}

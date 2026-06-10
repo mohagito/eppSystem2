@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { UserProfile, ProductionPlan, AirbagModel, MachineType, ShiftType } from '../types';
+import { UserProfile, ProductionPlan, AirbagModel, MachineType, ShiftType, StockEntry } from '../types';
 import { AIRBAG_MODELS, MOCK_PROFILES } from '../data';
 import {
   CalendarRange,
@@ -21,10 +21,17 @@ import {
   Sparkles,
   Pencil
 } from 'lucide-react';
+import {
+  getPlanActualProduced,
+  getAchievementPercent,
+  getAchievementStatus,
+  getAchievementColors
+} from '../utils/achievement';
 
 interface PlanningProps {
   currentUser: UserProfile;
   plans: ProductionPlan[];
+  entries: StockEntry[];
   dailyTargets: Record<string, number>;
   onUpdateDailyTarget: (dateStr: string, targetValue: number) => void;
   onAddPlan: (plan: Omit<ProductionPlan, 'id' | 'createdAt' | 'status'>) => void;
@@ -36,6 +43,7 @@ interface PlanningProps {
 export default function PlanningModule({
   currentUser,
   plans,
+  entries,
   dailyTargets,
   onUpdateDailyTarget,
   onAddPlan,
@@ -361,10 +369,33 @@ export default function PlanningModule({
                 </div>
               </div>
               
-              <div className="text-[10px] font-bold font-mono text-slate-800 mt-1 leading-tight flex items-baseline justify-between">
-                <span>Progress: <span className="text-[11px] font-extrabold text-emerald-700">{plan.quantityCompleted || 0}</span><span className="text-slate-400">/{plan.quantityPlanned}</span></span>
-                <span className="text-[8px] text-slate-400 font-sans font-semibold">pcs</span>
-              </div>
+              {(() => {
+                const actualQty = getPlanActualProduced(plan, entries);
+                const pctStr = getAchievementPercent(plan.quantityPlanned, actualQty);
+                const pctVal = typeof pctStr === 'number' ? Math.round(pctStr) : 0;
+                const colors = getAchievementColors(plan.quantityPlanned, actualQty);
+                const statusText = getAchievementStatus(plan.quantityPlanned, actualQty);
+                return (
+                  <div className="mt-1.5 space-y-1">
+                    <div className="text-[10px] font-mono text-slate-800 leading-tight flex items-center justify-between">
+                      <span className="font-semibold text-slate-500">Prod: <span className="text-[11.5px] font-mono font-black text-emerald-700">{actualQty}</span><span className="text-[9px] text-slate-400 font-normal">/{plan.quantityPlanned}</span></span>
+                      <span className={`text-[10px] font-black ${colors.text}`}>{typeof pctStr === 'number' ? `${pctVal}%` : 'No Target'}</span>
+                    </div>
+                    
+                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden border border-slate-200">
+                      <div 
+                        className={`${colors.bar} h-full rounded-full transition-all duration-305`}
+                        style={{ width: `${Math.min(pctVal, 100)}%` }}
+                      />
+                    </div>
+
+                    <div className="text-[8px] font-semibold uppercase tracking-wider flex items-center justify-between">
+                      <span className="text-slate-400">Progression</span>
+                      <span className={`px-1 rounded border uppercase font-mono text-[7px] ${colors.bg}`}>{statusText}</span>
+                    </div>
+                  </div>
+                );
+              })()}
 
               <div className="text-[9px] text-slate-500 font-sans font-semibold mt-1.5 flex items-center justify-between gap-1 border-t border-slate-100 pt-1">
                 <span className="truncate max-w-[65px]" title={plan.assignedWorker}>
