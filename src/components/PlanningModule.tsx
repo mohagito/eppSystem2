@@ -162,6 +162,36 @@ export default function PlanningModule({
     return days;
   }, [weekBaseDate]);
 
+  const companyWeekInfo = useMemo(() => {
+    const baseDate = new Date(weekBaseDate + 'T12:00:00');
+    
+    // ISO-8601 week number calculation
+    const date = new Date(baseDate.getTime());
+    const dayNum = date.getDay() || 7;
+    date.setDate(date.getDate() + 4 - dayNum);
+    const yearStart = new Date(date.getFullYear(), 0, 1);
+    const weekNo = Math.ceil((((date.getTime() - yearStart.getTime()) / 86400000) + 1) / 7);
+    
+    // Find Monday and Sunday of this week
+    const currentDay = baseDate.getDay();
+    const diffToMonday = baseDate.getDate() - currentDay + (currentDay === 0 ? -6 : 1);
+    const monday = new Date(baseDate.getFullYear(), baseDate.getMonth(), diffToMonday);
+    
+    const sunday = new Date(monday.getTime());
+    sunday.setDate(monday.getDate() + 6);
+    
+    const pad = (num: number) => String(num).padStart(2, '0');
+    
+    const formattedMonday = `${pad(monday.getDate())}-${pad(monday.getMonth() + 1)}-${String(monday.getFullYear()).slice(-2)}`;
+    const formattedSunday = `${pad(sunday.getDate())}-${pad(sunday.getMonth() + 1)}-${String(sunday.getFullYear()).slice(-2)}`;
+    
+    return {
+      weekNo,
+      formattedMonday,
+      formattedSunday,
+    };
+  }, [weekBaseDate]);
+
   const handlePrevWeek = () => {
     const date = new Date(weekBaseDate);
     date.setDate(date.getDate() - 7);
@@ -263,6 +293,10 @@ export default function PlanningModule({
         return 'bg-indigo-50 border-indigo-205 text-indigo-800 font-mono font-bold';
       case 'BCB':
         return 'bg-purple-50 border-purple-205 text-purple-800 font-mono font-bold';
+      case 'SK216':
+        return 'bg-rose-50 border-rose-205 text-rose-800 font-mono font-bold';
+      case 'VW217':
+        return 'bg-teal-50 border-teal-205 text-teal-850 font-mono font-bold';
       default:
         return 'bg-slate-50 border-slate-200 text-slate-800 font-mono font-bold';
     }
@@ -432,6 +466,9 @@ export default function PlanningModule({
                 <span className="px-2 py-0.5 rounded-full bg-emerald-50 border border-emerald-100 text-emerald-700 text-[9px] font-mono font-bold uppercase tracking-wider">
                   Live View
                 </span>
+                <span className="px-2 py-0.5 rounded-full bg-sky-50 border border-sky-150 text-sky-700 text-[9px] font-mono font-bold uppercase tracking-wider">
+                  Week {companyWeekInfo.weekNo}
+                </span>
               </div>
               <p className="text-[11px] text-slate-500 font-semibold font-sans mt-0.5">
                 Production schedule. Grid cells display scheduled shifts for each worker.
@@ -474,7 +511,7 @@ export default function PlanningModule({
           <span className="font-bold text-slate-400 italic">fx</span>
           <div className="w-[1px] h-3.5 bg-slate-200"></div>
           <span className="text-emerald-700 font-semibold">
-            {`=WORK_WEEK(${new Date(weekDays[0].dateStr + 'T12:00:00').toLocaleDateString('es-ES', { month: '2-digit', day: '2-digit' })} - ${new Date(weekDays[6].dateStr + 'T12:00:00').toLocaleDateString('es-ES', { month: '2-digit', day: '2-digit', year: 'numeric' })})`}
+            {`=WORK_WEEK(${companyWeekInfo.weekNo}; "from ${companyWeekInfo.formattedMonday} to ${companyWeekInfo.formattedSunday}")`}
           </span>
         </div>
 

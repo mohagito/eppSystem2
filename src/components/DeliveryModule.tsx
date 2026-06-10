@@ -58,14 +58,10 @@ export default function DeliveryModule({
 
   // 1. Calculate dynamic current available stock (Production minus Deliveries)
   const availableStock = useMemo(() => {
-    const stock: Record<AirbagModel, number> = {
-      'BCB': 0,
-      'CRAFTER': 0,
-      'CADDY': 0,
-      'KUGA LHD': 0,
-      'KUGA RHD': 0,
-      'TETOUAN': 0
-    };
+    const stock = {} as Record<AirbagModel, number>;
+    AIRBAG_MODELS.forEach((m) => {
+      stock[m] = 0;
+    });
 
     // Add produced assemblies
     entries.forEach((e) => {

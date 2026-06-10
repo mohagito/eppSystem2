@@ -133,14 +133,10 @@ export default function StockManagement({
 
   // Pre-calculate per-model sums for stats cards (Subtract deliveries)
   const stockSums = useMemo(() => {
-    const sums: Record<AirbagModel, number> = {
-      'BCB': 0,
-      'CRAFTER': 0,
-      'CADDY': 0,
-      'KUGA LHD': 0,
-      'KUGA RHD': 0,
-      'TETOUAN': 0
-    };
+    const sums = {} as Record<AirbagModel, number>;
+    AIRBAG_MODELS.forEach((m) => {
+      sums[m] = 0;
+    });
 
     entries.forEach((e) => {
       if (sums[e.modelId] !== undefined) {
