@@ -44,11 +44,16 @@ service cloud.firestore {
       allow create, update: if isValidId(deliveryId)
         && request.resource.data.id == deliveryId
         && request.resource.data.modelId is string && request.resource.data.modelId.size() <= 50
+        && request.resource.data.model is string && request.resource.data.model.size() <= 50
         && request.resource.data.workerName is string && request.resource.data.workerName.size() <= 100
+        && request.resource.data.loadedBy is string && request.resource.data.loadedBy.size() <= 100
+        && request.resource.data.invoiceNumber is string && request.resource.data.invoiceNumber.size() <= 100
         && request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.deliveryDate is string && request.resource.data.deliveryDate.size() <= 50
+        && request.resource.data.deliveryTime is string && request.resource.data.deliveryTime.size() <= 50
         && (request.resource.data.quantity is int || request.resource.data.quantity is float) && request.resource.data.quantity >= 0
         && request.resource.data.createdBy is string
-        && request.resource.data.createdAt is string;
+        && (request.resource.data.createdAt is timestamp || request.resource.data.createdAt is string);
       allow delete: if true;
     }
 

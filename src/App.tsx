@@ -30,7 +30,7 @@ import StockManagement from './components/StockManagement';
 import PlanningModule from './components/PlanningModule';
 import DeliveryModule from './components/DeliveryModule';
 import { db, handleFirestoreError, OperationType } from './firebase';
-import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDoc, getDocs } from 'firebase/firestore';
+import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 
 export default function App() {
   // --- DATABASE AND LOCAL STORAGE PERSISTENCE ---
@@ -172,7 +172,21 @@ export default function App() {
       unsubDeliveries = onSnapshot(collection(db, 'deliveries'), (snapshot) => {
         const list: DeliveryEntry[] = [];
         snapshot.forEach((doc) => {
-          list.push(doc.data() as DeliveryEntry);
+          const data = doc.data();
+          let createdAtStr = '';
+          if (data.createdAt) {
+            if (typeof data.createdAt === 'string') {
+              createdAtStr = data.createdAt;
+            } else if (typeof data.createdAt.toDate === 'function') {
+              createdAtStr = data.createdAt.toDate().toISOString();
+            } else if (data.createdAt.seconds !== undefined) {
+              createdAtStr = new Date(data.createdAt.seconds * 1000).toISOString();
+            }
+          }
+          list.push({
+            ...data,
+            createdAt: createdAtStr || new Date().toISOString()
+          } as DeliveryEntry);
         });
         list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setDeliveries(list);
@@ -369,7 +383,7 @@ export default function App() {
 
     setDoc(doc(db, 'deliveries', newDelivery.id), newDelivery)
       .then(() => {
-        addToast(`Registered dispatch: ${delivery.quantity} units of ${delivery.modelId} shipped!`, 'success');
+        addToast(`Registered dispatch: Invoice ${delivery.invoiceNumber} shipped successfully!`, 'success');
       })
       .catch((err) => {
         handleFirestoreError(err, OperationType.CREATE, `deliveries/${newDelivery.id}`);
@@ -682,6 +696,7 @@ export default function App() {
             entries={stockEntries}
             deliveries={deliveries}
             plans={plans}
+            profiles={profiles}
             onAddEntry={handleAddStockEntry}
             onDeleteEntry={handleDeleteStockEntry}
             onEditEntry={handleEditStockEntry}
@@ -695,6 +710,7 @@ export default function App() {
             plans={plans}
             entries={stockEntries}
             dailyTargets={dailyTargets}
+            profiles={profiles}
             onUpdateDailyTarget={handleUpdateDailyTarget}
             onAddPlan={handleAddProductionPlan}
             onUpdatePlanStatus={handleUpdatePlanStatus}
@@ -709,6 +725,7 @@ export default function App() {
             currentUser={currentUser}
             entries={stockEntries}
             deliveries={deliveries}
+            profiles={profiles}
             onAddDelivery={handleAddDelivery}
             onDeleteDelivery={handleDeleteDelivery}
           />

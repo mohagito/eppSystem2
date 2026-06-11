@@ -26,11 +26,16 @@ export interface StockEntry {
 export interface DeliveryEntry {
   id: string;
   modelId: AirbagModel;
+  model: AirbagModel;
   workerName: string;
+  loadedBy: string;
   date: string; // YYYY-MM-DD
+  deliveryDate: string; // DD/MM/YYYY
+  deliveryTime: string; // HH:MM
   quantity: number;
-  createdBy: string; // Dynamic profile user ID
-  createdAt: string; // ISO string
+  createdBy: string; // Creator profile name
+  createdAt: any; // ISO string or Firestore timestamp
+  invoiceNumber: string;
 }
 
 export type MachineType = 'Big Machine' | 'Small Machine';

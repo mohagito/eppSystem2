@@ -24,6 +24,7 @@ interface StockProps {
   entries: StockEntry[];
   deliveries?: DeliveryEntry[];
   plans?: ProductionPlan[];
+  profiles?: UserProfile[];
   onAddEntry: (entry: Omit<StockEntry, 'id' | 'createdAt'>) => void;
   onDeleteEntry?: (id: string) => void;
   onEditEntry?: (id: string, updatedEntry: Partial<Omit<StockEntry, 'id' | 'createdAt'>>) => void;
@@ -34,6 +35,7 @@ export default function StockManagement({
   entries,
   deliveries = [],
   plans = [],
+  profiles = [],
   onAddEntry,
   onDeleteEntry,
   onEditEntry
@@ -51,6 +53,12 @@ export default function StockManagement({
   const [workerName, setWorkerName] = useState<string>(currentUser.name);
   const [entryDate, setEntryDate] = useState<string>(getLocalDateStr());
   const [quantity, setQuantity] = useState<string>('');
+
+  React.useEffect(() => {
+    if (currentUser) {
+      setWorkerName(currentUser.name);
+    }
+  }, [currentUser]);
   
   // Edit Stock Entry Modal state
   const [editingEntry, setEditingEntry] = useState<StockEntry | null>(null);
@@ -298,7 +306,7 @@ export default function StockManagement({
                         className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-semibold focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-3xs"
                         id="stock-form-worker-select"
                       >
-                        {MOCK_PROFILES.filter((p) => p.role === 'worker').map((profile) => (
+                        {(profiles && profiles.length > 0 ? profiles : MOCK_PROFILES).filter((p) => p.role === 'worker').map((profile) => (
                           <option key={profile.id} value={profile.name}>
                             {profile.name} ({profile.station || 'Operator'})
                           </option>

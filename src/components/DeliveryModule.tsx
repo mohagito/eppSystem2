@@ -17,13 +17,17 @@ import {
   TrendingDown,
   Inbox,
   AlertTriangle,
-  History
+  History,
+  Eye,
+  Clock,
+  X
 } from 'lucide-react';
 
 interface DeliveryProps {
   currentUser: UserProfile;
   entries: StockEntry[];
   deliveries: DeliveryEntry[];
+  profiles?: UserProfile[];
   onAddDelivery: (delivery: Omit<DeliveryEntry, 'id' | 'createdAt'>) => void;
   onDeleteDelivery?: (id: string) => void;
 }
@@ -32,6 +36,7 @@ export default function DeliveryModule({
   currentUser,
   entries,
   deliveries,
+  profiles = [],
   onAddDelivery,
   onDeleteDelivery
 }: DeliveryProps) {
@@ -47,14 +52,26 @@ export default function DeliveryModule({
   const [workerName, setWorkerName] = useState<string>(currentUser.name);
   const [deliveryDate, setDeliveryDate] = useState<string>(getLocalDateStr());
   const [quantity, setQuantity] = useState<string>('');
+  const [invoiceNumber, setInvoiceNumber] = useState<string>('');
+
+  React.useEffect(() => {
+    if (currentUser) {
+      setWorkerName(currentUser.name);
+    }
+  }, [currentUser]);
 
   // Search & Filters state
   const [filterModel, setFilterModel] = useState<string>('ALL');
   const [filterWorker, setFilterWorker] = useState<string>('ALL');
+  const [filterInvoice, setFilterInvoice] = useState<string>('');
+  const [filterDate, setFilterDate] = useState<string>(''); // YYYY-MM-DD
   const [filterSearch, setFilterSearch] = useState<string>('');
   const [showFilters, setShowFilters] = useState<boolean>(false);
   const [formError, setFormError] = useState<string>('');
   const [formWarning, setFormWarning] = useState<string>('');
+
+  // Selection state for opening traceability report modal
+  const [selectedDetails, setSelectedDetails] = useState<DeliveryEntry | null>(null);
 
   // 1. Calculate dynamic current available stock (Production minus Deliveries)
   const availableStock = useMemo(() => {
@@ -112,58 +129,82 @@ export default function DeliveryModule({
     setFormError('');
     setFormWarning('');
 
+    if (!invoiceNumber.trim()) {
+      setFormError('Please enter a valid Invoice Number.');
+      return;
+    }
+
     const parsedQty = parseInt(quantity, 10);
     if (!parsedQty || parsedQty <= 0) {
       setFormError('Please enter a valid quantity greater than zero.');
       return;
     }
 
-    const available = availableStock[selectedModel] || 0;
-    if (parsedQty > available) {
-      // Allow delivery but let's confirm in visual indicator, or we can warn.
-      // Let's allow but keep warnings prominent or block if they must. 
-      // User says "when we deliver something it should be remove automatically from the stock"
-      // If we represent a flexible dispatch system, sometimes negative stock happens (e.g., retro-logging).
-      // Let's add a soft warning first, if they submit we allow it, but we can prevent it if we want rigorous checks. Let's allow with warning.
-    }
-
-    const finalWorkerName = currentUser.role === 'manager' ? currentUser.name : workerName.trim();
+    const finalWorkerName = currentUser.role === 'manager' ? workerName.trim() : currentUser.name;
     if (!finalWorkerName) {
       setFormError('Dispatcher / Worker Name is required.');
       return;
     }
 
+    // Automatically generate exact Date & Time on save
+    const now = new Date();
+    const dd = String(now.getDate()).padStart(2, '0');
+    const mm = String(now.getMonth() + 1).padStart(2, '0');
+    const yyyy = now.getFullYear();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const min = String(now.getMinutes()).padStart(2, '0');
+
     onAddDelivery({
       modelId: selectedModel,
+      model: selectedModel,
       workerName: finalWorkerName,
-      date: deliveryDate || getLocalDateStr(),
+      loadedBy: finalWorkerName,
+      date: deliveryDate || getLocalDateStr(), // YYYY-MM-DD
+      deliveryDate: `${dd}/${mm}/${yyyy}`, // DD/MM/YYYY e.g., 11/06/2026
+      deliveryTime: `${hh}:${min}`, // e.g., 14:37
       quantity: parsedQty,
-      createdBy: currentUser.id
+      invoiceNumber: invoiceNumber.trim().toUpperCase(),
+      createdBy: currentUser.name || currentUser.id // Gonzalo
     });
 
     setQuantity('');
+    setInvoiceNumber('');
   };
 
   // Aggregate operators/dispatchers for filter dropdown
   const uniqueDispatchers = useMemo(() => {
     const workers = new Set<string>();
-    deliveries.forEach((d) => workers.add(d.workerName));
+    deliveries.forEach((d) => {
+      const name = d.loadedBy || d.workerName;
+      if (name) workers.add(name);
+    });
     return Array.from(workers);
   }, [deliveries]);
 
   // Filter list of deliveries
   const filteredDeliveries = useMemo(() => {
     return [...deliveries]
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .sort((a, b) => {
+        const timeA = a.createdAt || '';
+        const timeB = b.createdAt || '';
+        return timeB.localeCompare(timeA);
+      })
       .filter((d) => {
-        const matchModel = filterModel === 'ALL' || d.modelId === filterModel;
-        const matchWorker = filterWorker === 'ALL' || d.workerName === filterWorker;
+        const matchModel = filterModel === 'ALL' || d.modelId === filterModel || d.model === filterModel;
+        const matchWorker = filterWorker === 'ALL' || d.workerName === filterWorker || d.loadedBy === filterWorker;
+        const matchInvoice = filterInvoice === '' || (d.invoiceNumber && d.invoiceNumber.toLowerCase().includes(filterInvoice.toLowerCase()));
+        const matchDate = filterDate === '' || d.date === filterDate;
+        
         const matchSearch = filterSearch === '' || 
           d.workerName.toLowerCase().includes(filterSearch.toLowerCase()) || 
-          d.modelId.toLowerCase().includes(filterSearch.toLowerCase());
-        return matchModel && matchWorker && matchSearch;
+          (d.loadedBy && d.loadedBy.toLowerCase().includes(filterSearch.toLowerCase())) ||
+          d.modelId.toLowerCase().includes(filterSearch.toLowerCase()) ||
+          (d.invoiceNumber && d.invoiceNumber.toLowerCase().includes(filterSearch.toLowerCase())) ||
+          (d.createdBy && d.createdBy.toLowerCase().includes(filterSearch.toLowerCase()));
+          
+        return matchModel && matchWorker && matchInvoice && matchDate && matchSearch;
       });
-  }, [deliveries, filterModel, filterWorker, filterSearch]);
+  }, [deliveries, filterModel, filterWorker, filterInvoice, filterDate, filterSearch]);
 
   const totalDeliveredSum = useMemo(() => {
     return deliveries.reduce((s, d) => s + d.quantity, 0);
@@ -267,6 +308,23 @@ export default function DeliveryModule({
                 </div>
               )}
 
+              {/* Invoice Number field */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-600 tracking-wider uppercase flex items-center gap-1.5">
+                  <Hash size={13} className="text-amber-555" />
+                  Invoice Number
+                </label>
+                <input
+                  type="text"
+                  placeholder="e.g. M1453"
+                  value={invoiceNumber}
+                  onChange={(e) => setInvoiceNumber(e.target.value.toUpperCase())}
+                  className="w-full bg-slate-50/40 hover:bg-slate-50/95 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-mono font-bold uppercase focus:outline-hidden focus:bg-white focus:border-amber-500 transition-colors shadow-3xs"
+                  required
+                  id="delivery-form-invoice-number"
+                />
+              </div>
+
               {/* Model selection */}
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-slate-600 tracking-wider uppercase flex items-center gap-1.5">
@@ -317,7 +375,7 @@ export default function DeliveryModule({
                       className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-semibold focus:outline-hidden focus:bg-white focus:border-amber-500 transition-all appearance-none cursor-pointer shadow-3xs"
                       id="delivery-form-worker-select"
                     >
-                      {MOCK_PROFILES.map((profile) => (
+                      {(profiles && profiles.length > 0 ? profiles : MOCK_PROFILES).map((profile) => (
                         <option key={profile.id} value={profile.name}>
                           {profile.name} ({profile.role})
                         </option>
@@ -392,7 +450,7 @@ export default function DeliveryModule({
               <button
                 onClick={() => setShowFilters(!showFilters)}
                 className={`self-start md:self-auto px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all border cursor-pointer shadow-3xs ${
-                  showFilters || filterModel !== 'ALL' || filterWorker !== 'ALL' || filterSearch
+                  showFilters || filterModel !== 'ALL' || filterWorker !== 'ALL' || filterInvoice || filterDate || filterSearch
                     ? 'bg-amber-50 border-amber-200 text-amber-700'
                     : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
                 }`}
@@ -400,7 +458,7 @@ export default function DeliveryModule({
               >
                 <SlidersHorizontal size={14} />
                 <span>Filters {showFilters ? 'Hide' : 'Show'}</span>
-                {(filterModel !== 'ALL' || filterWorker !== 'ALL' || filterSearch) && (
+                {(filterModel !== 'ALL' || filterWorker !== 'ALL' || filterInvoice || filterDate || filterSearch) && (
                   <span className="w-1.5 h-1.5 rounded-full bg-amber-550"></span>
                 )}
               </button>
@@ -408,7 +466,7 @@ export default function DeliveryModule({
 
             {/* Slide drawer for filters */}
             <AnimatePresence>
-              {(showFilters || filterModel !== 'ALL' || filterWorker !== 'ALL' || filterSearch) && (
+              {(showFilters || filterModel !== 'ALL' || filterWorker !== 'ALL' || filterInvoice || filterDate || filterSearch) && (
                 <motion.div
                   initial={{ height: 0, opacity: 0 }}
                   animate={{ height: 'auto', opacity: 1 }}
@@ -416,7 +474,20 @@ export default function DeliveryModule({
                   className="overflow-hidden bg-slate-50 rounded-xl border border-slate-200 p-4 space-y-4"
                   id="expanded-delivery-filter-drawer"
                 >
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-5 gap-4">
+                    {/* Invoice filter */}
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Filter by Invoice</label>
+                      <input
+                        type="text"
+                        placeholder="e.g. M1453"
+                        value={filterInvoice}
+                        onChange={(e) => setFilterInvoice(e.target.value.toUpperCase())}
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-800 placeholder-slate-400 font-medium font-mono uppercase focus:outline-hidden"
+                        id="delivery-filter-invoice-input"
+                      />
+                    </div>
+
                     {/* Model filter */}
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Filter by Model</label>
@@ -453,13 +524,25 @@ export default function DeliveryModule({
                       </select>
                     </div>
 
+                    {/* Date filter */}
+                    <div className="space-y-1.5">
+                      <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Filter by Date</label>
+                      <input
+                        type="date"
+                        value={filterDate}
+                        onChange={(e) => setFilterDate(e.target.value)}
+                        className="w-full bg-white border border-slate-200 rounded-lg px-2.5 py-2 text-xs text-slate-800 font-mono focus:outline-hidden"
+                        id="delivery-filter-date-input"
+                      />
+                    </div>
+
                     {/* Search Field */}
                     <div className="space-y-1.5">
                       <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Search Text</label>
                       <div className="relative">
                         <input
                           type="text"
-                          placeholder="Search dispatcher/model..."
+                          placeholder="Search text..."
                           value={filterSearch}
                           onChange={(e) => setFilterSearch(e.target.value)}
                           className="w-full bg-white border border-slate-200 rounded-lg pl-8 pr-3 py-2 text-xs text-slate-800 focus:outline-hidden placeholder-slate-400 font-medium"
@@ -476,6 +559,8 @@ export default function DeliveryModule({
                       onClick={() => {
                         setFilterModel('ALL');
                         setFilterWorker('ALL');
+                        setFilterInvoice('');
+                        setFilterDate('');
                         setFilterSearch('');
                       }}
                       className="text-[11px] text-slate-500 hover:text-slate-800 hover:underline cursor-pointer font-medium"
@@ -494,20 +579,19 @@ export default function DeliveryModule({
                 <table className="w-full text-left border-collapse">
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50">
-                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Airbag Model</th>
+                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Invoice</th>
+                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Model</th>
+                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Qty</th>
+                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Date & Time</th>
                       <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Delivered By</th>
-                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Dispatched Date</th>
-                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase text-right">Delivered Quantity</th>
-                      {currentUser.role === 'manager' && (
-                        <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase text-center w-12">Actions</th>
-                      )}
+                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase text-center w-28">Actions</th>
                     </tr>
                   </thead>
                   <tbody>
                     <AnimatePresence initial={false}>
                       {filteredDeliveries.length === 0 ? (
                         <tr>
-                          <td colSpan={currentUser.role === 'manager' ? 5 : 4} className="p-8 text-center text-xs text-slate-550">
+                          <td colSpan={6} className="p-8 text-center text-xs text-slate-550">
                             No shipments/deliveries registered in the ledger.
                           </td>
                         </tr>
@@ -519,41 +603,53 @@ export default function DeliveryModule({
                             animate={{ opacity: 1 }}
                             exit={{ opacity: 0 }}
                             transition={{ duration: 0.15 }}
-                            className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors bg-white"
+                            className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors bg-white cursor-pointer"
                             id={`delivery-row-${d.id}`}
+                            onClick={() => setSelectedDetails(d)}
                           >
                             <td className="p-4">
-                              <span className="text-xs font-bold text-amber-800 font-mono tracking-wide bg-amber-50/50 border border-amber-100 px-2.5 py-1 rounded-lg">
-                                {d.modelId}
+                              <span className="text-xs font-bold font-mono bg-slate-100 border border-slate-200 px-2 py-1 rounded-lg text-slate-850">
+                                {d.invoiceNumber || 'N/A'}
                               </span>
                             </td>
                             <td className="p-4">
-                              <span className="text-xs font-bold text-slate-850">
-                                {d.workerName}
+                              <span className="text-xs font-bold text-amber-805 font-mono tracking-wide bg-amber-50/50 border border-amber-100 px-2.5 py-1 rounded-lg">
+                                {d.model || d.modelId}
                               </span>
                             </td>
-                            <td className="p-4 text-xs font-mono text-slate-500 uppercase">
-                              {new Date(d.date).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: '2-digit',
-                                year: 'numeric',
-                              })}
-                            </td>
-                            <td className="p-4 text-xs font-extrabold text-right font-mono text-amber-750 select-all">
+                            <td className="p-4 text-xs font-extrabold font-mono text-amber-700 select-all">
                               -{d.quantity} pcs
                             </td>
-                            {currentUser.role === 'manager' && (
-                              <td className="p-4 text-center">
+                            <td className="p-4 text-xs font-mono text-slate-650">
+                              {d.deliveryDate || new Date(d.date).toLocaleDateString('en-GB')} {d.deliveryTime || '00:00'}
+                            </td>
+                            <td className="p-4">
+                              <span className="text-xs font-bold text-slate-800">
+                                {d.loadedBy || d.workerName}
+                              </span>
+                            </td>
+                            <td className="p-4 text-center" onClick={(e) => e.stopPropagation()}>
+                              <div className="flex items-center justify-center gap-1.5">
                                 <button
-                                  onClick={() => onDeleteDelivery?.(d.id)}
-                                  className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-2 rounded-lg transition-colors cursor-pointer"
-                                  title="Revoke / Delete dispatch"
-                                  id={`delete-delivery-${d.id}`}
+                                  onClick={() => setSelectedDetails(d)}
+                                  className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-2 rounded-lg transition-all cursor-pointer"
+                                  title="View audit details"
+                                  id={`view-delivery-${d.id}`}
                                 >
-                                  <Trash2 size={13.5} />
+                                  <Eye size={13.5} />
                                 </button>
-                              </td>
-                            )}
+                                {currentUser.role === 'manager' && (
+                                  <button
+                                    onClick={() => onDeleteDelivery?.(d.id)}
+                                    className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-2 rounded-lg transition-colors cursor-pointer"
+                                    title="Revoke / Delete dispatch"
+                                    id={`delete-delivery-${d.id}`}
+                                  >
+                                    <Trash2 size={13.5} />
+                                  </button>
+                                )}
+                              </div>
+                            </td>
                           </motion.tr>
                         ))
                       )}
@@ -570,6 +666,166 @@ export default function DeliveryModule({
           </div>
         </div>
       </div>
+
+      {/* DELIVERY DETAILS AUDIT & TRACEABILITY MODAL */}
+      <AnimatePresence>
+        {selectedDetails && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 shadow-3xl" id="delivery-details-modal-overlay">
+            {/* Backdrop */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              onClick={() => setSelectedDetails(null)}
+              className="absolute inset-0 bg-slate-900/40 backdrop-blur-xs"
+            />
+            
+            {/* Content Container */}
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0, y: 15 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0, y: 15 }}
+              transition={{ type: 'spring', duration: 0.4 }}
+              className="bg-white rounded-2xl border border-slate-150 shadow-2xl w-full max-w-md overflow-hidden relative z-10"
+              id="delivery-details-modal"
+            >
+              {/* Card Header with design identity */}
+              <div className="bg-slate-900 text-white p-6 relative">
+                {/* Close Button */}
+                <button
+                  onClick={() => setSelectedDetails(null)}
+                  className="absolute top-4 right-4 text-slate-400 hover:text-white hover:bg-slate-800 p-1.5 rounded-lg transition-colors cursor-pointer"
+                  id="close-details-modal"
+                >
+                  <X size={16} />
+                </button>
+                <div className="flex items-center gap-3">
+                  <div className="p-2.5 bg-amber-500/10 text-amber-400 border border-amber-500/20 rounded-xl">
+                    <Truck size={22} className="rotate-y-180" />
+                  </div>
+                  <div>
+                    <h3 className="text-base font-semibold leading-none text-slate-100">Traceability Report</h3>
+                    <p className="text-[10px] text-slate-400 font-mono mt-1.5 uppercase tracking-wider">
+                      Audit Verification Code: {selectedDetails.id}
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Status Badge Line */}
+              <div className="px-6 py-2 bg-amber-50/50 border-b border-slate-100 flex justify-between items-center text-xs">
+                <span className="text-slate-500 font-semibold font-mono text-[10px] uppercase tracking-wider">Dispatch Status</span>
+                <span className="text-emerald-700 font-bold bg-emerald-50 border border-emerald-100 px-2.5 py-0.5 rounded-full text-[10px] uppercase font-mono">
+                  Shipped & Adjusted
+                </span>
+              </div>
+
+              {/* Detailed fields */}
+              <div className="p-6 space-y-4 font-sans text-xs">
+                
+                {/* 1. Invoice */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2 text-slate-500 font-medium font-bold">
+                    <Hash size={14} className="text-slate-400 font-bold" />
+                    <span>Invoice Number</span>
+                  </div>
+                  <span className="font-mono font-black text-slate-900 text-sm bg-slate-100 px-3 py-1 rounded-lg border border-slate-200">
+                    {selectedDetails.invoiceNumber || 'N/A'}
+                  </span>
+                </div>
+
+                {/* 2. Model */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2 text-slate-500 font-medium">
+                    <Inbox size={14} className="text-slate-400" />
+                    <span>Model</span>
+                  </div>
+                  <span className="font-mono font-extrabold text-amber-850 bg-amber-50 border border-amber-100 px-3 py-1 rounded-lg">
+                    {selectedDetails.model || selectedDetails.modelId}
+                  </span>
+                </div>
+
+                {/* 3. Quantity */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2 text-slate-500 font-medium">
+                    <TrendingDown size={14} className="text-slate-400" />
+                    <span>Quantity</span>
+                  </div>
+                  <span className="font-mono font-black text-slate-900 text-sm">
+                    {selectedDetails.quantity} pcs
+                  </span>
+                </div>
+
+                {/* 4. Loaded By */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2 text-slate-500 font-medium font-bold">
+                    <User size={14} className="text-slate-400 font-bold" />
+                    <span>Loaded By</span>
+                  </div>
+                  <span className="font-bold text-slate-800">
+                    {selectedDetails.loadedBy || selectedDetails.workerName}
+                  </span>
+                </div>
+
+                {/* 5. Created By */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2 text-slate-500 font-medium">
+                    <User size={14} className="text-slate-400 font-bold" />
+                    <span>Created By</span>
+                  </div>
+                  <span className="font-semibold text-slate-800">
+                    {selectedDetails.createdBy || 'System'}
+                  </span>
+                </div>
+
+                {/* 6. Date */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2 text-slate-500 font-medium font-bold">
+                    <Calendar size={14} className="text-slate-400 font-bold" />
+                    <span>Date</span>
+                  </div>
+                  <span className="font-mono font-bold text-slate-800">
+                    {selectedDetails.deliveryDate || new Date(selectedDetails.date).toLocaleDateString('en-GB')}
+                  </span>
+                </div>
+
+                {/* 7. Time */}
+                <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                  <div className="flex items-center gap-2 text-slate-500 font-medium">
+                    <Clock size={14} className="text-slate-400 font-bold" />
+                    <span>Time</span>
+                  </div>
+                  <span className="font-mono font-bold text-slate-800">
+                    {selectedDetails.deliveryTime || '00:00'}
+                  </span>
+                </div>
+
+                {/* 8. Raw Timestamp */}
+                <div className="bg-slate-50/50 p-2.5 rounded-xl border border-dashed border-slate-200 text-[10px] text-slate-450 space-y-1">
+                  <div className="font-semibold text-slate-500 uppercase tracking-wider font-mono text-[8px]">
+                    Firestore Traceability Timestamp
+                  </div>
+                  <div className="font-mono break-all leading-normal select-all text-slate-500">
+                    {selectedDetails.createdAt ? String(selectedDetails.createdAt) : 'Awaiting sync...'}
+                  </div>
+                </div>
+
+              </div>
+              
+              {/* Modal Footer */}
+              <div className="px-6 py-4 bg-slate-50/70 border-t border-slate-100 flex justify-end">
+                <button
+                  onClick={() => setSelectedDetails(null)}
+                  className="bg-slate-900 hover:bg-slate-800 text-white font-semibold px-4 py-2 rounded-xl text-xs transition-colors cursor-pointer"
+                  id="close-details-modal-btn"
+                >
+                  Acknowledge & Close
+                </button>
+              </div>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

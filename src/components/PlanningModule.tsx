@@ -33,6 +33,7 @@ interface PlanningProps {
   plans: ProductionPlan[];
   entries: StockEntry[];
   dailyTargets: Record<string, number>;
+  profiles?: UserProfile[];
   onUpdateDailyTarget: (dateStr: string, targetValue: number) => void;
   onAddPlan: (plan: Omit<ProductionPlan, 'id' | 'createdAt' | 'status'>) => void;
   onUpdatePlanStatus?: (id: string, status: 'Pending' | 'Completed' | 'Delayed') => void;
@@ -45,6 +46,7 @@ export default function PlanningModule({
   plans,
   entries,
   dailyTargets,
+  profiles = [],
   onUpdateDailyTarget,
   onAddPlan,
   onUpdatePlanStatus,
@@ -64,7 +66,10 @@ export default function PlanningModule({
   const [machine, setMachine] = useState<MachineType>('Big Machine');
   const [shift, setShift] = useState<ShiftType>('Morning');
   const [qtyPlanned, setQtyPlanned] = useState<string>('');
-  const [assignedWorker, setAssignedWorker] = useState<string>(MOCK_PROFILES[1].name); // Default first worker
+  const [assignedWorker, setAssignedWorker] = useState<string>(() => {
+    const defaultWorkers = (profiles && profiles.length > 0 ? profiles : MOCK_PROFILES).filter((p) => p.role === 'worker');
+    return defaultWorkers.length > 0 ? defaultWorkers[0].name : 'Khalid';
+  });
   const [notes, setNotes] = useState<string>('');
   const [formError, setFormError] = useState<string>('');
 
@@ -237,7 +242,10 @@ export default function PlanningModule({
       });
   }, [plans, filterDateGroup, filterWorker, todayStr]);
 
-  const workers = useMemo(() => MOCK_PROFILES.filter((p) => p.role === 'worker'), []);
+  const workers = useMemo(() => {
+    const list = profiles && profiles.length > 0 ? profiles : MOCK_PROFILES;
+    return list.filter((p) => p.role === 'worker');
+  }, [profiles]);
 
   const assignedWorkerPlans = useMemo(() => {
     return plans.filter((p) => p.assignedWorker === currentUser.name);

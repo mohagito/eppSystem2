@@ -59,18 +59,23 @@
     },
     "DeliveryEntry": {
       "title": "DeliveryEntry",
-      "description": "Record of stock delivered and removed from stockpile",
+      "description": "Record of stock delivered and removed from stockpile with detailed traceability",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
         "modelId": { "type": "string" },
+        "model": { "type": "string" },
         "workerName": { "type": "string" },
+        "loadedBy": { "type": "string" },
         "date": { "type": "string" },
+        "deliveryDate": { "type": "string" },
+        "deliveryTime": { "type": "string" },
         "quantity": { "type": "integer" },
         "createdBy": { "type": "string" },
-        "createdAt": { "type": "string" }
+        "createdAt": { "type": "string" },
+        "invoiceNumber": { "type": "string" }
       },
-      "required": ["id", "modelId", "workerName", "date", "quantity", "createdBy", "createdAt"]
+      "required": ["id", "modelId", "model", "workerName", "loadedBy", "date", "deliveryDate", "deliveryTime", "quantity", "createdBy", "createdAt", "invoiceNumber"]
     }
   },
   "firestore": {
