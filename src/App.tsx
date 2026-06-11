@@ -784,9 +784,12 @@ export default function App() {
               <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
 
               <div className="flex items-center gap-3 relative">
-                <div className="w-8 h-8 bg-emerald-500 rounded-sm rotate-45 flex items-center justify-center shrink-0 shadow-lg shadow-emerald-500/20">
-                  <div className="w-4 h-4 bg-slate-900 rounded-full"></div>
-                </div>
+                <img 
+                  src="https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp" 
+                  alt="EPP Logo"
+                  className="h-10 w-auto object-contain"
+                  referrerPolicy="no-referrer"
+                />
                 <span className="font-display font-black text-white tracking-tighter text-lg italic uppercase">
                   EPP AIRBAG
                 </span>
@@ -982,16 +985,14 @@ export default function App() {
             {/* SIDE PANEL NAVIGATION FOR DESKTOP */}
             <aside className="hidden md:flex flex-col w-64 bg-slate-900 border-r border-slate-850 px-4 py-8 justify-between shrink-0" id="desktop-sidebar">
               <div className="space-y-8">
-                {/* Logo lock - Geometric rotated diamond */}
-                <div className="flex items-center gap-3 px-2">
-                  <div className="w-8 h-8 bg-emerald-500 rounded-sm rotate-45 flex items-center justify-center shrink-0 shadow-md shadow-emerald-500/20">
-                    <div className="w-4 h-4 bg-slate-900 rounded-full"></div>
-                  </div>
-                  <div>
-                    <span className="font-bold text-white tracking-tighter text-base italic leading-none block">
-                      EPP AIRBAG
-                    </span>
-                  </div>
+                {/* Logo lock - Brand webp logo */}
+                <div className="flex justify-center px-2">
+                  <img 
+                    src="https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp" 
+                    alt="EPP Logo"
+                    className="h-10 w-auto object-contain animate-fadeIn"
+                    referrerPolicy="no-referrer"
+                  />
                 </div>
 
                 {/* User avatar bar summary */}
@@ -1056,7 +1057,12 @@ export default function App() {
             {/* HEADER ACCENTS FOR RESPONSIVE MOBILE VIEW */}
             <header className="md:hidden bg-slate-900 border-b border-slate-800 p-4 shrink-0 flex items-center justify-between" id="mobile-header">
               <div className="flex items-center gap-2">
-                <Factory size={16} className="text-emerald-400" />
+                <img 
+                  src="https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp" 
+                  alt="EPP Logo"
+                  className="h-6 w-auto object-contain"
+                  referrerPolicy="no-referrer"
+                />
                 <span className="font-display font-black text-xs tracking-wider text-slate-200">EPP SYSTEM</span>
                 <span className={`text-[8.5px] font-bold px-1.5 py-0.5 rounded-full ${
                   currentUser.role === 'manager' ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400'
