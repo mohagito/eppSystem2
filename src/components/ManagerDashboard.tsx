@@ -272,9 +272,9 @@ export default function ManagerDashboard({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 lg:gap-8">
+        <div className="grid grid-cols-1 md:grid-cols-12 gap-6 lg:gap-8">
           {/* Column 1: Overall Factory Performance */}
-          <div className="md:col-span-1 bg-slate-50 border border-slate-150 rounded-2xl p-5 flex flex-col justify-between space-y-5">
+          <div className="md:col-span-5 bg-slate-50 border border-slate-150 rounded-2xl p-5 flex flex-col justify-between space-y-5">
             <div className="space-y-2">
               <h4 className="text-2xs font-extrabold uppercase tracking-widest text-slate-455">Overall Factory Rate</h4>
               <div className="flex items-baseline gap-2">
@@ -315,7 +315,7 @@ export default function ManagerDashboard({
           </div>
 
           {/* Columns 2 & 3: Model-Level Breakdown */}
-          <div className="md:col-span-2 space-y-4">
+          <div className="md:col-span-7 space-y-4">
             <h4 className="text-2xs font-extrabold uppercase tracking-widest text-slate-455">Model-Level Performance</h4>
             
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3" id="model-achievement-list">
@@ -387,55 +387,57 @@ export default function ManagerDashboard({
                 return (
                   <div
                     key={plan.id}
-                    className={`p-4 rounded-xl border transition-all duration-300 bg-white flex items-center justify-between gap-4 ${
+                    className={`p-4 rounded-xl border transition-all duration-300 bg-white flex flex-col sm:flex-row sm:items-center justify-between gap-3 sm:gap-4 ${
                       isToday ? 'border-teal-400 shadow-3xs' : 'border-slate-200 shadow-3xs'
                     }`}
                   >
-                    <div className="space-y-1">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-slate-800 font-mono bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-md">
+                    <div className="space-y-1 w-full sm:w-auto">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <span className="text-xs font-bold text-slate-800 font-mono bg-slate-55 shadow-3xs border border-slate-200 px-2 py-0.5 rounded-md">
                           {plan.model}
                         </span>
-                        <span className="text-[10px] text-slate-500 font-mono font-bold">
+                        <span className="text-[10px] text-slate-500 font-mono font-bold bg-slate-105 border border-slate-205 px-1.5 py-0.5 rounded-md">
                           {plan.planDate === todayStr ? 'Today' : plan.planDate} - {plan.shift}
                         </span>
                       </div>
                       <div className="text-xs text-slate-600">
-                        Assigned: <span className="text-slate-800 font-bold">{plan.assignedWorker}</span> ({plan.machine})
+                        Assigned: <span className="text-slate-800 font-semibold">{plan.assignedWorker}</span> ({plan.machine})
                       </div>
                     </div>
 
-                    <div className="flex items-center gap-4 shrink-0">
-                      <div className="text-right">
-                        <div className="text-[9px] text-slate-400 font-extrabold uppercase">Progress Status</div>
+                    <div className="flex flex-wrap items-center gap-3 justify-between sm:justify-end shrink-0 w-full sm:w-auto pt-2.5 sm:pt-0 border-t border-slate-100 sm:border-0">
+                      <div className="text-left sm:text-right">
+                        <div className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider">Progress Status</div>
                         <div className="text-xs font-black font-mono text-emerald-600">
                           {plan.quantityCompleted || 0} <span className="text-slate-400 font-bold text-[10.5px]">/ {plan.quantityPlanned} pcs</span>
                         </div>
                       </div>
 
-                      {/* Dropdown status update */}
-                      {onUpdatePlanStatus && (
-                        <select
-                          value={plan.status}
-                          onChange={(e) => onUpdatePlanStatus(plan.id, e.target.value as any)}
-                          className="bg-slate-50 hover:bg-slate-100 text-slate-800 border border-slate-200 rounded-lg px-2 py-1 text-[10.5px] cursor-pointer focus:outline-hidden font-bold"
-                        >
-                          <option value="Pending">Pending</option>
-                          <option value="Completed">Completed</option>
-                          <option value="Delayed">Delayed</option>
-                        </select>
-                      )}
+                      <div className="flex items-center gap-2.5">
+                        {/* Dropdown status update */}
+                        {onUpdatePlanStatus && (
+                          <select
+                            value={plan.status}
+                            onChange={(e) => onUpdatePlanStatus(plan.id, e.target.value as any)}
+                            className="bg-slate-50 hover:bg-slate-100 text-slate-800 border border-slate-205 rounded-xl px-2.5 py-1.5 text-[10.5px] cursor-pointer focus:outline-hidden font-extrabold shadow-3xs"
+                          >
+                            <option value="Pending">Pending</option>
+                            <option value="Completed">Completed</option>
+                            <option value="Delayed">Delayed</option>
+                          </select>
+                        )}
 
-                      {/* Delete plan button */}
-                      {onDeletePlan && (
-                        <button
-                          onClick={() => onDeletePlan(plan.id)}
-                          className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
-                          title="Delete plan"
-                        >
-                          <Trash2 size={13} />
-                        </button>
-                      )}
+                        {/* Delete plan button */}
+                        {onDeletePlan && (
+                          <button
+                            onClick={() => onDeletePlan(plan.id)}
+                            className="p-2 text-slate-400 hover:text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                            title="Delete plan"
+                          >
+                            <Trash2 size={13} />
+                          </button>
+                        )}
+                      </div>
                     </div>
                   </div>
                 );

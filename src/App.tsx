@@ -783,26 +783,30 @@ export default function App() {
               <div className="absolute top-1/4 left-1/4 w-96 h-96 bg-emerald-500/10 rounded-full blur-3xl pointer-events-none" />
               <div className="absolute bottom-1/4 right-1/4 w-96 h-96 bg-teal-500/10 rounded-full blur-3xl pointer-events-none" />
 
-              <div className="flex items-center gap-3 relative">
+              <div className="flex justify-center items-center relative">
                 <img 
                   src="https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp" 
                   alt="EPP Logo"
-                  className="h-10 w-auto object-contain"
+                  className="h-16 md:h-20 w-auto object-contain drop-shadow-[0_0_15px_rgba(255,255,255,0.1)] transition-transform duration-300 hover:scale-105"
                   referrerPolicy="no-referrer"
                 />
-                <span className="font-display font-black text-white tracking-tighter text-lg italic uppercase">
-                  EPP AIRBAG
-                </span>
               </div>
 
-              <div className="space-y-4 max-w-lg mt-12 md:mt-0 relative">
-                <h1 className="text-3xl md:text-5xl font-black font-display text-slate-100 tracking-tight leading-none">
+              <div className="space-y-6 max-w-xl mx-auto text-center relative my-auto">
+                <h1 className="text-4xl md:text-[3.25rem] font-black font-display text-white tracking-tight leading-none text-center">
                   Line Efficiency. <br />
-                  <span className="bg-linear-to-r from-teal-400 via-emerald-400 to-emerald-500 bg-clip-text text-transparent">Integrated.</span>
+                  <span className="bg-gradient-to-r from-emerald-400 via-teal-300 to-cyan-400 bg-clip-text text-transparent drop-shadow-xs">
+                    Integrated.
+                  </span>
                 </h1>
-                <p className="text-xs md:text-sm text-slate-400 leading-relaxed">
-                  The central data hub for airbag manufacturing. Keep stock registries coherent, schedule machines accurately, and monitor active operators effortlessly.
+                <p className="text-sm md:text-base text-slate-300/95 leading-relaxed text-center font-normal max-w-md mx-auto">
+                  The central digital workspace for airbag production management. Coherent stock records, optimal machine layout, and effortless live monitoring.
                 </p>
+                <div className="pt-2">
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-[10px] font-semibold tracking-wider uppercase bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                    Live Dashboard Active
+                  </span>
+                </div>
               </div>
 
 
@@ -990,7 +994,7 @@ export default function App() {
                   <img 
                     src="https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp" 
                     alt="EPP Logo"
-                    className="h-10 w-auto object-contain animate-fadeIn"
+                    className="h-14 md:h-16 w-auto object-contain animate-fadeIn drop-shadow-md transition-transform duration-300 hover:scale-105"
                     referrerPolicy="no-referrer"
                   />
                 </div>
@@ -1060,7 +1064,7 @@ export default function App() {
                 <img 
                   src="https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp" 
                   alt="EPP Logo"
-                  className="h-6 w-auto object-contain"
+                  className="h-8 w-auto object-contain transition-transform"
                   referrerPolicy="no-referrer"
                 />
                 <span className="font-display font-black text-xs tracking-wider text-slate-200">EPP SYSTEM</span>

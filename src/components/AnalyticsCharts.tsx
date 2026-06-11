@@ -56,13 +56,13 @@ export default function AnalyticsCharts({ entries, plans, deliveries = [] }: Cha
               Live Stock Level by Airbag Model
             </h3>
           </div>
-          <div className="flex gap-1.5 p-1 bg-slate-50 rounded-lg border border-slate-200 animate-fade-in">
+          <div className="flex overflow-x-auto max-w-full md:flex-wrap gap-1.5 p-1 bg-slate-50 rounded-lg border border-slate-200 animate-fade-in whitespace-nowrap shrink-0 scrollbar-none" id="analytics-filter-rail">
             <button
               onClick={() => setActiveModel('ALL')}
-              className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+              className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 ${
                 activeModel === 'ALL'
-                  ? 'bg-white text-emerald-700 border border-emerald-100 shadow-3xs font-semibold'
-                  : 'text-slate-550 hover:text-slate-800'
+                  ? 'bg-white text-emerald-705 border border-emerald-100 shadow-3xs font-bold'
+                  : 'text-slate-550 hover:text-slate-800/80'
               }`}
               id="filter-all-models"
             >
@@ -72,10 +72,10 @@ export default function AnalyticsCharts({ entries, plans, deliveries = [] }: Cha
               <button
                 key={m}
                 onClick={() => setActiveModel(m)}
-                className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer ${
+                className={`px-2.5 py-1.5 text-xs font-medium rounded-md transition-colors cursor-pointer shrink-0 ${
                   activeModel === m
-                    ? 'bg-white text-emerald-700 border border-emerald-100 shadow-3xs font-semibold'
-                    : 'text-slate-550 hover:text-slate-800'
+                    ? 'bg-white text-emerald-705 border border-emerald-100 shadow-3xs font-bold'
+                    : 'text-slate-550 hover:text-slate-800/80'
                 }`}
                 id={`filter-model-${m.replace(' ', '-')}`}
               >
