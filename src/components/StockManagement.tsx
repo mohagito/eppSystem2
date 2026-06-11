@@ -245,7 +245,6 @@ export default function StockManagement({
               </div>
               <div>
                 <h3 className="text-base font-semibold text-slate-900">Add Stock Entry</h3>
-                <p className="text-xs text-slate-500 font-medium">Register manufactured airbag units</p>
               </div>
             </div>
 
@@ -365,7 +364,6 @@ export default function StockManagement({
                   <FileSpreadsheet className="text-emerald-600" size={18} />
                   Stock Ledger Ledger
                 </h3>
-                <p className="text-xs text-slate-550 font-medium mt-1">Audit log of registered manufactured parts</p>
               </div>
 
               {/* Expand Search / Filter toggle button */}

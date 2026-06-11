@@ -65,11 +65,10 @@ export default function WorkerDashboard({
     if (isNaN(amt) || amt <= 0) return;
 
     if (onAddStockEntry) {
-      const today = new Date().toISOString().split('T')[0];
       onAddStockEntry({
         modelId: plan.model,
         workerName: currentUser.name,
-        date: today,
+        date: plan.planDate,
         quantity: amt,
         createdBy: currentUser.id
       });
@@ -89,11 +88,10 @@ export default function WorkerDashboard({
     const amtToLog = remaining > 0 ? remaining : plan.quantityPlanned;
 
     if (onAddStockEntry) {
-      const today = new Date().toISOString().split('T')[0];
       onAddStockEntry({
         modelId: plan.model,
         workerName: currentUser.name,
-        date: today,
+        date: plan.planDate,
         quantity: amtToLog,
         createdBy: currentUser.id
       });
@@ -145,9 +143,7 @@ export default function WorkerDashboard({
               <ClipboardCheck size={18} className="text-emerald-600 shrink-0 animate-pulse" />
               PRODUCTION
             </h3>
-            <p className="text-[11px] text-slate-500 mt-1 font-semibold">
-              Assigned orders scheduled by managers. Completing a request automatically updates the status and registers the completed units into the active Stock levels.
-            </p>
+
           </div>
           <div className="flex gap-1.5 p-1 bg-slate-50 border border-slate-200 rounded-lg shrink-0 self-start sm:self-center">
             <button

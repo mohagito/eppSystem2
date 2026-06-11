@@ -55,7 +55,6 @@ export default function AnalyticsCharts({ entries, plans, deliveries = [] }: Cha
               <BarChart3 className="text-emerald-600" size={18} />
               Live Stock Level by Airbag Model
             </h3>
-            <p className="text-xs text-slate-500 mt-1">Real-time aggregate manufacturing volumes currently in dispatch bay</p>
           </div>
           <div className="flex gap-1.5 p-1 bg-slate-50 rounded-lg border border-slate-200 animate-fade-in">
             <button

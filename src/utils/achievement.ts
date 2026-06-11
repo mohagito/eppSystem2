@@ -5,7 +5,7 @@ import { ProductionPlan, StockEntry } from '../types';
  * by summarizing matching stock entries in the log database.
  */
 export function getPlanActualProduced(plan: ProductionPlan, stockEntries: StockEntry[]): number {
-  return stockEntries
+  const actualFromEntries = stockEntries
     .filter((e) => {
       const dateMatch = e.date === plan.planDate;
       const modelMatch = e.modelId === plan.model;
@@ -19,6 +19,11 @@ export function getPlanActualProduced(plan: ProductionPlan, stockEntries: StockE
       return dateMatch && modelMatch && (exactWorkerMatch || isMockSpecialCase);
     })
     .reduce((sum, e) => sum + e.quantity, 0);
+
+  if (plan.status === 'Completed') {
+    return Math.max(plan.quantityPlanned, actualFromEntries, plan.quantityCompleted || 0);
+  }
+  return Math.max(actualFromEntries, plan.quantityCompleted || 0);
 }
 
 /**

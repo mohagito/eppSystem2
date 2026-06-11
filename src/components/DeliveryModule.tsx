@@ -180,7 +180,6 @@ export default function DeliveryModule({
         <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-2">
           <div>
             <h3 className="text-sm font-semibold tracking-wider uppercase text-slate-500 font-sans">Active Stock Available After Deliveries</h3>
-            <p className="text-xs text-slate-400 mt-0.5">Calculated in real-time: Manufacturing Stockpile minus Dispatch Shipments</p>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-xs text-amber-700 bg-amber-50 border border-amber-100 px-3 py-1 rounded-full font-mono font-bold shadow-3xs flex items-center gap-1">
@@ -251,7 +250,6 @@ export default function DeliveryModule({
               </div>
               <div>
                 <h3 className="text-base font-semibold text-slate-900">Ship Delivery</h3>
-                <p className="text-xs text-slate-500 font-medium">Subtract dispatched units from stockpile</p>
               </div>
             </div>
 
@@ -388,7 +386,6 @@ export default function DeliveryModule({
                   <History className="text-amber-600" size={18} />
                   Delivery Ledger Logs
                 </h3>
-                <p className="text-xs text-slate-550 font-medium mt-1">Audit trail of finished parts shipped/dispatched from the factory</p>
               </div>
 
               {/* Filters Toggle */}

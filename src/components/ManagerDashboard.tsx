@@ -178,9 +178,6 @@ export default function ManagerDashboard({
           <h2 className="text-xl md:text-2xl font-bold font-sans text-slate-900 tracking-tight">
             Dashboard
           </h2>
-          <p className="text-xs md:text-sm text-slate-600 leading-relaxed max-w-xl font-medium">
-            Signed in as <span className="text-slate-800 font-extrabold">{currentUser.name}</span>. Configure daily manufacturing targets, purge database logs, and oversee operators.
-          </p>
         </div>
 
         <div className="flex gap-3">
@@ -266,9 +263,6 @@ export default function ManagerDashboard({
               <Activity size={16} className="text-emerald-600" />
               Production Achievement Summary
             </h3>
-            <p className="text-xs text-slate-500 mt-1">
-              Real-time synchronization of planned schedules against actual stock entries.
-            </p>
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] uppercase font-bold text-slate-400">Roster Status:</span>
@@ -380,7 +374,7 @@ export default function ManagerDashboard({
           <div className="space-y-3">
             {imminentPlans.length === 0 ? (
               <div className="p-12 text-center text-xs text-slate-450 border border-dashed border-slate-200 rounded-xl bg-white">
-                No active plans logged. Proceed to planning module to schedule targets.
+                No active plans
               </div>
             ) : (
               imminentPlans.map((plan) => {

@@ -470,9 +470,6 @@ export default function PlanningModule({
                   Week {companyWeekInfo.weekNo}
                 </span>
               </div>
-              <p className="text-[11px] text-slate-500 font-semibold font-sans mt-0.5">
-                Production schedule. Grid cells display scheduled shifts for each worker.
-              </p>
             </div>
           </div>
 
@@ -946,8 +943,8 @@ export default function PlanningModule({
                         onChange={(e) => setEditMachine(e.target.value as MachineType)}
                         className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-2.5 py-2 text-xs text-slate-800 font-semibold focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-3xs"
                       >
-                        <option value="Big Machine font-semibold">Big Machine</option>
-                        <option value="Small Machine font-semibold">Small Machine</option>
+                        <option value="Big Machine">Big Machine</option>
+                        <option value="Small Machine">Small Machine</option>
                       </select>
                       <ChevronDown size={13} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
                     </div>

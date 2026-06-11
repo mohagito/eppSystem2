@@ -18,7 +18,8 @@ import {
   ChevronRight,
   MonitorCheck,
   AlertCircle,
-  Truck
+  Truck,
+  DollarSign
 } from 'lucide-react';
 import { UserProfile, StockEntry, ProductionPlan, ToastMessage, DeliveryEntry } from './types';
 import { MOCK_PROFILES, INITIAL_STOCK_ENTRIES, INITIAL_PLANS } from './data';
@@ -137,7 +138,15 @@ export default function App() {
       unsubPlans = onSnapshot(collection(db, 'production_plans'), (snapshot) => {
         const list: ProductionPlan[] = [];
         snapshot.forEach((doc) => {
-          list.push(doc.data() as ProductionPlan);
+          const plan = doc.data() as ProductionPlan;
+          if (plan.machine) {
+            if (plan.machine.startsWith('Big Machine')) {
+              plan.machine = 'Big Machine';
+            } else if (plan.machine.startsWith('Small Machine')) {
+              plan.machine = 'Small Machine';
+            }
+          }
+          list.push(plan);
         });
         // Sort desc by planDate / createdAt
         list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
@@ -705,6 +714,18 @@ export default function App() {
           />
         );
 
+      case 'prima':
+        return (
+          <div className="flex flex-col items-center justify-center min-h-[60vh] bg-white border border-slate-200 rounded-3xl p-8 text-center shadow-3xs" id="prima-coming-soon">
+            <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4 border border-emerald-100">
+              <DollarSign size={28} />
+            </div>
+            <h2 className="text-xl font-black font-display text-slate-800 tracking-tight uppercase">
+              Coming Soon
+            </h2>
+          </div>
+        );
+
       default:
         return (
           <div className="p-8 text-center text-slate-400">
@@ -719,7 +740,8 @@ export default function App() {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'stock', label: 'Stock', icon: Database },
     { id: 'plans', label: 'Production Plan', icon: CalendarRange },
-    { id: 'delivery', label: 'Deliveries', icon: Truck }
+    { id: 'delivery', label: 'Deliveries', icon: Truck },
+    { id: 'prima', label: 'Prima', icon: DollarSign }
   ];
 
   return (
@@ -831,7 +853,7 @@ export default function App() {
                         </label>
                         <input
                           type="text"
-                          placeholder="e.g. gonzalo"
+                          placeholder=""
                           value={loginUsername}
                           onChange={(e) => setLoginUsername(e.target.value)}
                           className="w-full bg-slate-50 border border-slate-250 focus:border-emerald-500 focus:outline-hidden text-xs py-2.5 px-3.5 rounded-xl text-slate-800 font-medium shadow-3xs"
@@ -870,7 +892,7 @@ export default function App() {
                         <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Full Name</label>
                         <input
                           type="text"
-                          placeholder="Gonzalo"
+                          placeholder=""
                           value={signUpName}
                           onChange={(e) => setSignUpName(e.target.value)}
                           className="w-full bg-slate-50 border border-slate-250 focus:border-emerald-500 focus:outline-hidden text-xs py-2.5 px-3.5 rounded-xl text-slate-800 font-medium shadow-3xs"
@@ -884,7 +906,7 @@ export default function App() {
                           <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Username</label>
                           <input
                             type="text"
-                            placeholder="gonzalo"
+                            placeholder=""
                             value={signUpUsername}
                             onChange={(e) => setSignUpUsername(e.target.value)}
                             className="w-full bg-slate-50 border border-slate-250 focus:border-emerald-500 focus:outline-hidden text-xs py-2.5 px-3.5 rounded-xl text-slate-800 font-mono shadow-3xs"
