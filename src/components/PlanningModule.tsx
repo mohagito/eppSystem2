@@ -360,6 +360,12 @@ export default function PlanningModule({
       <div className="space-y-1.5">
         {cellPlans.map((plan) => {
           const isYourJob = plan.assignedWorker === currentUser.name;
+          const actualQty = getPlanActualProduced(plan, entries, plans);
+          const isComp = actualQty >= plan.quantityPlanned;
+          const resolvedStatus = isComp 
+            ? 'Completed' 
+            : (plan.status === 'Completed' ? (actualQty > 0 ? 'In Progress' : 'Pending') : plan.status || 'Pending');
+
           return (
             <div
               key={plan.id}
@@ -376,13 +382,13 @@ export default function PlanningModule({
                 </span>
                 <div className="flex items-center gap-1 shrink-0">
                   <span className={`text-[9px] font-extrabold ${
-                    plan.status === 'Completed'
+                    resolvedStatus === 'Completed'
                       ? 'text-emerald-700'
-                      : plan.status === 'Delayed'
+                      : resolvedStatus === 'Delayed'
                       ? 'text-amber-700'
                       : 'text-sky-700'
                   }`}>
-                    {plan.status === 'Completed' ? '✓' : plan.status === 'Delayed' ? '⚠️' : '🕒'}
+                    {resolvedStatus === 'Completed' ? '✓' : resolvedStatus === 'Delayed' ? '⚠️' : '🕒'}
                   </span>
                   {currentUser.role === 'manager' && onEditPlan && (
                     <button
@@ -412,7 +418,6 @@ export default function PlanningModule({
               </div>
               
               {(() => {
-                const actualQty = getPlanActualProduced(plan, entries, plans);
                 const pctStr = getAchievementPercent(plan.quantityPlanned, actualQty);
                 const pctVal = typeof pctStr === 'number' ? Math.round(pctStr) : 0;
                 const colors = getAchievementColors(plan.quantityPlanned, actualQty);

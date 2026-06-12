@@ -183,7 +183,12 @@ export default function WorkerDashboard({
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
             {filteredPlans.map((plan) => {
-              const isComp = plan.status === 'Completed';
+              const actualQty = getPlanActualProduced(plan, entries, plans);
+              const isComp = actualQty >= plan.quantityPlanned;
+              const resolvedStatus = isComp 
+                ? 'Completed' 
+                : (plan.status === 'Completed' ? (actualQty > 0 ? 'In Progress' : 'Pending') : plan.status || 'Pending');
+
               return (
                 <div
                   key={plan.id}
@@ -203,12 +208,14 @@ export default function WorkerDashboard({
                         className={`text-[9.5px] font-extrabold uppercase px-2 py-0.5 rounded-full border ${
                           isComp
                             ? 'bg-emerald-50 text-emerald-700 border-emerald-150 font-mono'
-                            : plan.status === 'Delayed'
+                            : resolvedStatus === 'Delayed'
                             ? 'bg-rose-50 text-rose-700 border-rose-150 font-mono animate-pulse'
+                            : resolvedStatus === 'In Progress'
+                            ? 'bg-sky-50 text-sky-700 border-sky-150 font-mono animate-pulse'
                             : 'bg-amber-50 text-amber-700 border-amber-150 font-mono'
                         }`}
                       >
-                        {plan.status}
+                        {resolvedStatus}
                       </span>
                     </div>
 
@@ -222,13 +229,12 @@ export default function WorkerDashboard({
                       <div className="flex items-center justify-between text-slate-600 font-medium">
                         <span>Progress:</span>
                         <span className="text-emerald-700 font-extrabold font-mono bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">
-                          {getPlanActualProduced(plan, entries, plans)} / {plan.quantityPlanned} units
+                          {actualQty} / {plan.quantityPlanned} units
                         </span>
                       </div>
 
                       {/* Dynamic interactive progress bar */}
                       {(() => {
-                        const actualQty = getPlanActualProduced(plan, entries, plans);
                         const pctStr = getAchievementPercent(plan.quantityPlanned, actualQty);
                         const pctVal = typeof pctStr === 'number' ? Math.round(pctStr) : 0;
                         const colors = getAchievementColors(plan.quantityPlanned, actualQty);
@@ -281,12 +287,12 @@ export default function WorkerDashboard({
                           <label className="text-[10px] font-bold text-slate-500 uppercase tracking-wider block">Log Finished Batch</label>
                           <div className="flex gap-2">
                             <input
-                              type="number"
-                              min="1"
-                              placeholder="e.g. 250"
-                              value={progressInputs[plan.id] || ''}
-                              onChange={(e) => setProgressInputs({ ...progressInputs, [plan.id]: e.target.value })}
-                              className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono shadow-3xs"
+                               type="number"
+                               min="1"
+                               placeholder="e.g. 250"
+                               value={progressInputs[plan.id] || ''}
+                               onChange={(e) => setProgressInputs({ ...progressInputs, [plan.id]: e.target.value })}
+                               className="w-full text-xs border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-emerald-500 font-mono shadow-3xs"
                             />
                             <button
                               onClick={() => {
@@ -329,7 +335,7 @@ export default function WorkerDashboard({
                         id={`complete-btn-${plan.id}`}
                       >
                         <CheckSquare size={13} />
-                        Log Remaining ({plan.quantityPlanned - getPlanActualProduced(plan, entries, plans)} units) & Complete
+                        Log Remaining ({plan.quantityPlanned - actualQty} units) & Complete
                       </button>
                     )}
                   </div>

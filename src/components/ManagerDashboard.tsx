@@ -379,10 +379,17 @@ export default function ManagerDashboard({
             ) : (
               imminentPlans.map((plan) => {
                 const isToday = plan.planDate === todayStr;
+                const actualQty = getPlanActualProduced(plan, entries, plans);
+                const isComp = actualQty >= plan.quantityPlanned;
+                const resolvedStatus = isComp 
+                  ? 'Completed' 
+                  : (plan.status === 'Completed' ? (actualQty > 0 ? 'In Progress' : 'Pending') : plan.status || 'Pending');
+
                 let statColor = 'bg-slate-50 text-slate-500 border-slate-200';
-                if (plan.status === 'Completed') statColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
-                if (plan.status === 'Delayed') statColor = 'bg-amber-50 text-amber-700 border-amber-200';
-                if (plan.status === 'Pending') statColor = 'bg-sky-50 text-sky-700 border-sky-200';
+                if (resolvedStatus === 'Completed') statColor = 'bg-emerald-50 text-emerald-700 border-emerald-200';
+                if (resolvedStatus === 'Delayed') statColor = 'bg-amber-50 text-amber-700 border-amber-200';
+                if (resolvedStatus === 'In Progress') statColor = 'bg-sky-50 text-sky-700 border-sky-200';
+                if (resolvedStatus === 'Pending') statColor = 'bg-sky-50 text-sky-700 border-sky-200';
 
                 return (
                   <div
@@ -409,7 +416,7 @@ export default function ManagerDashboard({
                       <div className="text-left sm:text-right">
                         <div className="text-[9px] text-slate-400 font-extrabold uppercase tracking-wider">Progress Status</div>
                         <div className="text-xs font-black font-mono text-emerald-600">
-                          {plan.quantityCompleted || 0} <span className="text-slate-400 font-bold text-[10.5px]">/ {plan.quantityPlanned} pcs</span>
+                          {actualQty} <span className="text-slate-400 font-bold text-[10.5px]">/ {plan.quantityPlanned} pcs</span>
                         </div>
                       </div>
 
@@ -417,7 +424,7 @@ export default function ManagerDashboard({
                         {/* Dropdown status update */}
                         {onUpdatePlanStatus && (
                           <select
-                            value={plan.status}
+                            value={resolvedStatus}
                             onChange={(e) => onUpdatePlanStatus(plan.id, e.target.value as any)}
                             className="bg-slate-50 hover:bg-slate-100 text-slate-800 border border-slate-205 rounded-xl px-2.5 py-1.5 text-[10.5px] cursor-pointer focus:outline-hidden font-extrabold shadow-3xs"
                           >
