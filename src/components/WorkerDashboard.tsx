@@ -70,7 +70,9 @@ export default function WorkerDashboard({
         workerName: currentUser.name,
         date: plan.planDate,
         quantity: amt,
-        createdBy: currentUser.id
+        createdBy: currentUser.id,
+        machine: plan.machine,
+        planId: plan.id
       });
     }
 
@@ -83,7 +85,7 @@ export default function WorkerDashboard({
   };
 
   const handleCompleteProduction = (plan: ProductionPlan) => {
-    const actual = getPlanActualProduced(plan, entries);
+    const actual = getPlanActualProduced(plan, entries, plans);
     const remaining = plan.quantityPlanned - actual;
     const amtToLog = remaining > 0 ? remaining : plan.quantityPlanned;
 
@@ -93,7 +95,9 @@ export default function WorkerDashboard({
         workerName: currentUser.name,
         date: plan.planDate,
         quantity: amtToLog,
-        createdBy: currentUser.id
+        createdBy: currentUser.id,
+        machine: plan.machine,
+        planId: plan.id
       });
     }
 
@@ -218,13 +222,13 @@ export default function WorkerDashboard({
                       <div className="flex items-center justify-between text-slate-600 font-medium">
                         <span>Progress:</span>
                         <span className="text-emerald-700 font-extrabold font-mono bg-emerald-50 border border-emerald-100 px-1.5 py-0.5 rounded">
-                          {getPlanActualProduced(plan, entries)} / {plan.quantityPlanned} units
+                          {getPlanActualProduced(plan, entries, plans)} / {plan.quantityPlanned} units
                         </span>
                       </div>
 
                       {/* Dynamic interactive progress bar */}
                       {(() => {
-                        const actualQty = getPlanActualProduced(plan, entries);
+                        const actualQty = getPlanActualProduced(plan, entries, plans);
                         const pctStr = getAchievementPercent(plan.quantityPlanned, actualQty);
                         const pctVal = typeof pctStr === 'number' ? Math.round(pctStr) : 0;
                         const colors = getAchievementColors(plan.quantityPlanned, actualQty);
@@ -325,7 +329,7 @@ export default function WorkerDashboard({
                         id={`complete-btn-${plan.id}`}
                       >
                         <CheckSquare size={13} />
-                        Log Remaining ({plan.quantityPlanned - getPlanActualProduced(plan, entries)} units) & Complete
+                        Log Remaining ({plan.quantityPlanned - getPlanActualProduced(plan, entries, plans)} units) & Complete
                       </button>
                     )}
                   </div>

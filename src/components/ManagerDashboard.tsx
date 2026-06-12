@@ -126,7 +126,7 @@ export default function ManagerDashboard({
   }, [plans]);
 
   const totalActualOverall = useMemo(() => {
-    return plans.reduce((sum, p) => sum + getPlanActualProduced(p, entries), 0);
+    return plans.reduce((sum, p) => sum + getPlanActualProduced(p, entries, plans), 0);
   }, [plans, entries]);
 
   const overallAchievementPct = useMemo(() => {
@@ -145,7 +145,7 @@ export default function ManagerDashboard({
     return AIRBAG_MODELS.map((model) => {
       const modelPlans = plans.filter((p) => p.model === model);
       const planned = modelPlans.reduce((sum, p) => sum + p.quantityPlanned, 0);
-      const actual = modelPlans.reduce((sum, p) => sum + getPlanActualProduced(p, entries), 0);
+      const actual = modelPlans.reduce((sum, p) => sum + getPlanActualProduced(p, entries, plans), 0);
 
       const pct = getAchievementPercent(planned, actual);
       const pctVal = typeof pct === 'number' ? Math.round(pct) : 0;

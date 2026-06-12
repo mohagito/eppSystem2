@@ -20,7 +20,8 @@ import {
   History,
   Eye,
   Clock,
-  X
+  X,
+  Download
 } from 'lucide-react';
 
 interface DeliveryProps {
@@ -213,6 +214,61 @@ export default function DeliveryModule({
   const netStockSum = useMemo(() => {
     return AIRBAG_MODELS.reduce((sum, model) => sum + (availableStock[model] || 0), 0);
   }, [availableStock]);
+
+  const handleDownloadCSV = () => {
+    // 1. Define CSV headers
+    const headers = [
+      'Invoice Number',
+      'Model',
+      'Quantity',
+      'Dispatch Date',
+      'Dispatch Time',
+      'Delivered By',
+      'Created By',
+      'System ID',
+      'Firestore Timestamp'
+    ];
+
+    // 2. Map filteredDeliveries data
+    const rows = filteredDeliveries.map((d) => [
+      d.invoiceNumber || 'N/A',
+      d.model || d.modelId,
+      d.quantity,
+      d.deliveryDate || (d.date ? new Date(d.date).toLocaleDateString('en-GB') : 'N/A'),
+      d.deliveryTime || '00:00',
+      d.loadedBy || d.workerName || 'N/A',
+      d.createdBy || 'N/A',
+      d.id,
+      d.createdAt ? String(d.createdAt) : 'N/A'
+    ]);
+
+    // 3. Assemble CSV string using CSV escaping guidelines
+    const escapeCSVCell = (val: any) => {
+      const stringified = String(val === null || val === undefined ? '' : val);
+      if (stringified.includes(',') || stringified.includes('"') || stringified.includes('\n') || stringified.includes('\r')) {
+        return `"${stringified.replace(/"/g, '""')}"`;
+      }
+      return stringified;
+    };
+
+    const csvContent = [
+      headers.map(escapeCSVCell).join(','),
+      ...rows.map(row => row.map(escapeCSVCell).join(','))
+    ].join('\n');
+
+    // 4. Create Blob and Trigger Download with UTF-8 BOM for Excel compatibility
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    
+    const dateSuffix = getLocalDateStr();
+    link.setAttribute('download', `delivery_list_${dateSuffix}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="space-y-8" id="delivery-module-view">
@@ -446,22 +502,36 @@ export default function DeliveryModule({
                 </h3>
               </div>
 
-              {/* Filters Toggle */}
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className={`self-start md:self-auto px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all border cursor-pointer shadow-3xs ${
-                  showFilters || filterModel !== 'ALL' || filterWorker !== 'ALL' || filterInvoice || filterDate || filterSearch
-                    ? 'bg-amber-50 border-amber-200 text-amber-700'
-                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-                id="toggle-delivery-filters"
-              >
-                <SlidersHorizontal size={14} />
-                <span>Filters {showFilters ? 'Hide' : 'Show'}</span>
-                {(filterModel !== 'ALL' || filterWorker !== 'ALL' || filterInvoice || filterDate || filterSearch) && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-550"></span>
+              <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
+                {currentUser.role === 'manager' && (
+                  <button
+                    onClick={handleDownloadCSV}
+                    className="px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white transition-all cursor-pointer shadow-3xs border border-emerald-500"
+                    id="download-delivery-csv-btn"
+                    title="Export current delivery list to CSV for external reporting"
+                  >
+                    <Download size={14} />
+                    <span>Download CSV</span>
+                  </button>
                 )}
-              </button>
+
+                {/* Filters Toggle */}
+                <button
+                  onClick={() => setShowFilters(!showFilters)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all border cursor-pointer shadow-3xs ${
+                    showFilters || filterModel !== 'ALL' || filterWorker !== 'ALL' || filterInvoice || filterDate || filterSearch
+                      ? 'bg-amber-50 border-amber-200 text-amber-700'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                  id="toggle-delivery-filters"
+                >
+                  <SlidersHorizontal size={14} />
+                  <span>Filters {showFilters ? 'Hide' : 'Show'}</span>
+                  {(filterModel !== 'ALL' || filterWorker !== 'ALL' || filterInvoice || filterDate || filterSearch) && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-550"></span>
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Slide drawer for filters */}

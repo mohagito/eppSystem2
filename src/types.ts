@@ -21,6 +21,8 @@ export interface StockEntry {
   quantity: number;
   createdBy: string; // Profile user ID
   createdAt: string; // ISO string
+  machine?: MachineType; // Optional: target machine context
+  planId?: string;       // Optional: directly associated production plan ID
 }
 
 export interface DeliveryEntry {

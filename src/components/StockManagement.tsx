@@ -16,7 +16,8 @@ import {
   SlidersHorizontal,
   ChevronDown,
   Pencil,
-  Plus
+  Plus,
+  Cpu
 } from 'lucide-react';
 
 interface StockProps {
@@ -59,12 +60,49 @@ export default function StockManagement({
       setWorkerName(currentUser.name);
     }
   }, [currentUser]);
+
+  // Target matching association states
+  const [associationType, setAssociationType] = useState<string>('NONE');
+  const [targetMachine, setTargetMachine] = useState<string>('ALL');
+  const [targetPlanId, setTargetPlanId] = useState<string>('');
+
+  // Find plans that match the current selection (date, model, and worker)
+  const activeMatchingPlans = useMemo(() => {
+    const finalWorkerName = currentUser.role === 'manager' ? workerName : currentUser.name;
+    return plans.filter((p) => {
+      const dateMatch = p.planDate === entryDate;
+      const modelMatch = p.model === selectedModel;
+      const workerMatch = p.assignedWorker.toLowerCase() === finalWorkerName.toLowerCase();
+      return dateMatch && modelMatch && workerMatch;
+    });
+  }, [plans, entryDate, selectedModel, workerName, currentUser]);
+
+  // Automatically select the active plan of the day if any matching plans are available, or reset if invalid
+  React.useEffect(() => {
+    if (activeMatchingPlans.length > 0) {
+      const currentExists = activeMatchingPlans.some((p) => p.id === associationType);
+      if (!currentExists) {
+        const defaultPlan = activeMatchingPlans[0];
+        setAssociationType(defaultPlan.id);
+        setTargetPlanId(defaultPlan.id);
+        setTargetMachine(defaultPlan.machine);
+      }
+    } else {
+      if (associationType !== 'NONE' && associationType !== 'Big Machine' && associationType !== 'Small Machine') {
+        setAssociationType('NONE');
+        setTargetMachine('ALL');
+        setTargetPlanId('');
+      }
+    }
+  }, [activeMatchingPlans, associationType]);
   
   // Edit Stock Entry Modal state
   const [editingEntry, setEditingEntry] = useState<StockEntry | null>(null);
   const [editModel, setEditModel] = useState<AirbagModel>('BCB');
   const [editDate, setEditDate] = useState<string>('');
   const [editQty, setEditQty] = useState<string>('');
+  const [editMachine, setEditMachine] = useState<string>('ALL');
+  const [editPlanId, setEditPlanId] = useState<string>('');
   const [editFormError, setEditFormError] = useState<string>('');
 
   const handleStartEdit = (entry: StockEntry) => {
@@ -72,6 +110,8 @@ export default function StockManagement({
     setEditModel(entry.modelId);
     setEditDate(entry.date);
     setEditQty(entry.quantity.toString());
+    setEditMachine(entry.machine || 'ALL');
+    setEditPlanId(entry.planId || '');
     setEditFormError('');
   };
 
@@ -95,6 +135,8 @@ export default function StockManagement({
         modelId: editModel,
         date: editDate,
         quantity: parsedQty,
+        machine: editMachine !== 'ALL' ? (editMachine as any) : null as any,
+        planId: editPlanId || null as any,
       });
       setEditingEntry(null);
     }
@@ -120,7 +162,7 @@ export default function StockManagement({
     }
 
     // Handled safely depending on role: if manager, we don't ask about operator, just credit as current manager or empty
-    const finalWorkerName = currentUser.role === 'manager' ? currentUser.name : workerName.trim();
+    const finalWorkerName = currentUser.role === 'manager' ? workerName : currentUser.name;
 
     if (!finalWorkerName) {
       setFormError('Operator / Worker Name is required.');
@@ -133,10 +175,15 @@ export default function StockManagement({
       date: entryDate || getLocalDateStr(),
       quantity: parsedQty,
       createdBy: currentUser.id,
+      machine: targetMachine !== 'ALL' ? (targetMachine as any) : undefined,
+      planId: targetPlanId || undefined,
     });
 
-    // Reset quantity only
+    // Reset fields except date and worker name
     setQuantity('');
+    setAssociationType('NONE');
+    setTargetMachine('ALL');
+    setTargetPlanId('');
   };
 
   // Pre-calculate per-model sums for stats cards (Subtract deliveries)
@@ -333,6 +380,52 @@ export default function StockManagement({
                 />
               </div>
 
+              {/* Target / Machine Association */}
+              <div className="space-y-1.5">
+                <label className="text-[11px] font-bold text-slate-600 tracking-wider uppercase flex items-center gap-1.5">
+                  <Cpu size={13} className="text-emerald-555" />
+                  Target / Machine
+                </label>
+                <div className="relative">
+                  <select
+                    value={associationType}
+                    onChange={(e) => {
+                      const val = e.target.value;
+                      setAssociationType(val);
+                      if (val === 'NONE') {
+                        setTargetMachine('ALL');
+                        setTargetPlanId('');
+                      } else if (val === 'Big Machine' || val === 'Small Machine') {
+                        setTargetMachine(val);
+                        setTargetPlanId('');
+                      } else {
+                        setTargetPlanId(val);
+                        const p = plans?.find((plan) => plan.id === val);
+                        if (p) {
+                          setTargetMachine(p.machine);
+                        }
+                      }
+                    }}
+                    className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-semibold focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-3xs"
+                    id="stock-form-association"
+                  >
+                    <option value="NONE">General Stock (No specific target)</option>
+                    <option value="Big Machine">Big Machine (General)</option>
+                    <option value="Small Machine">Small Machine (General)</option>
+                    {activeMatchingPlans.length > 0 && (
+                      <optgroup label="Active Plans on this Date" className="bg-white font-semibold text-emerald-700">
+                        {activeMatchingPlans.map((p) => (
+                          <option key={p.id} value={p.id} className="text-slate-800 font-medium">
+                            Plan: {p.machine} ({p.shift}) - Goal: {p.quantityPlanned}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                  </select>
+                  <ChevronDown size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                </div>
+              </div>
+
               {/* Quantity */}
               <div className="space-y-1.5">
                 <label className="text-[11px] font-bold text-slate-600 tracking-wider uppercase flex items-center gap-1.5">
@@ -509,9 +602,21 @@ export default function StockManagement({
                             id={`ledger-row-${e.id}`}
                           >
                             <td className="p-4">
-                              <span className="text-xs font-bold text-slate-800 font-mono tracking-wide bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
-                                {e.modelId}
-                              </span>
+                              <div className="flex flex-wrap items-center gap-1.5">
+                                <span className="text-xs font-bold text-slate-800 font-mono tracking-wide bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
+                                  {e.modelId}
+                                </span>
+                                {e.machine && (
+                                  <span className="text-[9px] font-extrabold uppercase bg-sky-50 text-sky-600 border border-sky-100 rounded-md px-2 py-0.5 tracking-normal">
+                                    {e.machine}
+                                  </span>
+                                )}
+                                {e.planId && (
+                                  <span className="text-[9px] font-extrabold uppercase bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-md px-2 py-0.5 tracking-normal">
+                                    Linked Plan
+                                  </span>
+                                )}
+                              </div>
                             </td>
                             <td className="p-4">
                               <span className="text-xs font-bold text-slate-800">
@@ -631,6 +736,29 @@ export default function StockManagement({
                     className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all shadow-3xs"
                     required
                   />
+                </div>
+
+                {/* Machine Target */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Target Machine</label>
+                  <div className="relative">
+                    <select
+                      value={editMachine}
+                      onChange={(e) => {
+                        const val = e.target.value;
+                        setEditMachine(val);
+                        if (val === 'ALL') {
+                          setEditPlanId('');
+                        }
+                      }}
+                      className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-semibold focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-3xs"
+                    >
+                      <option value="ALL">General Stock (No machine)</option>
+                      <option value="Big Machine">Big Machine</option>
+                      <option value="Small Machine">Small Machine</option>
+                    </select>
+                    <ChevronDown size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
+                  </div>
                 </div>
 
                 {/* Quantity */}

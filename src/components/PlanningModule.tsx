@@ -412,7 +412,7 @@ export default function PlanningModule({
               </div>
               
               {(() => {
-                const actualQty = getPlanActualProduced(plan, entries);
+                const actualQty = getPlanActualProduced(plan, entries, plans);
                 const pctStr = getAchievementPercent(plan.quantityPlanned, actualQty);
                 const pctVal = typeof pctStr === 'number' ? Math.round(pctStr) : 0;
                 const colors = getAchievementColors(plan.quantityPlanned, actualQty);
