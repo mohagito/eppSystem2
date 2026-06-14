@@ -890,8 +890,8 @@ export default function DeliveryModule({
                       <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Invoice</th>
                       <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Model</th>
                       <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Qty</th>
-                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Date & Time</th>
-                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Delivered By</th>
+                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase hidden sm:table-cell">Date & Time</th>
+                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase hidden sm:table-cell">Delivered By</th>
                       <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase text-center w-28">Actions</th>
                     </tr>
                   </thead>
@@ -928,10 +928,10 @@ export default function DeliveryModule({
                             <td className="p-4 text-xs font-extrabold font-mono text-amber-700 select-all">
                               -{d.quantity} pcs
                             </td>
-                            <td className="p-4 text-xs font-mono text-slate-650">
+                            <td className="p-4 text-xs font-mono text-slate-650 hidden sm:table-cell">
                               {d.deliveryDate || new Date(d.date).toLocaleDateString('en-GB')} {d.deliveryTime || '00:00'}
                             </td>
-                            <td className="p-4">
+                            <td className="p-4 hidden sm:table-cell">
                               <span className="text-xs font-bold text-slate-800">
                                 {d.loadedBy || d.workerName}
                               </span>

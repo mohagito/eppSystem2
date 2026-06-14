@@ -16,6 +16,7 @@ import {
   Users2,
   CheckCircle2,
   ChevronRight,
+  ChevronDown,
   MonitorCheck,
   AlertCircle,
   Truck
@@ -57,6 +58,7 @@ export default function App() {
   // Navigation State
   const [activeTab, setActiveTab] = useState<string>('dashboard');
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
+  const [quickNavOpen, setQuickNavOpen] = useState<boolean>(false);
 
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{
@@ -1073,30 +1075,81 @@ export default function App() {
             </aside>
 
             {/* HEADER ACCENTS FOR RESPONSIVE MOBILE VIEW */}
-            <header className="md:hidden bg-slate-900 border-b border-slate-800 p-4 shrink-0 flex items-center justify-between" id="mobile-header">
-              <div className="flex items-center gap-2">
+            <header className="md:hidden bg-slate-900 border-b border-slate-800 px-3 py-3 shrink-0 flex items-center justify-between" id="mobile-header">
+              <div className="flex items-center gap-1.5">
                 <img 
                   src="https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp" 
                   alt="EPP Logo"
-                  className="h-8 w-auto object-contain transition-transform"
+                  className="h-7 w-auto object-contain"
                   referrerPolicy="no-referrer"
                 />
-                <span className="font-display font-black text-xs tracking-wider text-slate-200">EPP SYSTEM</span>
-                <span className={`text-[8.5px] font-bold px-1.5 py-0.5 rounded-full ${
-                  currentUser.role === 'manager' ? 'bg-amber-500/10 text-amber-400' : 'bg-emerald-500/10 text-emerald-400'
-                }`}>
-                  {currentUser.role.toUpperCase()}
-                </span>
+                <span className="font-display font-black text-[11px] tracking-wider text-slate-200 uppercase">EPP MES</span>
               </div>
 
-              <div className="flex items-center gap-3">
+              {/* Quick Section Switcher Dropdown */}
+              <div className="flex items-center gap-1.5">
+                <div className="relative" id="mobile-section-quicknav-container">
+                  <button
+                    onClick={() => setQuickNavOpen(!quickNavOpen)}
+                    className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-slate-850 hover:bg-slate-800 border border-slate-750 text-emerald-400 text-2xs font-bold transition-all cursor-pointer shadow-sm active:scale-95"
+                    id="mobile-nav-selector-dropdown-btn"
+                  >
+                    <span>{navigationItems.find(n => n.id === activeTab)?.label}</span>
+                    <ChevronDown size={12} className={`text-slate-400 transition-transform duration-200 ${quickNavOpen ? 'rotate-180' : ''}`} />
+                  </button>
+
+                  <AnimatePresence>
+                    {quickNavOpen && (
+                      <>
+                        <div 
+                          className="fixed inset-0 z-45 bg-transparent" 
+                          onClick={() => setQuickNavOpen(false)} 
+                        />
+                        <motion.div
+                          initial={{ opacity: 0, scale: 0.95, y: -8 }}
+                          animate={{ opacity: 1, scale: 1, y: 0 }}
+                          exit={{ opacity: 0, scale: 0.95, y: -8 }}
+                          transition={{ duration: 0.12 }}
+                          className="absolute right-0 mt-2 w-48 bg-slate-900 border border-slate-800 rounded-2xl shadow-xl z-50 py-1.5 overflow-hidden"
+                          id="mobile-quick-nav-dropdown"
+                        >
+                          <div className="px-3 py-1.5 text-[9px] font-black text-slate-500 uppercase tracking-widest font-mono border-b border-slate-850">
+                            Switch Section
+                          </div>
+                          {navigationItems.map((item) => {
+                            const IconComponent = item.icon;
+                            const isActive = activeTab === item.id;
+                            return (
+                              <button
+                                key={item.id}
+                                onClick={() => {
+                                  setActiveTab(item.id);
+                                  setQuickNavOpen(false);
+                                }}
+                                className={`w-full text-left py-2.5 px-3.5 text-xs font-semibold flex items-center gap-2.5 transition cursor-pointer ${
+                                  isActive
+                                    ? 'bg-emerald-500/10 text-emerald-400 font-bold border-l-2 border-emerald-500'
+                                    : 'text-slate-300 hover:bg-slate-800 hover:text-white'
+                                }`}
+                              >
+                                <IconComponent size={13.5} className={isActive ? 'text-emerald-400' : 'text-slate-450'} />
+                                <span>{item.label}</span>
+                              </button>
+                            );
+                          })}
+                        </motion.div>
+                      </>
+                    )}
+                  </AnimatePresence>
+                </div>
+
                 <button
                   onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                  className="p-1.5 hover:bg-slate-800 text-slate-350 hover:text-slate-200 rounded-lg"
+                  className="p-1.5 bg-slate-850 hover:bg-slate-800 border border-slate-755 text-slate-350 hover:text-white rounded-xl transition cursor-pointer"
                   aria-label="Toggle navigation drawers"
                   id="mobile-drawer-toggle"
                 >
-                  {mobileMenuOpen ? <X size={18} /> : <Menu size={18} />}
+                  {mobileMenuOpen ? <X size={15} /> : <Menu size={15} />}
                 </button>
               </div>
             </header>

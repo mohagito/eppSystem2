@@ -574,8 +574,8 @@ export default function StockManagement({
                   <thead>
                     <tr className="border-b border-slate-200 bg-slate-50">
                       <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Airbag Model</th>
-                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Assembled By</th>
-                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Date</th>
+                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase hidden sm:table-cell">Assembled By</th>
+                      <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase hidden sm:table-cell">Date</th>
                       <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase text-right">Quantity</th>
                       {currentUser.role === 'manager' && (
                         <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase text-center w-12">Actions</th>
@@ -618,12 +618,12 @@ export default function StockManagement({
                                 )}
                               </div>
                             </td>
-                            <td className="p-4">
+                            <td className="p-4 hidden sm:table-cell">
                               <span className="text-xs font-bold text-slate-800">
                                 {e.workerName}
                               </span>
                             </td>
-                            <td className="p-4 text-xs font-mono text-slate-500 uppercase">
+                            <td className="p-4 text-xs font-mono text-slate-500 uppercase hidden sm:table-cell">
                               {new Date(e.date).toLocaleDateString('en-US', {
                                 month: 'short',
                                 day: '2-digit',
