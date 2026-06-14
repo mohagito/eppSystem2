@@ -81,6 +81,15 @@ export default function App() {
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   useEffect(() => {
+    // Explicitly register service worker for mobile PWA install capability
+    if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
+      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {
+        navigator.serviceWorker.register('/firebase-messaging-sw.js').catch((err) => {
+          console.debug('Service Worker Registration:', err);
+        });
+      });
+    }
+
     const handleBeforeInstallPrompt = (e: Event) => {
       e.preventDefault();
       setDeferredPrompt(e);
@@ -111,8 +120,45 @@ export default function App() {
   }, []);
 
   const handleInstallApp = async () => {
+    const isInIframe = typeof window !== 'undefined' && window.self !== window.top;
+    
+    if (isInIframe) {
+      Swal.fire({
+        title: 'Open App in Full Screen',
+        html: `
+          <div class="text-left space-y-3 font-sans text-xs">
+            <div class="flex items-center gap-2 bg-amber-500/10 p-2.5 rounded-xl border border-amber-500/20 mb-3">
+              <span class="text-amber-400 font-bold">⚠️ Chat Preview Limitation</span>
+              <span class="text-[10px] text-slate-400">Mobile phones block PWA app stores and notifications inside chat previews.</span>
+            </div>
+            <p class="text-slate-300">To download and install the EPP system on your phone:</p>
+            <ol class="list-decimal pl-4 space-y-2 text-slate-400 font-medium">
+              <li>Tap the <span class="text-amber-400 font-black">"Open in new tab" ⎋</span> icon or click the button below.</li>
+              <li>Once open in full Safari/Chrome, tap the <span class="text-emerald-400 font-bold">Install App</span> icon again!</li>
+            </ol>
+            <div class="pt-3">
+              <a href="${window.location.href}" target="_blank" rel="noopener noreferrer" class="block w-full text-center py-3 bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-xl text-xs font-black transition-all shadow-lg active:scale-95">
+                🚀 Open in Full Screen Tab
+              </a>
+            </div>
+          </div>
+        `,
+        icon: 'warning',
+        showConfirmButton: false,
+        showCloseButton: true,
+        background: '#090d16',
+        color: '#f8fafc',
+        customClass: {
+          popup: 'rounded-2xl border border-slate-800 shadow-2xl p-6 font-sans',
+          title: 'text-sm font-extrabold uppercase tracking-wider text-slate-100 font-sans'
+        },
+        buttonsStyling: false
+      });
+      return;
+    }
+
     if (!deferredPrompt) {
-      // If deferredPrompt is null, we can check if it's an iOS device to show specific instruction
+      // If deferredPrompt is null, we check if it's an iOS device or guide manual setup
       const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
       if (isIOS) {
         Swal.fire({
@@ -125,15 +171,15 @@ export default function App() {
               </div>
               <p class="text-slate-300">To install this manufacturing system on your Apple iOS device:</p>
               <ol class="list-decimal pl-5 space-y-2 text-slate-300 font-medium">
-                <li>Tap the <span class="bg-slate-800 px-2 py-1 rounded text-amber-500 font-bold">Share ⎋</span> button at the bottom of Safari browser.</li>
-                <li>Scroll down and tap <span class="bg-slate-800 px-2 py-1 rounded text-amber-500 font-bold">Add to Home Screen ＋</span> in the list of options.</li>
-                <li>Choose a name (e.g. <strong>EPP MES</strong>) and complete by clicking <strong class="text-emerald-400">Add</strong>.</li>
+                <li>Tap the <strong class="text-amber-500">Share ⎋</strong> button at the bottom of the Safari browser navigation bar.</li>
+                <li>Scroll down and select <strong class="text-amber-500">Add to Home Screen ＋</strong> from the options.</li>
+                <li>Tap <strong class="text-emerald-400 font-extrabold">Add</strong> in the top-right corner to complete.</li>
               </ol>
-              <p class="text-[10px] text-slate-500 mt-2">After adding, launch the app directly from your phone home screen icons to run it distraction-free!</p>
+              <p class="text-[10px] text-slate-500 mt-2">After adding, launch the app directly from your phone home screen to run standalone!</p>
             </div>
           `,
           icon: 'info',
-          confirmButtonText: 'Got it, let\'s install!',
+          confirmButtonText: 'Entendido / Got it!',
           confirmButtonColor: '#10b981',
           background: '#090d16',
           color: '#f8fafc',
@@ -152,15 +198,15 @@ export default function App() {
               <div class="flex items-center gap-1.5 bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-500/20 mb-2">
                 <span class="text-emerald-400 font-bold">🛠️ Portable App Mode</span>
               </div>
-              <p class="text-slate-300">No automatic install prompt was triggered. You can always install manually:</p>
+              <p class="text-slate-300">If your Android phone does not show the automatic prompt, you can install manually:</p>
               <ol class="list-decimal pl-5 space-y-2 text-slate-300 font-medium">
-                <li>Open your mobile chrome settings overlay (tap the <strong>3 dots menu</strong> in the top-right / bottom-right).</li>
-                <li>Tap <span class="text-emerald-400 font-bold">"Add to Home screen"</span> or <span class="text-emerald-400 font-bold">"Install app"</span> option.</li>
+                <li>Open your mobile chrome settings overlay (tap the <strong class="text-amber-500">3 dots menu</strong> in the top-right or bottom-right).</li>
+                <li>Select <strong class="text-emerald-400">"Add to Home screen"</strong> or <strong class="text-emerald-400">"Install app" / "Instalar aplicación"</strong>.</li>
               </ol>
             </div>
           `,
           icon: 'info',
-          confirmButtonText: 'Understood',
+          confirmButtonText: 'Entendido / Understood',
           confirmButtonColor: '#10b981',
           background: '#090d16',
           color: '#f8fafc',
