@@ -107,8 +107,8 @@ export function triggerNativeSystemNotification(title: string, body: string) {
       navigator.serviceWorker.ready.then((registration) => {
         (registration as any).showNotification(title, {
           body: body,
-          icon: 'https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp',
-          badge: 'https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp',
+          icon: '/logo-192.svg',
+          badge: '/logo-192.svg',
           vibrate: [200, 100, 200, 100, 300], // Haptic alarm vibro pattern
           tag: 'epp-mes-lockscreennote-' + Date.now(),
           renotify: true
@@ -116,13 +116,13 @@ export function triggerNativeSystemNotification(title: string, body: string) {
       }).catch(() => {
         new Notification(title, {
           body: body,
-          icon: 'https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp'
+          icon: '/logo-192.svg'
         });
       });
     } else {
       new Notification(title, {
         body: body,
-        icon: 'https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp'
+        icon: '/logo-192.svg'
       });
     }
   }

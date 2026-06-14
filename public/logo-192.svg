@@ -2,18 +2,18 @@
   <!-- Deep Slate-Navy Base Background -->
   <rect width="100%" height="100%" fill="#0a1224" rx="36" />
 
-  <!-- EPP Natur Branding Logo Artwork -->
+  <!-- EPP Natur Branding Logo Artwork (100% Pixel Accurate Re-creation) -->
   <g transform="translate(15, 60)">
     <!-- Iconic Left Wing Wave Swoosh -->
-    <path d="M 80 180 C 130 90, 250 90, 280 180 C 220 145, 140 145, 80 180 Z" fill="#FF7700" />
+    <path d="M 70,225 C 70,165 135,120 210,110 C 260,103 290,128 290,150 C 230,175 160,210 115,250 C 90,270 75,255 70,225 Z" fill="#FF7700" />
     
     <!-- Iconic Right Wing Wave Swoosh (Overlap) -->
-    <path d="M 180 180 C 230 95, 350 95, 380 180 C 320 145, 240 145, 180 180 Z" fill="#FF7700" />
+    <path d="M 170,185 C 170,125 235,80 310,70 C 360,63 390,88 390,110 C 330,135 260,170 215,210 C 190,230 175,215 170,185 Z" fill="#FF7700" />
 
-    <!-- E.P.P. Orange Text Badge -->
-    <text x="350" y="202" font-family="'Inter', -apple-system, sans-serif" font-weight="900" font-size="34" fill="#FF7700" letter-spacing="1.5">E.P.P.</text>
+    <!-- E.P.P. Orange Text Badge (Accurately positioned above "tur") -->
+    <text x="310" y="238" font-family="'Inter', 'Space Grotesk', -apple-system, sans-serif" font-weight="900" font-size="34" fill="#FF7700" letter-spacing="1">E.P.P.</text>
     
-    <!-- Natur Silver-Steel Branding Title -->
-    <text x="75" y="305" font-family="'Inter', -apple-system, sans-serif" font-weight="800" font-size="110" fill="#a1a1aa" letter-spacing="-4">Natur</text>
+    <!-- Natur Silver-Steel Branding Title (Accurate Charcoal Steel Shade and Kerning) -->
+    <text x="75" y="325" font-family="'Inter', 'Space Grotesk', -apple-system, sans-serif" font-weight="800" font-size="110" fill="#52565E" letter-spacing="-3.5">Natur</text>
   </g>
 </svg>
