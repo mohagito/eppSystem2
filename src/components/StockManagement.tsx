@@ -795,6 +795,7 @@ export default function StockManagement({
           </div>
         )}
       </AnimatePresence>
+
     </div>
   );
 }

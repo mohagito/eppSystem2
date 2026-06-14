@@ -21,7 +21,8 @@ import {
   Eye,
   Clock,
   X,
-  Download
+  Download,
+  FileSpreadsheet
 } from 'lucide-react';
 
 interface DeliveryProps {
@@ -270,6 +271,232 @@ export default function DeliveryModule({
     URL.revokeObjectURL(url);
   };
 
+  const handleDownloadExcel = () => {
+    const totalFilteredSum = filteredDeliveries.reduce((sum, d) => sum + d.quantity, 0);
+    const dateFormatted = new Date().toLocaleString('es-ES', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+
+    const excelRows = filteredDeliveries.map((d, index) => {
+      const isEven = index % 2 === 0;
+      const bgStyle = isEven ? 'class="row-even"' : 'class="row-odd"';
+      const safeInvoice = d.invoiceNumber || 'N/A';
+      const safeModel = d.model || d.modelId;
+      const safeQty = d.quantity;
+      const safeDate = d.deliveryDate || (d.date ? new Date(d.date).toLocaleDateString('en-GB') : 'N/A');
+      const safeTime = d.deliveryTime || '00:00';
+      const safeWorker = d.loadedBy || d.workerName || 'N/A';
+      const safeCreator = d.createdBy || 'N/A';
+      const safeId = d.id;
+      const safeCreatedAt = d.createdAt ? String(new Date(d.createdAt).toLocaleString('es-ES')) : 'N/A';
+
+      return `
+        <tr ${bgStyle}>
+          <td class="invoice-badge" style="padding: 8px 12px; border: 1px solid #cbd5e1; font-family: monospace; font-weight: bold;">${safeInvoice}</td>
+          <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: bold; color: #1e293b;">${safeModel}</td>
+          <td class="text-right number-col" style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: right; font-weight: bold; color: #0f766e;">${safeQty} pcs</td>
+          <td class="text-center" style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: center;">${safeDate}</td>
+          <td class="text-center" style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: center;">${safeTime}</td>
+          <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">${safeWorker}</td>
+          <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">${safeCreator}</td>
+          <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-family: monospace; font-size: 10px; color: #64748b;">${safeId}</td>
+          <td class="text-center" style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: center; font-size: 10px; color: #64748b;">${safeCreatedAt}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const htmlTemplate = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="utf-8">
+        <!--[if gte mso 9]>
+        <xml>
+          <x:ExcelWorkbook>
+            <x:ExcelWorksheets>
+              <x:ExcelWorksheet>
+                <x:Name>EPP Dispatch Ledger</x:Name>
+                <x:WorksheetOptions>
+                  <x:DisplayGridlines/>
+                </x:WorksheetOptions>
+              </x:ExcelWorksheet>
+            </x:ExcelWorksheets>
+          </x:ExcelWorkbook>
+        </xml>
+        <![endif]-->
+        <style>
+          body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+          }
+          table {
+            border-collapse: collapse;
+          }
+          td, th {
+            border: 1px solid #cbd5e1;
+            padding: 8px 12px;
+            font-size: 11px;
+            color: #334155;
+          }
+          
+          /* Header brand */
+          .company-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #0f766e;
+          }
+          .report-subtitle {
+            font-size: 11px;
+            color: #0d9488;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+          }
+          .meta-label {
+            font-size: 10px;
+            color: #475569;
+            font-weight: bold;
+            background-color: #f1f5f9;
+          }
+          .meta-val {
+            font-size: 10px;
+            color: #1e293b;
+          }
+          
+          /* Table headers */
+          th {
+            background-color: #0f766e;
+            color: #ffffff;
+            font-weight: bold;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: 1px solid #0d9488;
+          }
+          
+          /* Alternating rows and formatting */
+          .row-even {
+            background-color: #f8fafc;
+          }
+          .row-odd {
+            background-color: #ffffff;
+          }
+          .text-center {
+            text-align: center;
+          }
+          .text-right {
+            text-align: right;
+          }
+          .number-col {
+            font-weight: bold;
+            color: #0f766e;
+          }
+          .total-row td {
+            background-color: #ccfbf1;
+            font-weight: bold;
+            border-top: 2px solid #0f766e;
+            border-bottom: 2px solid #0f766e;
+            color: #0f766e;
+            font-size: 12px;
+          }
+          .invoice-badge {
+            font-family: monospace;
+            font-weight: bold;
+            color: #334155;
+          }
+        </style>
+      </head>
+      <body>
+        <table>
+          <!-- Company Header Block with Logo -->
+          <tr>
+            <td colspan="2" rowspan="3" style="vertical-align: middle; text-align: center; background-color: #f8fafc; padding: 12px; border: 1px solid #cbd5e1;">
+              <img src="https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp" alt="EPP Logo" width="120" style="display:block; margin: 0 auto; max-height:48px;" />
+            </td>
+            <td colspan="7" class="company-title" style="padding-left:15px; border-bottom: none; border-left: none; font-size: 18px; font-weight: bold; color: #0f766e;">
+              EPP NATUR AUTOMOTIVE S.L.
+            </td>
+          </tr>
+          <tr>
+            <td colspan="7" class="report-subtitle" style="padding-left:15px; border-top: none; border-bottom: none; border-left: none; font-size: 11px; color: #0d9488; font-weight: bold; letter-spacing: 0.5px;">
+              ACTIVE DISPATCH LEDGER & DELIVERY OVERVIEW
+            </td>
+          </tr>
+          <tr>
+            <td colspan="7" style="padding-left:15px; font-size: 10px; color: #64748b; font-style: italic; border-top: none; border-left: none;">
+              Generated: ${dateFormatted} • System: Digital Hub Ledger
+            </td>
+          </tr>
+          
+          <!-- Spacing Row -->
+          <tr style="height: 12px;"><td colspan="9" style="border:none;"></td></tr>
+
+          <!-- Metadata Properties -->
+          <tr>
+            <td colspan="2" class="meta-label" style="font-size: 10px; color: #475569; font-weight: bold; background-color: #f1f5f9; padding: 8px 12px; border: 1px solid #cbd5e1;">Ledger Scope:</td>
+            <td colspan="2" class="meta-val" style="font-size: 10px; color: #1e293b; padding: 8px 12px; border: 1px solid #cbd5e1;">Filtered Dispatch Output</td>
+            <td colspan="2" class="meta-label" style="font-size: 10px; color: #475569; font-weight: bold; background-color: #f1f5f9; padding: 8px 12px; border: 1px solid #cbd5e1;">Filter Settings:</td>
+            <td colspan="3" class="meta-val" style="font-size: 10px; color: #1e293b; padding: 8px 12px; border: 1px solid #cbd5e1;">
+              Model: <span style="font-weight: bold;">${filterModel}</span> | 
+              Dispatched: <span style="font-weight: bold;">${filterWorker}</span> | 
+              Invoice: <span style="font-weight: bold;">${filterInvoice || 'ALL'}</span>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2" class="meta-label" style="font-size: 10px; color: #475569; font-weight: bold; background-color: #f1f5f9; padding: 8px 12px; border: 1px solid #cbd5e1;">Total Records:</td>
+            <td colspan="2" class="meta-val" style="font-size: 10px; color: #1e293b; font-weight: bold; color: #0f766e; padding: 8px 12px; border: 1px solid #cbd5e1;">${filteredDeliveries.length} entries</td>
+            <td colspan="2" class="meta-label" style="font-size: 10px; color: #475569; font-weight: bold; background-color: #f1f5f9; padding: 8px 12px; border: 1px solid #cbd5e1;">Total Volume Out:</td>
+            <td colspan="3" class="meta-val" style="font-size: 10px; color: #1e293b; font-weight: bold; color: #0d9488; padding: 8px 12px; border: 1px solid #cbd5e1;">${totalFilteredSum} pcs</td>
+          </tr>
+
+          <!-- Spacing Row -->
+          <tr style="height: 15px;"><td colspan="9" style="border:none;"></td></tr>
+
+          <!-- Data Headers -->
+          <thead>
+            <tr>
+              <th style="width: 130px; text-align: left; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">Invoice Number</th>
+              <th style="width: 100px; text-align: left; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">Model ID</th>
+              <th style="width: 100px; text-align: right; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">Quantity</th>
+              <th style="width: 120px; text-align: center; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">Dispatch Date</th>
+              <th style="width: 90px; text-align: center; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">Time</th>
+              <th style="width: 140px; text-align: left; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">Dispatched By</th>
+              <th style="width: 140px; text-align: left; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">Created By</th>
+              <th style="width: 180px; text-align: left; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">System Ledger ID</th>
+              <th style="width: 150px; text-align: center; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">System Timestamp</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${excelRows}
+            
+            <!-- Spacing Row -->
+            <tr style="height: 8px;"><td colspan="9" style="border:none;"></td></tr>
+
+            <!-- Grand Total Summary Row -->
+            <tr class="total-row">
+              <td colspan="2" style="font-weight: bold; text-align: left; background-color: #ccfbf1; border-top: 2px solid #0f766e; border-bottom: 2px solid #0f766e; padding: 8px 12px;">GRAND TOTAL DISPATCHED</td>
+              <td class="text-right" style="font-weight: bold; color: #0f766e; background-color: #ccfbf1; border-top: 2px solid #0f766e; border-bottom: 2px solid #0f766e; padding: 8px 12px; text-align: right;">${totalFilteredSum} pcs</td>
+              <td colspan="6" style="border-left: none; background-color: #ccfbf1; border-top: 2px solid #0f766e; border-bottom: 2px solid #0f766e; padding: 8px 12px;"></td>
+            </tr>
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), htmlTemplate], { 
+      type: 'application/vnd.ms-excel;charset=utf-8;' 
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    
+    const dateSuffix = getLocalDateStr();
+    link.setAttribute('download', `epp_delivery_ledger_${dateSuffix}.xls`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   return (
     <div className="space-y-8" id="delivery-module-view">
       {/* Dynamic Stock Levels vs Deliveries */}
@@ -504,15 +731,26 @@ export default function DeliveryModule({
 
               <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
                 {currentUser.role === 'manager' && (
-                  <button
-                    onClick={handleDownloadCSV}
-                    className="px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white transition-all cursor-pointer shadow-3xs border border-emerald-500"
-                    id="download-delivery-csv-btn"
-                    title="Export current delivery list to CSV for external reporting"
-                  >
-                    <Download size={14} />
-                    <span>Download CSV</span>
-                  </button>
+                  <>
+                    <button
+                      onClick={handleDownloadExcel}
+                      className="px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 bg-emerald-600 hover:bg-emerald-750 text-white transition-all cursor-pointer shadow-3xs border border-emerald-500"
+                      id="download-delivery-excel-btn"
+                      title="Export professionally styled EPP Natur company Excel report with logo"
+                    >
+                      <FileSpreadsheet size={14} />
+                      <span>Export Excel Report</span>
+                    </button>
+                    <button
+                      onClick={handleDownloadCSV}
+                      className="px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 bg-slate-50 hover:bg-slate-100 text-slate-705 border border-slate-205 transition-all cursor-pointer shadow-3xs"
+                      id="download-delivery-csv-btn"
+                      title="Download raw data in CSV format"
+                    >
+                      <Download size={14} />
+                      <span>Download CSV</span>
+                    </button>
+                  </>
                 )}
 
                 {/* Filters Toggle */}

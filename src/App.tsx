@@ -18,8 +18,7 @@ import {
   ChevronRight,
   MonitorCheck,
   AlertCircle,
-  Truck,
-  DollarSign
+  Truck
 } from 'lucide-react';
 import { UserProfile, StockEntry, ProductionPlan, ToastMessage, DeliveryEntry } from './types';
 import { MOCK_PROFILES, INITIAL_STOCK_ENTRIES, INITIAL_PLANS } from './data';
@@ -269,6 +268,17 @@ export default function App() {
       localStorage.removeItem('epp_current_user');
     }
   }, [currentUser]);
+
+  useEffect(() => {
+    if (mobileMenuOpen) {
+      document.body.style.overflow = 'hidden';
+    } else {
+      document.body.style.overflow = '';
+    }
+    return () => {
+      document.body.style.overflow = '';
+    };
+  }, [mobileMenuOpen]);
 
   // --- TOAST DISPATCHERS ---
   const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -731,18 +741,6 @@ export default function App() {
           />
         );
 
-      case 'prima':
-        return (
-          <div className="flex flex-col items-center justify-center min-h-[60vh] bg-white border border-slate-200 rounded-3xl p-8 text-center shadow-3xs" id="prima-coming-soon">
-            <div className="w-16 h-16 bg-emerald-50 text-emerald-600 rounded-2xl flex items-center justify-center mb-4 border border-emerald-100">
-              <DollarSign size={28} />
-            </div>
-            <h2 className="text-xl font-black font-display text-slate-800 tracking-tight uppercase">
-              Coming Soon
-            </h2>
-          </div>
-        );
-
       default:
         return (
           <div className="p-8 text-center text-slate-400">
@@ -757,8 +755,7 @@ export default function App() {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'stock', label: 'Stock', icon: Database },
     { id: 'plans', label: 'Production Plan', icon: CalendarRange },
-    { id: 'delivery', label: 'Deliveries', icon: Truck },
-    { id: 'prima', label: 'Prima', icon: DollarSign }
+    { id: 'delivery', label: 'Deliveries', icon: Truck }
   ];
 
   return (
@@ -1104,65 +1101,121 @@ export default function App() {
               </div>
             </header>
 
-            {/* MOBILE NAV DRAWER DROPDOWN WITH ANIMATION */}
+            {/* MOBILE NAV DRAWER OVERLAY & SIDEBAR WITH ANIMATION */}
             <AnimatePresence>
               {mobileMenuOpen && (
-                <motion.div
-                  initial={{ height: 0, opacity: 0 }}
-                  animate={{ height: 'auto', opacity: 1 }}
-                  exit={{ height: 0, opacity: 0 }}
-                  className="md:hidden bg-slate-900/95 border-b border-slate-800 overflow-hidden px-4 py-2 space-y-4"
-                  id="mobile-navigation-drawer"
-                >
-                  <nav className="space-y-1">
-                    {navigationItems.map((item) => {
-                      const IconComponent = item.icon;
-                      const isActive = activeTab === item.id;
-                      return (
-                        <button
-                          key={item.id}
-                          onClick={() => {
-                            setActiveTab(item.id);
-                            setMobileMenuOpen(false);
-                          }}
-                          className={`w-full text-left py-2.5 px-3 rounded-lg text-xs font-semibold flex items-center gap-2.5 ${
-                            isActive
-                              ? 'bg-emerald-500/10 text-emerald-400'
-                              : 'text-slate-400 hover:text-slate-200'
-                          }`}
-                          id={`mobile-nav-tab-${item.id}`}
-                        >
-                          <IconComponent size={14.5} />
-                          {item.label}
-                        </button>
-                      );
-                    })}
-                  </nav>
+                <>
+                  {/* Backdrop */}
+                  <motion.div
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: 1 }}
+                    exit={{ opacity: 0 }}
+                    onClick={() => setMobileMenuOpen(false)}
+                    className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-40 md:hidden"
+                    id="mobile-drawer-backdrop"
+                  />
 
-                  <div className="pt-2 border-t border-slate-850 flex items-center justify-between pb-3">
-                    <div className="flex items-center gap-2">
-                      <div className={`w-7 h-7 rounded-lg shrink-0 flex items-center justify-center font-bold text-[10px] border ${
-                        currentUser.role === 'manager' 
-                          ? 'bg-amber-500/15 border-amber-500/30 text-amber-400' 
-                          : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                      }`}>
-                        {currentUser.name.substring(0, 2).toUpperCase()}
+                  {/* Left Slide-in Drawer */}
+                  <motion.div
+                    initial={{ x: '-100%' }}
+                    animate={{ x: 0 }}
+                    exit={{ x: '-100%' }}
+                    transition={{ type: 'spring', damping: 25, stiffness: 220 }}
+                    className="fixed inset-y-0 left-0 w-72 bg-slate-900 border-r border-slate-800 z-50 md:hidden flex flex-col justify-between px-5 py-6 shadow-2xl"
+                    id="mobile-navigation-drawer"
+                  >
+                    <div className="space-y-6">
+                      {/* Brand Logo Header */}
+                      <div className="flex items-center justify-between border-b border-slate-800 pb-4">
+                        <div className="flex items-center gap-2.5">
+                          <img 
+                            src="https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp" 
+                            alt="EPP Logo"
+                            className="h-10 w-auto object-contain"
+                            referrerPolicy="no-referrer"
+                          />
+                          <div>
+                            <span className="font-display font-black text-xs tracking-wider text-slate-200 block">EPP SYSTEM</span>
+                            <span className="text-[9px] uppercase font-bold text-slate-450 leading-none">MES HUB</span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => setMobileMenuOpen(false)}
+                          className="p-1.5 bg-slate-800/65 text-slate-400 hover:text-white hover:bg-slate-800 rounded-xl transition-all cursor-pointer"
+                          aria-label="Close menu"
+                        >
+                          <X size={15} strokeWidth={2.5} />
+                        </button>
                       </div>
-                      <span className="text-[11.5px] font-bold text-slate-300 truncate max-w-[120px]">{currentUser.name}</span>
+
+                      {/* Active profile section */}
+                      <div className="bg-slate-950/75 p-3 rounded-2xl border border-slate-800 flex items-center gap-3">
+                        <div className={`w-8.5 h-8.5 rounded-xl shrink-0 flex items-center justify-center font-bold text-xs border ${
+                          currentUser.role === 'manager' 
+                            ? 'bg-amber-500/15 border-amber-500/30 text-amber-400' 
+                            : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                        }`}>
+                          {currentUser.name.substring(0, 2).toUpperCase()}
+                        </div>
+                        <div className="overflow-hidden">
+                          <div className="text-xs font-bold text-white truncate text-[11.5px]">
+                            {currentUser.name}
+                          </div>
+                          <div className="text-[10px] text-slate-450 capitalize flex items-center gap-1 mt-0.5 font-bold font-mono">
+                            <span className={`w-1.5 h-1.5 rounded-full ${
+                              currentUser.role === 'manager' ? 'bg-amber-400' : 'bg-emerald-400'
+                            }`} />
+                            {currentUser.role}
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Menu navigation options */}
+                      <nav className="space-y-1.5">
+                        {navigationItems.map((item) => {
+                          const IconComponent = item.icon;
+                          const isActive = activeTab === item.id;
+                          return (
+                            <button
+                              key={item.id}
+                              onClick={() => {
+                                setActiveTab(item.id);
+                                setMobileMenuOpen(false);
+                              }}
+                              className={`w-full text-left py-3 px-3.5 rounded-xl text-xs font-semibold flex items-center gap-3 border transition-all cursor-pointer ${
+                                isActive
+                                  ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 font-bold'
+                                  : 'bg-transparent border-transparent text-slate-405 hover:text-slate-205 hover:bg-slate-800/40'
+                              }`}
+                              id={`mobile-nav-tab-${item.id}`}
+                            >
+                              <IconComponent size={15} className={isActive ? 'text-emerald-400' : 'text-slate-450'} />
+                              {item.label}
+                            </button>
+                          );
+                        })}
+                      </nav>
                     </div>
 
-                    <button
-                      onClick={() => {
-                        setMobileMenuOpen(false);
-                        handleLogout();
-                      }}
-                      className="text-2xs font-bold text-rose-450 hover:text-rose-400 flex items-center gap-1 cursor-pointer"
-                      id="mobile-drawer-logout"
-                    >
-                      <LogOut size={13} /> Log Out
-                    </button>
-                  </div>
-                </motion.div>
+                    {/* Exit Signoff controls */}
+                    <div className="border-t border-slate-850 pt-4">
+                      <button
+                        onClick={() => {
+                          setMobileMenuOpen(false);
+                          handleLogout();
+                        }}
+                        className="w-full py-3 px-4 bg-slate-950/60 hover:bg-slate-950 border border-slate-850 text-slate-400 hover:text-rose-455 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer"
+                        id="mobile-drawer-logout"
+                      >
+                        <span className="flex items-center gap-2">
+                          <LogOut size={15} className="text-slate-405 group-hover:text-rose-400 transition-colors" />
+                          Log Out of MES
+                        </span>
+                        <ChevronRight size={12} className="text-slate-500" />
+                      </button>
+                    </div>
+                  </motion.div>
+                </>
               )}
             </AnimatePresence>
 
