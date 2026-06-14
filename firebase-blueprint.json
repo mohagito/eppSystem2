@@ -10,7 +10,10 @@
         "role": { "type": "string", "enum": ["manager", "worker"] },
         "username": { "type": "string" },
         "password": { "type": "string" },
-        "station": { "type": "string" }
+        "station": { "type": "string" },
+        "fcmToken": { "type": "string" },
+        "notificationEnabled": { "type": "boolean" },
+        "lastTokenUpdate": { "type": "string" }
       },
       "required": ["id", "name", "role", "username", "password"]
     },
@@ -76,6 +79,23 @@
         "invoiceNumber": { "type": "string" }
       },
       "required": ["id", "modelId", "model", "workerName", "loadedBy", "date", "deliveryDate", "deliveryTime", "quantity", "createdBy", "createdAt", "invoiceNumber"]
+    },
+    "DatabaseNotification": {
+      "title": "DatabaseNotification",
+      "description": "System alerts or push notifications logged inside Firestore",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string" },
+        "body": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "category": { "type": "string", "enum": ["delivery", "stock", "target", "plan", "system"] },
+        "readBy": { "type": "array" },
+        "targetRole": { "type": "string", "enum": ["manager", "worker", "all"] },
+        "targetUserId": { "type": "string" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["id", "title", "body", "createdAt", "category", "readBy", "targetRole"]
     }
   },
   "firestore": {
@@ -94,6 +114,10 @@
     "deliveries/{deliveryId}": {
       "schema": "DeliveryEntry",
       "description": "Shipped deliveries from stockpile"
+    },
+    "notifications/{notificationId}": {
+      "schema": "DatabaseNotification",
+      "description": "Log of alerts, target thresholds and dispatch signals"
     },
     "settings/daily_targets": {
       "schema": "DailyTargets",

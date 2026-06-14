@@ -78,5 +78,16 @@ service cloud.firestore {
     match /settings/{document} {
       allow read, write: if true;
     }
+
+    // Notifications Collection
+    match /notifications/{notificationId} {
+      allow read, write: if true;
+    }
+    match /notifications {
+      allow read, write: if true;
+    }
+    match /notifications/{document=**} {
+      allow read, write: if true;
+    }
   }
 }

@@ -2,10 +2,55 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import path from 'path';
 import {defineConfig} from 'vite';
+import { VitePWA } from 'vite-plugin-pwa';
 
 export default defineConfig(() => {
   return {
-    plugins: [react(), tailwindcss()],
+    plugins: [
+      react(), 
+      tailwindcss(),
+      VitePWA({
+        registerType: 'autoUpdate',
+        injectRegister: 'inline',
+        workbox: {
+          globPatterns: ['**/*.{js,css,html,svg,ico,png,webp}']
+        },
+        manifest: {
+          name: 'EPP Airbag MES',
+          short_name: 'EPP MES',
+          description: 'Production Tracking and Manufacturing Execution System for Airbag Assembly Operations',
+          theme_color: '#0f172a',
+          background_color: '#0f172a',
+          display: 'standalone',
+          orientation: 'portrait',
+          scope: '/',
+          start_url: '/',
+          icons: [
+            {
+              src: '/logo-192.svg',
+              sizes: '192x192',
+              type: 'image/svg+xml',
+              purpose: 'any'
+            },
+            {
+              src: '/logo-512.svg',
+              sizes: '512x512',
+              type: 'image/svg+xml',
+              purpose: 'any'
+            },
+            {
+              src: '/logo-maskable.svg',
+              sizes: '512x512',
+              type: 'image/svg+xml',
+              purpose: 'maskable'
+            }
+          ]
+        },
+        devOptions: {
+          enabled: true
+        }
+      })
+    ],
     resolve: {
       alias: {
         '@': path.resolve(__dirname, '.'),

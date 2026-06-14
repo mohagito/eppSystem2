@@ -23,7 +23,8 @@ import {
 } from 'lucide-react';
 import { UserProfile, StockEntry, ProductionPlan, ToastMessage, DeliveryEntry } from './types';
 import { MOCK_PROFILES, INITIAL_STOCK_ENTRIES, INITIAL_PLANS } from './data';
-import Notification from './components/Notification';
+import Swal from 'sweetalert2';
+import 'sweetalert2/dist/sweetalert2.min.css';
 import WorkerDashboard from './components/WorkerDashboard';
 import ManagerDashboard from './components/ManagerDashboard';
 import StockManagement from './components/StockManagement';
@@ -31,6 +32,9 @@ import PlanningModule from './components/PlanningModule';
 import DeliveryModule from './components/DeliveryModule';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDoc, getDocs, serverTimestamp } from 'firebase/firestore';
+import NotificationCenter from './components/NotificationCenter';
+import NotificationPermissionPrompt from './components/NotificationPermissionPrompt';
+import { onForegroundMessage } from './fcm';
 
 export default function App() {
   // --- DATABASE AND LOCAL STORAGE PERSISTENCE ---
@@ -56,7 +60,11 @@ export default function App() {
   });
 
   // Navigation State
-  const [activeTab, setActiveTab] = useState<string>('dashboard');
+  const [activeTab, setActiveTab ] = useState<string>(() => {
+    const params = new URLSearchParams(window.location.search);
+    const tab = params.get('tab');
+    return tab || 'dashboard';
+  });
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [quickNavOpen, setQuickNavOpen] = useState<boolean>(false);
 
@@ -74,13 +82,27 @@ export default function App() {
   });
 
   const triggerCustomConfirm = (title: string, message: string, onConfirmAction: () => void) => {
-    setConfirmModal({
-      isOpen: true,
-      title,
-      message,
-      onConfirm: () => {
+    Swal.fire({
+      title: title,
+      text: message,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Proceed',
+      cancelButtonText: 'Cancel',
+      background: '#0f172a', // slate-900
+      color: '#cbd5e1', // slate-300
+      iconColor: '#f59e0b', // amber-500
+      customClass: {
+        popup: 'rounded-2xl border border-slate-800 shadow-2xl p-6 font-sans',
+        title: 'text-sm font-extrabold uppercase tracking-wider text-slate-100 font-sans mt-2',
+        htmlContainer: 'text-xs text-slate-400 font-semibold leading-relaxed my-3',
+        confirmButton: 'px-5 py-2.5 bg-emerald-500 hover:bg-emerald-650 text-slate-950 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md mx-1.5',
+        cancelButton: 'px-5 py-2.5 bg-slate-805 hover:bg-slate-700 text-slate-300 border border-slate-750 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-sm mx-1.5'
+      },
+      buttonsStyling: false
+    }).then((result) => {
+      if (result.isConfirmed) {
         onConfirmAction();
-        setConfirmModal((prev) => ({ ...prev, isOpen: false }));
       }
     });
   };
@@ -96,8 +118,35 @@ export default function App() {
   const [signUpStation, setSignUpStation] = useState<string>('');
   const [authError, setAuthError] = useState<string>('');
 
-  // Toast Notification State
-  const [toasts, setToasts] = useState<ToastMessage[]>([]);
+  // --- FCM FOREGROUND LISTENER ---
+  useEffect(() => {
+    if (!currentUser) return;
+    
+    const unsubscribe = onForegroundMessage((payload) => {
+      Swal.fire({
+        toast: true,
+        position: 'top-end',
+        showConfirmButton: false,
+        timer: 4500,
+        timerProgressBar: true,
+        background: '#0f172a',
+        color: '#e2e8f0',
+        icon: 'info',
+        title: payload.notification?.title || payload.data?.title || 'System Alert',
+        text: payload.notification?.body || payload.data?.body || 'New manufacturing event register',
+        didOpen: (toast) => {
+          toast.addEventListener('mouseenter', Swal.stopTimer);
+          toast.addEventListener('mouseleave', Swal.resumeTimer);
+        }
+      });
+    });
+
+    return () => {
+      if (typeof unsubscribe === 'function') {
+        unsubscribe();
+      }
+    };
+  }, [currentUser]);
 
   // --- REAL-TIME CLOUD FIRESTORE SYNCHRONIZATION ---
   useEffect(() => {
@@ -284,16 +333,53 @@ export default function App() {
 
   // --- TOAST DISPATCHERS ---
   const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
-    const id = Date.now().toString();
-    setToasts((prev) => [...prev, { id, message, type }]);
-    // Auto remove toast
-    setTimeout(() => {
-      setToasts((prev) => prev.filter((t) => t.id !== id));
-    }, 4500);
+    const Toast = Swal.mixin({
+      toast: true,
+      position: 'top-end',
+      showConfirmButton: false,
+      timer: 3500,
+      timerProgressBar: true,
+      background: '#0f172a', // slate-900
+      color: '#e2e8f0', // slate-200
+      iconColor: type === 'success' ? '#10b981' : type === 'error' ? '#f43f5e' : '#38bdf8',
+      didOpen: (toast) => {
+        toast.addEventListener('mouseenter', Swal.stopTimer);
+        toast.addEventListener('mouseleave', Swal.resumeTimer);
+      },
+      customClass: {
+        popup: 'rounded-xl border border-slate-800 shadow-xl p-3 font-sans text-xs font-extrabold select-none'
+      }
+    });
+
+    Toast.fire({
+      icon: type,
+      title: message
+    });
   };
 
-  const removeToast = (id: string) => {
-    setToasts((prev) => prev.filter((t) => t.id !== id));
+  const triggerNotification = async (
+    title: string,
+    body: string,
+    category: 'delivery' | 'stock' | 'target' | 'plan' | 'system',
+    targetRole: 'manager' | 'worker' | 'all' = 'all',
+    targetUserId: string = ''
+  ) => {
+    try {
+      const notifId = Date.now().toString() + '_' + Math.random().toString(36).substring(2, 9);
+      await setDoc(doc(db, 'notifications', notifId), {
+        id: notifId,
+        title,
+        body,
+        createdAt: new Date().toISOString(),
+        category,
+        readBy: [],
+        targetRole,
+        targetUserId,
+        createdBy: currentUser?.id || 'system'
+      });
+    } catch (err) {
+      console.error('Failed to create notification document in Firestore:', err);
+    }
   };
 
   // --- ACTIONS ---
@@ -396,6 +482,12 @@ export default function App() {
     setDoc(doc(db, 'deliveries', newDelivery.id), newDelivery)
       .then(() => {
         addToast(`Registered dispatch: Invoice ${delivery.invoiceNumber} shipped successfully!`, 'success');
+        triggerNotification(
+          '🚚 New Dispatch Shipment Shipped',
+          `Invoice ${delivery.invoiceNumber}: Shipped ${delivery.quantity} units of airbag ${delivery.modelId} to client. Assigned carrier: ${delivery.loadedBy || 'Logistics'}.`,
+          'delivery',
+          'all'
+        );
       })
       .catch((err) => {
         handleFirestoreError(err, OperationType.CREATE, `deliveries/${newDelivery.id}`);
@@ -417,6 +509,12 @@ export default function App() {
         deleteDoc(doc(db, 'deliveries', id))
           .then(() => {
             addToast(`Removed delivery of ${delivery.quantity} units of ${delivery.modelId} from records.`, 'success');
+            triggerNotification(
+              'Delivery Voided',
+              `The dispatch record of ${delivery.quantity} units of ${delivery.modelId} (Invoice ${delivery.invoiceNumber}) was voided by ${currentUser?.name}.`,
+              'delivery',
+              'manager'
+            );
           })
           .catch((err) => {
             handleFirestoreError(err, OperationType.DELETE, `deliveries/${id}`);
@@ -436,6 +534,12 @@ export default function App() {
     setDoc(doc(db, 'stock_entries', newEntry.id), newEntry)
       .then(() => {
         addToast(`Registered output level: ${entry.quantity} units of ${entry.modelId} saved!`, 'success');
+        triggerNotification(
+          '📦 Stock Logged in Inventory',
+          `Worker ${entry.workerName} successfully submitted output log: +${entry.quantity} units of airbag ${entry.modelId} at ${entry.machine || 'Assembly Line'}.`,
+          'stock',
+          'all'
+        );
       })
       .catch((err) => {
         handleFirestoreError(err, OperationType.CREATE, `stock_entries/${newEntry.id}`);
@@ -474,6 +578,15 @@ export default function App() {
     updateDoc(doc(db, 'stock_entries', id), updatedEntry)
       .then(() => {
         addToast('Successfully updated the stock entry specifications!', 'success');
+        const entry = stockEntries.find(e => e.id === id);
+        if (entry) {
+          triggerNotification(
+            'Stock Entry Corrected',
+            `Manager ${currentUser?.name} updated the logged assembly stock record for ${entry.modelId} (+${updatedEntry.quantity || entry.quantity} units).`,
+            'stock',
+            'manager'
+          );
+        }
       })
       .catch((err) => {
         handleFirestoreError(err, OperationType.UPDATE, `stock_entries/${id}`);
@@ -504,6 +617,12 @@ export default function App() {
     setDoc(doc(db, 'production_plans', newPlan.id), newPlan as ProductionPlan)
       .then(() => {
         addToast(`Successfully authorized production target of ${plan.quantityPlanned} units of ${plan.model}!`, 'success');
+        triggerNotification(
+          '📅 New Production Plan Assigned',
+          `Plan created for ${plan.quantityPlanned} units of ${plan.model} on Machine ${plan.machine || 'Assembly'}. Worker assigned: ${plan.assignedWorker || 'Unassigned'}.`,
+          'plan',
+          'all'
+        );
       })
       .catch((err) => {
         handleFirestoreError(err, OperationType.CREATE, `production_plans/${newPlan.id}`);
@@ -515,6 +634,15 @@ export default function App() {
     updateDoc(doc(db, 'production_plans', id), { status })
       .then(() => {
         addToast(`Marked plan target status as ${status.toUpperCase()}!`, 'success');
+        const plan = plans.find(p => p.id === id);
+        if (plan) {
+          triggerNotification(
+            `Plan Status Update: ${status}`,
+            `The production plan for ${plan.model} (${plan.quantityPlanned} units) has been marked as ${status}.`,
+            'plan',
+            'all'
+          );
+        }
       })
       .catch((err) => {
         handleFirestoreError(err, OperationType.UPDATE, `production_plans/${id}`);
@@ -537,6 +665,22 @@ export default function App() {
     })
       .then(() => {
         addToast(`Successfully logged +${additionalQuantity} units of ${plan.model}! Progress: ${newCompleted}/${plan.quantityPlanned}`, 'success');
+        const isNowCompleted = newCompleted >= plan.quantityPlanned;
+        if (isNowCompleted) {
+          triggerNotification(
+            '🎯 Plan Target Achieved!',
+            `Excellent! Worker completed the assigned plan of ${plan.quantityPlanned} units of ${plan.model}!`,
+            'target',
+            'all'
+          );
+        } else {
+          triggerNotification(
+            '📈 Production Progress Tracked',
+            `Progress logged for ${plan.model} on Machine ${plan.machine || 'Assembly Line'}: ${newCompleted}/${plan.quantityPlanned} units compiled.`,
+            'plan',
+            'all'
+          );
+        }
       })
       .catch((err) => {
         handleFirestoreError(err, OperationType.UPDATE, `production_plans/${id}`);
@@ -763,9 +907,6 @@ export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 antialiased font-sans transition-colors duration-300">
       
-      {/* GLOBAL TOAST BANNER */}
-      <Notification toasts={toasts} removeToast={removeToast} />
-
       {/* RENDER AUTHENTICATION WALL IF USER IS LOGGED OUT */}
       {dbLoading ? (
         <div className="flex-1 flex flex-col justify-center items-center bg-slate-900 min-h-screen">
@@ -1088,6 +1229,7 @@ export default function App() {
 
               {/* Quick Section Switcher Dropdown */}
               <div className="flex items-center gap-1.5">
+                <NotificationCenter currentUser={currentUser} setActiveTab={setActiveTab} />
                 <div className="relative" id="mobile-section-quicknav-container">
                   <button
                     onClick={() => setQuickNavOpen(!quickNavOpen)}
@@ -1274,72 +1416,31 @@ export default function App() {
 
             {/* PRIMARY VIEWBOARD PANEL */}
             <main className="flex-1 overflow-y-auto p-4 md:p-8 space-y-8" id="primary-viewboard">
+              {/* Elegant Desktop Header with Section Information & Alerts Center */}
+              <header className="hidden md:flex items-center justify-between border-b border-slate-200 pb-5" id="desktop-viewboard-header">
+                <div>
+                  <h2 className="text-xl font-black text-slate-900 uppercase tracking-widest font-sans">
+                    {navigationItems.find(n => n.id === activeTab)?.label}
+                  </h2>
+                  <p className="text-xs text-slate-500 font-bold font-sans mt-1">
+                    Logged in as <span className="text-emerald-600 font-extrabold">{currentUser.name}</span> in the <span className="capitalize text-slate-800 font-extrabold">{currentUser.role}</span> view workspace.
+                  </p>
+                </div>
+                <div className="flex items-center gap-3">
+                  <NotificationCenter currentUser={currentUser} setActiveTab={setActiveTab} />
+                </div>
+              </header>
+
               {renderTabContent()}
+
+              {/* Foreground / Background push subscription prompt card overlay */}
+              <NotificationPermissionPrompt currentUser={currentUser} />
             </main>
 
           </motion.div>
         )}
       </AnimatePresence>
       )}
-
-      {/* GLOBAL CUSTOM CONFIRMATION DIALOG MODAL */}
-      <AnimatePresence>
-        {confirmModal.isOpen && (
-          <div className="fixed inset-0 z-50 flex items-center justify-center p-4" id="custom-confirm-portal">
-            {/* Backdrop */}
-            <motion.div
-              initial={{ opacity: 0 }}
-              animate={{ opacity: 1 }}
-              exit={{ opacity: 0 }}
-              onClick={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
-              className="absolute inset-0 bg-slate-900/60 backdrop-blur-xs"
-              id="confirm-modal-backdrop"
-            />
-            
-            {/* Modal Body */}
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0, y: 10 }}
-              animate={{ scale: 1, opacity: 1, y: 0 }}
-              exit={{ scale: 0.95, opacity: 0, y: 10 }}
-              transition={{ type: 'spring', duration: 0.3 }}
-              className="relative w-full max-w-md bg-white border border-slate-200/85 rounded-2xl shadow-xl overflow-hidden p-6 z-10 space-y-4"
-              id="confirm-modal-body"
-            >
-              <div className="flex items-center gap-3">
-                <div className="p-2.5 bg-amber-50 text-amber-700 rounded-xl border border-amber-100">
-                  <AlertCircle size={20} strokeWidth={2.5} />
-                </div>
-                <h3 className="text-sm font-extrabold text-slate-900 tracking-tight font-sans uppercase">
-                  {confirmModal.title}
-                </h3>
-              </div>
-
-              <p className="text-xs text-slate-600 leading-relaxed font-semibold">
-                {confirmModal.message}
-              </p>
-
-              <div className="flex items-center justify-end gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setConfirmModal((prev) => ({ ...prev, isOpen: false }))}
-                  className="px-4 py-2.5 bg-white border border-slate-200 hover:bg-slate-50 text-slate-700 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-3xs"
-                  id="cancel-confirm-action"
-                >
-                  Cancel
-                </button>
-                <button
-                  type="button"
-                  onClick={confirmModal.onConfirm}
-                  className="px-4 py-2.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-2xs"
-                  id="approve-confirm-action"
-                >
-                  Confirm Action
-                </button>
-              </div>
-            </motion.div>
-          </div>
-        )}
-      </AnimatePresence>
     </div>
   );
 }
