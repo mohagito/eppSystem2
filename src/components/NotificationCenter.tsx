@@ -107,8 +107,8 @@ export function triggerNativeSystemNotification(title: string, body: string) {
       navigator.serviceWorker.ready.then((registration) => {
         (registration as any).showNotification(title, {
           body: body,
-          icon: '/logo-192.svg',
-          badge: '/logo-192.svg',
+          icon: '/logo-192.webp',
+          badge: '/logo-192.webp',
           vibrate: [200, 100, 200, 100, 300], // Haptic alarm vibro pattern
           tag: 'epp-mes-lockscreennote-' + Date.now(),
           renotify: true
@@ -116,13 +116,13 @@ export function triggerNativeSystemNotification(title: string, body: string) {
       }).catch(() => {
         new Notification(title, {
           body: body,
-          icon: '/logo-192.svg'
+          icon: '/logo-192.webp'
         });
       });
     } else {
       new Notification(title, {
         body: body,
-        icon: '/logo-192.svg'
+        icon: '/logo-192.webp'
       });
     }
   }

@@ -17,7 +17,8 @@ import {
   ChevronDown,
   Pencil,
   Plus,
-  Cpu
+  Cpu,
+  Download
 } from 'lucide-react';
 
 interface StockProps {
@@ -240,6 +241,257 @@ export default function StockManagement({
       return matchModel && matchWorker && matchSearch;
     });
   }, [entries, filterModel, filterWorker, filterSearch]);
+
+  // CSV download function for external record-keeping
+  const downloadCSV = () => {
+    const headers = ['ID', 'Airbag Model', 'Operator Name', 'Assembly Date', 'Qty (pcs)', 'Target Machine', 'Linked Plan ID', 'Record Timestamp'];
+    const rows = filteredEntries.map(e => [
+      e.id,
+      e.modelId,
+      e.workerName,
+      e.date,
+      e.quantity,
+      e.machine || 'General',
+      e.planId || 'N/A',
+      e.createdAt
+    ]);
+
+    const csvContent = "\uFEFF" + [
+      headers.join(','),
+      ...rows.map(row => row.map(val => {
+        const str = String(val ?? '').replace(/"/g, '""');
+        return str.includes(',') || str.includes('\n') || str.includes('"') ? `"${str}"` : str;
+      }).join(','))
+    ].join('\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `epp_stock_report_${new Date().toISOString().split('T')[0]}.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+  };
+
+  // Beautiful, fully styled Excel Report download function with company logo and branding colors
+  const downloadExcel = () => {
+    const totalQty = filteredEntries.reduce((sum, e) => sum + e.quantity, 0);
+    const dateFormatted = new Date().toLocaleString('es-ES', {
+      year: 'numeric', month: '2-digit', day: '2-digit',
+      hour: '2-digit', minute: '2-digit', second: '2-digit'
+    });
+
+    const excelRows = filteredEntries.map((e, index) => {
+      const isEven = index % 2 === 0;
+      const bgStyle = isEven ? 'class="row-even"' : 'class="row-odd"';
+      const safeId = e.id;
+      const safeModel = e.modelId;
+      const safeWorker = e.workerName;
+      const safeDate = e.date;
+      const safeQty = e.quantity;
+      const safeMachine = e.machine || 'General';
+      const safePlan = e.planId || 'N/A';
+      const safeCreatedAt = e.createdAt ? String(new Date(e.createdAt).toLocaleString('es-ES')) : 'N/A';
+
+      return `
+        <tr ${bgStyle}>
+          <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-family: monospace; color: #475569; font-size: 10px;">${safeId}</td>
+          <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: bold; color: #1e293b;">${safeModel}</td>
+          <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-weight: 500; color: #334155;">${safeWorker}</td>
+          <td class="text-center" style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: center;">${safeDate}</td>
+          <td class="text-right qty-col" style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: right; font-weight: bold; color: #ff7700; background-color: #fff7ed;">${safeQty} pcs</td>
+          <td style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: center; color: #475569; font-weight: 500;">${safeMachine}</td>
+          <td class="text-center" style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: center; font-family: monospace; color: #0284c7; font-weight: bold;">${safePlan}</td>
+          <td class="text-center" style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: center; font-size: 10px; color: #64748b; font-family: monospace;">${safeCreatedAt}</td>
+        </tr>
+      `;
+    }).join('');
+
+    const htmlTemplate = `
+      <html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns="http://www.w3.org/TR/REC-html40">
+      <head>
+        <meta charset="utf-8">
+        <!--[if gte mso 9]>
+        <xml>
+          <x:ExcelWorkbook>
+            <x:ExcelWorksheets>
+              <x:ExcelWorksheet>
+                <x:Name>EPP Stock Ledger</x:Name>
+                <x:WorksheetOptions>
+                  <x:DisplayGridlines/>
+                </x:WorksheetOptions>
+              </x:ExcelWorksheet>
+            </x:ExcelWorksheets>
+          </x:ExcelWorkbook>
+        </xml>
+        <![endif]-->
+        <style>
+          body {
+            font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+            margin: 0;
+            padding: 20px;
+          }
+          table {
+            border-collapse: collapse;
+          }
+          td, th {
+            border: 1px solid #cbd5e1;
+            padding: 8px 12px;
+            font-size: 11px;
+            color: #334155;
+          }
+          
+          /* Header brand */
+          .company-title {
+            font-size: 18px;
+            font-weight: bold;
+            color: #1e293b;
+          }
+          .report-subtitle {
+            font-size: 11px;
+            color: #ff7700;
+            font-weight: bold;
+            letter-spacing: 0.5px;
+          }
+          .meta-label {
+            font-size: 10px;
+            color: #475569;
+            font-weight: bold;
+            background-color: #f1f5f9;
+          }
+          .meta-val {
+            font-size: 10px;
+            color: #1e293b;
+          }
+          
+          /* Table headers */
+          th {
+            background-color: #1e293b;
+            color: #ffffff;
+            font-weight: bold;
+            font-size: 11px;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            border: 1px solid #334155;
+          }
+          
+          /* Alternating rows and formatting */
+          .row-even {
+            background-color: #f8fafc;
+          }
+          .row-odd {
+            background-color: #ffffff;
+          }
+          .text-center {
+            text-align: center;
+          }
+          .text-right {
+            text-align: right;
+          }
+          .qty-col {
+            font-weight: bold;
+            color: #ff7700;
+            background-color: #fff7ed;
+          }
+          .total-row td {
+            background-color: #fff7ed;
+            font-weight: bold;
+            border-top: 2px solid #ff7700;
+            border-bottom: 2px solid #ff7700;
+            color: #ff7700;
+            font-size: 12px;
+          }
+        </style>
+      </head>
+      <body>
+        <table>
+          <!-- Company Header Block with Logo -->
+          <tr>
+            <td colspan="2" rowspan="3" style="vertical-align: middle; text-align: center; background-color: #f8fafc; padding: 12px; border: 1px solid #cbd5e1;">
+              <img src="https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp" alt="EPP Logo" width="120" style="display:block; margin: 0 auto; max-height:48px;" />
+            </td>
+            <td colspan="6" class="company-title" style="padding-left:15px; border-bottom: none; border-left: none; font-size: 18px; font-weight: bold; color: #1e293b;">
+              EPP NATUR AUTOMOTIVE S.L.
+            </td>
+          </tr>
+          <tr>
+            <td colspan="6" class="report-subtitle" style="padding-left:15px; border-top: none; border-bottom: none; border-left: none; font-size: 11px; color: #ff7700; font-weight: bold; letter-spacing: 0.5px;">
+              MANUFACTURING & ASSEMBLY STOCK LEDGER
+            </td>
+          </tr>
+          <tr>
+            <td colspan="6" style="padding-left:15px; font-size: 10px; color: #64748b; font-style: italic; border-top: none; border-left: none;">
+              Generated: ${dateFormatted} • System: EPP Digital Hub (Whiteboard)
+            </td>
+          </tr>
+          
+          <!-- Spacing Row -->
+          <tr style="height: 12px;"><td colspan="8" style="border:none;"></td></tr>
+
+          <!-- Metadata Properties -->
+          <tr>
+            <td colspan="2" class="meta-label" style="font-size: 10px; color: #475569; font-weight: bold; background-color: #f1f5f9; padding: 8px 12px; border: 1px solid #cbd5e1;">Ledger Scope:</td>
+            <td colspan="2" class="meta-val" style="font-size: 10px; color: #1e293b; padding: 8px 12px; border: 1px solid #cbd5e1;">Stock Register Output</td>
+            <td colspan="2" class="meta-label" style="font-size: 10px; color: #475569; font-weight: bold; background-color: #f1f5f9; padding: 8px 12px; border: 1px solid #cbd5e1;">Filter Settings:</td>
+            <td colspan="2" class="meta-val" style="font-size: 10px; color: #1e293b; padding: 8px 12px; border: 1px solid #cbd5e1;">
+              Model: <span style="font-weight: bold;">${filterModel}</span> | 
+              Operator: <span style="font-weight: bold;">${filterWorker}</span>
+            </td>
+          </tr>
+          <tr>
+            <td colspan="2" class="meta-label" style="font-size: 10px; color: #475569; font-weight: bold; background-color: #f1f5f9; padding: 8px 12px; border: 1px solid #cbd5e1;">Total Records:</td>
+            <td colspan="2" class="meta-val" style="font-size: 10px; color: #1e293b; font-weight: bold; color: #1e293b; padding: 8px 12px; border: 1px solid #cbd5e1;">${filteredEntries.length} entries</td>
+            <td colspan="2" class="meta-label" style="font-size: 10px; color: #475569; font-weight: bold; background-color: #f1f5f9; padding: 8px 12px; border: 1px solid #cbd5e1;">Total Quantity:</td>
+            <td colspan="2" class="meta-val" style="font-size: 10px; color: #ff7700; font-weight: bold; padding: 8px 12px; border: 1px solid #cbd5e1;">${totalQty} pcs</td>
+          </tr>
+
+          <!-- Spacing Row -->
+          <tr style="height: 15px;"><td colspan="8" style="border:none;"></td></tr>
+
+          <!-- Data Headers with exact widths to prevent squeezed headers in Excel -->
+          <thead>
+            <tr>
+              <th style="width: 150px; text-align: left; background-color: #1e293b; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #334155;">System ID</th>
+              <th style="width: 130px; text-align: left; background-color: #1e293b; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #334155;">Airbag Model</th>
+              <th style="width: 140px; text-align: left; background-color: #1e293b; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #334155;">Operator Name</th>
+              <th style="width: 110px; text-align: center; background-color: #1e293b; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #334155;">Assembly Date</th>
+              <th style="width: 120px; text-align: right; background-color: #1e293b; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #334155;">Qty (pcs)</th>
+              <th style="width: 130px; text-align: center; background-color: #1e293b; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #334155;">Target Machine</th>
+              <th style="width: 140px; text-align: center; background-color: #1e293b; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #334155;">Linked Plan ID</th>
+              <th style="width: 160px; text-align: center; background-color: #1e293b; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #334155;">Record Timestamp</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${excelRows}
+            
+            <!-- Spacing Row -->
+            <tr style="height: 8px;"><td colspan="8" style="border:none;"></td></tr>
+
+            <!-- Grand Total Summary Row -->
+            <tr class="total-row">
+              <td colspan="4" style="font-weight: bold; text-align: left; background-color: #fff7ed; border-top: 2px solid #ff7700; border-bottom: 2px solid #ff7700; padding: 8px 12px;">GRAND TOTAL MANUFACTURED STOCK</td>
+              <td class="text-right" style="font-weight: bold; color: #ff7700; background-color: #fff7ed; border-top: 2px solid #ff7700; border-bottom: 2px solid #ff7700; padding: 8px 12px; text-align: right;">${totalQty} pcs</td>
+              <td colspan="3" style="border-left: none; background-color: #fff7ed; border-top: 2px solid #ff7700; border-bottom: 2px solid #ff7700; padding: 8px 12px;"></td>
+            </tr>
+          </tbody>
+        </table>
+      </body>
+      </html>
+    `;
+
+    const blob = new Blob([new Uint8Array([0xEF, 0xBB, 0xBF]), htmlTemplate], { 
+      type: 'application/vnd.ms-excel;charset=utf-8;' 
+    });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `epp_stock_report_${new Date().toISOString().split('T')[0]}.xls`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   return (
     <div className="space-y-8" id="stock-management-view">
@@ -467,22 +719,44 @@ export default function StockManagement({
                 </h3>
               </div>
 
-              {/* Expand Search / Filter toggle button */}
-              <button
-                onClick={() => setShowFilters(!showFilters)}
-                className={`self-start md:self-auto px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all border cursor-pointer shadow-3xs ${
-                  showFilters || filterModel !== 'ALL' || filterWorker !== 'ALL' || filterSearch
-                    ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
-                    : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
-                }`}
-                id="toggle-filters"
-              >
-                <SlidersHorizontal size={14} />
-                <span>Filters {showFilters ? 'Hide' : 'Show'}</span>
-                {(filterModel !== 'ALL' || filterWorker !== 'ALL' || filterSearch) && (
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
-                )}
-              </button>
+              {/* Export CSV and Expand Search / Filter toggle button */}
+              <div className="flex flex-wrap items-center gap-2.5 self-start md:self-auto">
+                <button
+                  onClick={downloadExcel}
+                  className="px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-2 bg-emerald-600 hover:bg-emerald-750 text-white transition-all cursor-pointer shadow-3xs hover:shadow-xs active:scale-95 border border-emerald-500"
+                  id="download-stock-excel"
+                  title="Export professionally styled EPP company Excel report with logo and custom brand colors"
+                >
+                  <FileSpreadsheet size={14} />
+                  <span>Export Excel</span>
+                </button>
+
+                <button
+                  onClick={downloadCSV}
+                  className="px-3 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 bg-slate-50 hover:bg-slate-100 text-slate-705 border border-slate-205 transition-all cursor-pointer shadow-3xs"
+                  id="download-stock-csv"
+                  title="Download raw data in standard CSV format"
+                >
+                  <Download size={14} />
+                  <span>Download CSV</span>
+                </button>
+
+                <button
+                  onClick={() => setShowFilters(!showFilters)}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-semibold flex items-center gap-2 transition-all border cursor-pointer shadow-3xs ${
+                    showFilters || filterModel !== 'ALL' || filterWorker !== 'ALL' || filterSearch
+                      ? 'bg-emerald-50 border-emerald-200 text-emerald-700'
+                      : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900'
+                  }`}
+                  id="toggle-filters"
+                >
+                  <SlidersHorizontal size={14} />
+                  <span>Filters {showFilters ? 'Hide' : 'Show'}</span>
+                  {(filterModel !== 'ALL' || filterWorker !== 'ALL' || filterSearch) && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>
+                  )}
+                </button>
+              </div>
             </div>
 
             {/* Filter drawer with slide animation */}

@@ -25,8 +25,8 @@ messaging.onBackgroundMessage(function(payload) {
   // Customize options
   const options = {
     body: body,
-    icon: '/logo-192.svg',
-    badge: '/logo-192.svg',
+    icon: '/logo-192.webp',
+    badge: '/logo-192.webp',
     tag: 'epp-mes-notification-' + (payload.data?.id || Date.now()),
     renotify: true,
     data: {

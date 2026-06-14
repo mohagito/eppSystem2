@@ -5,9 +5,10 @@ const ASSETS_TO_CACHE = [
   '/index.html',
   '/manifest.webmanifest',
   '/manifest.json',
-  '/logo-192.svg',
-  '/logo-512.svg',
-  '/logo-maskable.svg'
+  '/logo-192.webp',
+  '/logo-512.webp',
+  '/logo-maskable.webp',
+  '/logo.webp'
 ];
 
 importScripts('https://www.gstatic.com/firebasejs/10.7.1/firebase-app-compat.js');
@@ -82,8 +83,8 @@ self.addEventListener('push', (event) => {
   const title = data.title || 'EPP Airbag System Update';
   const options = {
     body: data.body || data.message || 'New manufacturing log registered',
-    icon: '/logo-192.svg',
-    badge: '/logo-192.svg',
+    icon: '/logo-192.webp',
+    badge: '/logo-192.webp',
     vibrate: [200, 100, 200, 100, 300],
     tag: 'epp-mes-push-' + (data.id || Date.now()),
     renotify: true,
@@ -104,8 +105,8 @@ messaging.onBackgroundMessage((payload) => {
 
   const options = {
     body: body,
-    icon: '/logo-192.svg',
-    badge: '/logo-192.svg',
+    icon: '/logo-192.webp',
+    badge: '/logo-192.webp',
     vibrate: [200, 100, 200, 100, 300],
     tag: 'epp-mes-fcm-' + (payload.data?.id || Date.now()),
     renotify: true,

@@ -27,21 +27,21 @@ export default defineConfig(() => {
           start_url: '/',
           icons: [
             {
-              src: '/logo-192.svg',
+              src: '/logo-192.webp',
               sizes: '192x192',
-              type: 'image/svg+xml',
+              type: 'image/webp',
               purpose: 'any'
             },
             {
-              src: '/logo-512.svg',
+              src: '/logo-512.webp',
               sizes: '512x512',
-              type: 'image/svg+xml',
+              type: 'image/webp',
               purpose: 'any'
             },
             {
-              src: '/logo-maskable.svg',
+              src: '/logo-maskable.webp',
               sizes: '512x512',
-              type: 'image/svg+xml',
+              type: 'image/webp',
               purpose: 'maskable'
             }
           ]
