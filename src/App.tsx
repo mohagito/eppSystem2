@@ -1286,6 +1286,15 @@ export default function App() {
                 </div>
 
                 <button
+                  onClick={handleLogout}
+                  className="p-1.5 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-500 hover:text-rose-400 rounded-xl transition cursor-pointer flex items-center justify-center shadow-sm"
+                  title="Log Out"
+                  id="mobile-header-logout-btn"
+                >
+                  <LogOut size={15} />
+                </button>
+
+                <button
                   onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
                   className="p-1.5 bg-slate-850 hover:bg-slate-800 border border-slate-755 text-slate-350 hover:text-white rounded-xl transition cursor-pointer"
                   aria-label="Toggle navigation drawers"
@@ -1393,20 +1402,20 @@ export default function App() {
                     </div>
 
                     {/* Exit Signoff controls */}
-                    <div className="border-t border-slate-850 pt-4">
+                    <div className="border-t border-slate-800 pt-4">
                       <button
                         onClick={() => {
                           setMobileMenuOpen(false);
                           handleLogout();
                         }}
-                        className="w-full py-3 px-4 bg-slate-950/60 hover:bg-slate-950 border border-slate-850 text-slate-400 hover:text-rose-455 rounded-xl text-xs font-semibold flex items-center justify-between transition-colors cursor-pointer"
+                        className="w-full py-3.5 px-4 bg-rose-600 hover:bg-rose-700 text-white shadow-xl shadow-rose-900/25 rounded-xl text-xs font-black flex items-center justify-between transition-colors cursor-pointer"
                         id="mobile-drawer-logout"
                       >
                         <span className="flex items-center gap-2">
-                          <LogOut size={15} className="text-slate-405 group-hover:text-rose-400 transition-colors" />
+                          <LogOut size={15} className="text-white" />
                           Log Out of MES
                         </span>
-                        <ChevronRight size={12} className="text-slate-500" />
+                        <ChevronRight size={14} className="text-rose-100" />
                       </button>
                     </div>
                   </motion.div>
