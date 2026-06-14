@@ -1392,7 +1392,6 @@ export default function App() {
                   className="h-7 w-auto object-contain"
                   referrerPolicy="no-referrer"
                 />
-                <span className="font-display font-black text-[11px] tracking-wider text-slate-200 uppercase">EPP MES</span>
               </div>
 
               {/* Quick Section Switcher Dropdown */}
