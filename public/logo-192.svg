@@ -1,46 +1,19 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="500" height="500">
-  <defs>
-    <radialGradient id="bgGrad" cx="50%" cy="50%" r="50%">
-      <stop offset="0%" stop-color="#1e293b"/>
-      <stop offset="100%" stop-color="#0f172a"/>
-    </radialGradient>
-    <linearGradient id="emeraldGrad" x1="0%" y1="0%" x2="100%" y2="100%">
-      <stop offset="0%" stop-color="#34d399"/>
-      <stop offset="100%" stop-color="#059669"/>
-    </linearGradient>
-    <filter id="glow" x="-20%" y="-20%" width="140%" height="140%">
-      <feGaussianBlur stdDeviation="8" result="blur"/>
-      <feMerge>
-        <feMergeNode in="blur"/>
-        <feMergeNode in="SourceGraphic"/>
-      </feMerge>
-    </filter>
-  </defs>
-  
-  <!-- Smooth Slate Background -->
-  <rect width="100%" height="100%" fill="url(#bgGrad)"/>
-  
-  <!-- Tech-forward Circular Grids and Rings -->
-  <circle cx="256" cy="256" r="220" stroke="#334155" stroke-width="1.5" fill="none" stroke-linecap="round"/>
-  <circle cx="256" cy="256" r="180" stroke="#475569" stroke-width="2" stroke-dasharray="10 6" fill="none"/>
-  <circle cx="256" cy="256" r="120" stroke="#059669" stroke-width="1.5" fill="none" opacity="0.4"/>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="192" height="192">
+  <!-- Deep Slate-Navy Base Background -->
+  <rect width="100%" height="100%" fill="#0a1224" rx="36" />
 
-  <!-- EPP Airbag Center Shield Symbol -->
-  <g transform="translate(256, 256) scale(1.15)">
-    <!-- Outer hexagonal casing -->
-    <polygon points="0,-85 74,-42 74,42 0,85 -74,42 -74,-42" stroke="url(#emeraldGrad)" stroke-width="6" fill="#0f172a" filter="url(#glow)"/>
+  <!-- EPP Natur Branding Logo Artwork -->
+  <g transform="translate(15, 60)">
+    <!-- Iconic Left Wing Wave Swoosh -->
+    <path d="M 80 180 C 130 90, 250 90, 280 180 C 220 145, 140 145, 80 180 Z" fill="#FF7700" />
     
-    <!-- Central Wing/Leaf shape representation of EPP Natur style -->
-    <!-- Curved Airbag expansion bellows in glowing emerald -->
-    <path d="M-40,-35 C-20,-55 20,-55 40,-35 C55,-10 35,35 0,65 C-35,35 -55,-10 -40,-35 Z" fill="url(#emeraldGrad)" opacity="0.95"/>
-    <path d="M-20,-20 C-10,-30 10,-30 20,-20 C28,0 18,25 0,45 C-18,25 -28,0 -20,-20 Z" fill="#ffffff" opacity="0.15"/>
+    <!-- Iconic Right Wing Wave Swoosh (Overlap) -->
+    <path d="M 180 180 C 230 95, 350 95, 380 180 C 320 145, 240 145, 180 180 Z" fill="#FF7700" />
+
+    <!-- E.P.P. Orange Text Badge -->
+    <text x="350" y="202" font-family="'Inter', -apple-system, sans-serif" font-weight="900" font-size="34" fill="#FF7700" letter-spacing="1.5">E.P.P.</text>
     
-    <!-- Safety Center-badge symbol -->
-    <circle cx="0" cy="5" r="12" fill="#ffffff" filter="url(#glow)"/>
-    <path d="M-4,5 L-1,8 L5,2" stroke="#059669" stroke-width="3.5" fill="none" stroke-linecap="round" stroke-linejoin="round"/>
+    <!-- Natur Silver-Steel Branding Title -->
+    <text x="75" y="305" font-family="'Inter', -apple-system, sans-serif" font-weight="800" font-size="110" fill="#a1a1aa" letter-spacing="-4">Natur</text>
   </g>
-
-  <!-- Industrial Manufacturing Text Accents -->
-  <text x="256" y="445" font-family="'Inter', sans-serif" font-weight="900" font-size="20" fill="#f8fafc" letter-spacing="8" text-anchor="middle">EPP MES</text>
-  <text x="256" y="465" font-family="'JetBrains Mono', monospace" font-weight="500" font-size="10" fill="#10b981" letter-spacing="4" text-anchor="middle">AIRBAG SYSTEMS</text>
 </svg>

@@ -32,7 +32,7 @@ import PlanningModule from './components/PlanningModule';
 import DeliveryModule from './components/DeliveryModule';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDoc, getDocs, serverTimestamp } from 'firebase/firestore';
-import NotificationCenter from './components/NotificationCenter';
+import NotificationCenter, { playNotificationSound } from './components/NotificationCenter';
 import NotificationPermissionPrompt from './components/NotificationPermissionPrompt';
 import { onForegroundMessage } from './fcm';
 
@@ -123,6 +123,9 @@ export default function App() {
     if (!currentUser) return;
     
     const unsubscribe = onForegroundMessage((payload) => {
+      // Trigger alarm chime
+      playNotificationSound();
+
       Swal.fire({
         toast: true,
         position: 'top-end',

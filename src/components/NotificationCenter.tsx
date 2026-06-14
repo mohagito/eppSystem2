@@ -44,6 +44,90 @@ export interface DatabaseNotification {
   createdBy?: string;
 }
 
+/**
+ * Synthesizes a beautiful, futuristic dual-tone chime notification sound
+ * using the Web Audio API. 100% reliable, offline-compatible, and zero network calls.
+ */
+export function playNotificationSound() {
+  try {
+    const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
+    if (!AudioContextClass) return;
+    const ctx = new AudioContextClass();
+    
+    // Note 1: Pure Sine Wave High Chime
+    const osc1 = ctx.createOscillator();
+    const gain1 = ctx.createGain();
+    
+    osc1.type = 'sine';
+    osc1.frequency.setValueAtTime(880, ctx.currentTime); // A5 key
+    osc1.frequency.exponentialRampToValueAtTime(1180, ctx.currentTime + 0.12); // Modern slides
+    
+    gain1.gain.setValueAtTime(0.001, ctx.currentTime);
+    gain1.gain.linearRampToValueAtTime(0.2, ctx.currentTime + 0.04); // Instant clean attack
+    gain1.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.35); // Smooth decay ring
+    
+    osc1.connect(gain1);
+    gain1.connect(ctx.destination);
+    
+    // Note 2: Companion harmonious high pitch (Perfect Fifth)
+    const osc2 = ctx.createOscillator();
+    const gain2 = ctx.createGain();
+    
+    osc2.type = 'sine';
+    osc2.frequency.setValueAtTime(1320, ctx.currentTime + 0.05); // E6 key
+    
+    gain2.gain.setValueAtTime(0.001, ctx.currentTime + 0.05);
+    gain2.gain.linearRampToValueAtTime(0.15, ctx.currentTime + 0.09);
+    gain2.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.45);
+    
+    osc2.connect(gain2);
+    gain2.connect(ctx.destination);
+    
+    // Play with small delay orchestration
+    osc1.start(ctx.currentTime);
+    osc2.start(ctx.currentTime + 0.05);
+    
+    osc1.stop(ctx.currentTime + 0.4);
+    osc2.stop(ctx.currentTime + 0.5);
+  } catch (err) {
+    console.warn('Audio feedback synthesis was not allowed by browser security permissions yet:', err);
+  }
+}
+
+/**
+ * Direct lockscreen-compatible HTML5 notification delivery using 
+ * the registered Service Worker or legacy foreground API.
+ */
+export function triggerNativeSystemNotification(title: string, body: string) {
+  if (typeof window === 'undefined' || !('Notification' in window)) return;
+  
+  if (Notification.permission === 'granted') {
+    // Attempt sending through active service worker (locks-screen compatible)
+    if ('serviceWorker' in navigator && navigator.serviceWorker.ready) {
+      navigator.serviceWorker.ready.then((registration) => {
+        (registration as any).showNotification(title, {
+          body: body,
+          icon: 'https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp',
+          badge: 'https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp',
+          vibrate: [200, 100, 200, 100, 300], // Haptic alarm vibro pattern
+          tag: 'epp-mes-lockscreennote-' + Date.now(),
+          renotify: true
+        });
+      }).catch(() => {
+        new Notification(title, {
+          body: body,
+          icon: 'https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp'
+        });
+      });
+    } else {
+      new Notification(title, {
+        body: body,
+        icon: 'https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp'
+      });
+    }
+  }
+}
+
 interface NotificationCenterProps {
   currentUser: UserProfile;
   setActiveTab: (tabId: string) => void;
@@ -63,6 +147,8 @@ export default function NotificationCenter({ currentUser, setActiveTab }: Notifi
     const notifsRef = collection(db, 'notifications');
     // We fetch and filter in-memory or using simple queries to respect Phase 7 Role-Based requirements
     const q = query(notifsRef, orderBy('createdAt', 'desc'), limit(30));
+
+    let isFirst = true;
 
     const unsubscribe = onSnapshot(q, (snapshot) => {
       const list: DatabaseNotification[] = [];
@@ -115,6 +201,31 @@ export default function NotificationCenter({ currentUser, setActiveTab }: Notifi
           list.push(item);
         }
       });
+
+      // Detect and alert on new changes dynamically
+      if (!isFirst) {
+        const newItemsAdded: DatabaseNotification[] = [];
+        snapshot.docChanges().forEach((change) => {
+          if (change.type === 'added') {
+            const addedId = change.doc.id;
+            const match = list.find(x => x.id === addedId);
+            if (match && match.createdBy !== currentUser.id) {
+              newItemsAdded.push(match);
+            }
+          }
+        });
+
+        if (newItemsAdded.length > 0) {
+          // Trigger audio chime
+          playNotificationSound();
+          // Trigger native lockscreen overlay notifications
+          newItemsAdded.forEach((item) => {
+            triggerNativeSystemNotification(item.title, item.body);
+          });
+        }
+      }
+
+      isFirst = false;
 
       // Sort by newest first
       list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
