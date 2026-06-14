@@ -19,7 +19,8 @@ import {
   ChevronDown,
   MonitorCheck,
   AlertCircle,
-  Truck
+  Truck,
+  Download
 } from 'lucide-react';
 import { UserProfile, StockEntry, ProductionPlan, ToastMessage, DeliveryEntry } from './types';
 import { MOCK_PROFILES, INITIAL_STOCK_ENTRIES, INITIAL_PLANS } from './data';
@@ -67,6 +68,124 @@ export default function App() {
   });
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [quickNavOpen, setQuickNavOpen] = useState<boolean>(false);
+
+  // --- PWA MOBILE INSTALL ENGINE ---
+  const checkIfStandalone = () => {
+    if (typeof window === 'undefined') return false;
+    const isStandaloneMedia = window.matchMedia('(display-mode: standalone)').matches;
+    const isStandaloneLegacy = (navigator as any).standalone === true;
+    return isStandaloneMedia || isStandaloneLegacy;
+  };
+
+  const [isInstalled, setIsInstalled] = useState<boolean>(checkIfStandalone());
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+
+  useEffect(() => {
+    const handleBeforeInstallPrompt = (e: Event) => {
+      e.preventDefault();
+      setDeferredPrompt(e);
+    };
+
+    window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+
+    // Dynamic display mode listener
+    const mediaQuery = window.matchMedia('(display-mode: standalone)');
+    const handleMediaChange = (e: MediaQueryListEvent) => {
+      setIsInstalled(e.matches);
+    };
+    
+    if (mediaQuery.addEventListener) {
+      mediaQuery.addEventListener('change', handleMediaChange);
+    } else {
+      (mediaQuery as any).addListener(handleMediaChange);
+    }
+
+    return () => {
+      window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
+      if (mediaQuery.removeEventListener) {
+        mediaQuery.removeEventListener('change', handleMediaChange);
+      } else {
+        (mediaQuery as any).removeListener(handleMediaChange);
+      }
+    };
+  }, []);
+
+  const handleInstallApp = async () => {
+    if (!deferredPrompt) {
+      // If deferredPrompt is null, we can check if it's an iOS device to show specific instruction
+      const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) && !(window as any).MSStream;
+      if (isIOS) {
+        Swal.fire({
+          title: 'EPP Natur App Installation',
+          html: `
+            <div class="text-left space-y-3 font-sans text-xs">
+              <div class="flex items-center gap-2 bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-500/20 mb-3">
+                <span class="text-emerald-400 font-bold">✨ Instant Phone Access</span>
+                <span class="text-[10px] text-slate-400">Perfectly optimized for your mobile device layout</span>
+              </div>
+              <p class="text-slate-300">To install this manufacturing system on your Apple iOS device:</p>
+              <ol class="list-decimal pl-5 space-y-2 text-slate-300 font-medium">
+                <li>Tap the <span class="bg-slate-800 px-2 py-1 rounded text-amber-500 font-bold">Share ⎋</span> button at the bottom of Safari browser.</li>
+                <li>Scroll down and tap <span class="bg-slate-800 px-2 py-1 rounded text-amber-500 font-bold">Add to Home Screen ＋</span> in the list of options.</li>
+                <li>Choose a name (e.g. <strong>EPP MES</strong>) and complete by clicking <strong class="text-emerald-400">Add</strong>.</li>
+              </ol>
+              <p class="text-[10px] text-slate-500 mt-2">After adding, launch the app directly from your phone home screen icons to run it distraction-free!</p>
+            </div>
+          `,
+          icon: 'info',
+          confirmButtonText: 'Got it, let\'s install!',
+          confirmButtonColor: '#10b981',
+          background: '#090d16',
+          color: '#f8fafc',
+          customClass: {
+            popup: 'rounded-2xl border border-slate-800 shadow-2xl p-6 font-sans',
+            title: 'text-sm font-extrabold uppercase tracking-wider text-slate-100 font-sans',
+            confirmButton: 'px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md'
+          },
+          buttonsStyling: false
+        });
+      } else {
+        Swal.fire({
+          title: 'Install EPP App',
+          html: `
+            <div class="text-left space-y-3 font-sans text-xs">
+              <div class="flex items-center gap-1.5 bg-emerald-500/10 p-2.5 rounded-xl border border-emerald-500/20 mb-2">
+                <span class="text-emerald-400 font-bold">🛠️ Portable App Mode</span>
+              </div>
+              <p class="text-slate-300">No automatic install prompt was triggered. You can always install manually:</p>
+              <ol class="list-decimal pl-5 space-y-2 text-slate-300 font-medium">
+                <li>Open your mobile chrome settings overlay (tap the <strong>3 dots menu</strong> in the top-right / bottom-right).</li>
+                <li>Tap <span class="text-emerald-400 font-bold">"Add to Home screen"</span> or <span class="text-emerald-400 font-bold">"Install app"</span> option.</li>
+              </ol>
+            </div>
+          `,
+          icon: 'info',
+          confirmButtonText: 'Understood',
+          confirmButtonColor: '#10b981',
+          background: '#090d16',
+          color: '#f8fafc',
+          customClass: {
+            popup: 'rounded-2xl border border-slate-800 shadow-2xl p-6 font-sans',
+            title: 'text-sm font-extrabold uppercase tracking-wider text-slate-100 font-sans',
+            confirmButton: 'px-5 py-2.5 bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md'
+          },
+          buttonsStyling: false
+        });
+      }
+      return;
+    }
+
+    try {
+      await deferredPrompt.prompt();
+      const { outcome } = await deferredPrompt.userChoice;
+      if (outcome === 'accepted') {
+        setDeferredPrompt(null);
+        setIsInstalled(true);
+      }
+    } catch (err) {
+      console.error('Error invoking native installation prompt:', err);
+    }
+  };
 
   // Confirmation Modal State
   const [confirmModal, setConfirmModal] = useState<{
@@ -1232,6 +1351,17 @@ export default function App() {
 
               {/* Quick Section Switcher Dropdown */}
               <div className="flex items-center gap-1.5">
+                {!isInstalled && (
+                  <button
+                    onClick={handleInstallApp}
+                    className="flex items-center gap-1 py-1.5 px-2 bg-amber-500/10 hover:bg-amber-500/20 border border-amber-500/30 text-amber-400 rounded-xl text-[10.5px] font-black transition cursor-pointer shadow-sm active:scale-95 shrink-0"
+                    title="Install EPP App"
+                    id="mobile-header-install-btn"
+                  >
+                    <Download size={11.5} className="animate-bounce" />
+                    <span>Install</span>
+                  </button>
+                )}
                 <NotificationCenter currentUser={currentUser} setActiveTab={setActiveTab} />
                 <div className="relative" id="mobile-section-quicknav-container">
                   <button
@@ -1376,6 +1506,34 @@ export default function App() {
                           </div>
                         </div>
                       </div>
+
+                      {/* EPP App Install Booster CTA */}
+                      {!isInstalled && (
+                        <div className="bg-gradient-to-br from-amber-500/10 to-orange-500/5 p-3.5 rounded-2xl border border-amber-500/20 space-y-2">
+                          <div className="flex items-start gap-2">
+                            <div className="p-1.5 bg-amber-500/15 text-amber-500 rounded-lg shrink-0">
+                              <Download size={12} className="animate-pulse" />
+                            </div>
+                            <div>
+                              <h4 className="text-[10.5px] font-black text-slate-200 uppercase tracking-wider">Install EPP System</h4>
+                              <p className="text-[9px] text-slate-400 font-medium leading-tight mt-0.5">
+                                Add to home screen for fullscreen layout, native alerts & distraction-free view.
+                              </p>
+                            </div>
+                          </div>
+                          <button
+                            onClick={() => {
+                              setMobileMenuOpen(false);
+                              handleInstallApp();
+                            }}
+                            className="w-full py-1.5 px-2 bg-amber-500 hover:bg-amber-600 text-slate-950 rounded-lg text-[10px] font-extrabold flex items-center justify-center gap-1 transition-colors cursor-pointer"
+                            id="mobile-drawer-install-btn"
+                          >
+                            <Download size={10.5} />
+                            Get Mobile App
+                          </button>
+                        </div>
+                      )}
 
                       {/* Menu navigation options */}
                       <nav className="space-y-1.5">
