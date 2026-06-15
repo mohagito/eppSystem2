@@ -23,6 +23,16 @@ export interface StockEntry {
   createdAt: string; // ISO string
   machine?: MachineType; // Optional: target machine context
   planId?: string;       // Optional: directly associated production plan ID
+  
+  // Correction System Fields
+  originalQuantity?: number;
+  correctedQuantity?: number;
+  difference?: number;
+  edited?: boolean;
+  editedBy?: string;
+  editedByProfileId?: string;
+  editedAt?: any; // Firestore ServerTimestamp or ISO string
+  editReason?: string;
 }
 
 export interface DeliveryEntry {

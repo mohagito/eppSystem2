@@ -29,7 +29,7 @@ interface StockProps {
   profiles?: UserProfile[];
   onAddEntry: (entry: Omit<StockEntry, 'id' | 'createdAt'>) => void;
   onDeleteEntry?: (id: string) => void;
-  onEditEntry?: (id: string, updatedEntry: Partial<Omit<StockEntry, 'id' | 'createdAt'>>) => void;
+  onEditEntry?: (id: string, updatedEntry: Partial<StockEntry>) => void;
 }
 
 export default function StockManagement({
@@ -105,6 +105,77 @@ export default function StockManagement({
   const [editMachine, setEditMachine] = useState<string>('ALL');
   const [editPlanId, setEditPlanId] = useState<string>('');
   const [editFormError, setEditFormError] = useState<string>('');
+  const [editReason, setEditReason] = useState<string>('');
+
+  // General Stock Direct Correction Modal state
+  const [correctingGeneralModel, setCorrectingGeneralModel] = useState<AirbagModel | null>(null);
+  const [correctingGeneralCurrentStock, setCorrectingGeneralCurrentStock] = useState<number>(0);
+  const [correctingGeneralDesiredStock, setCorrectingGeneralDesiredStock] = useState<string>('');
+  const [correctingGeneralReason, setCorrectingGeneralReason] = useState<string>('');
+  const [correctingGeneralError, setCorrectingGeneralError] = useState<string>('');
+
+  const handleStartGeneralStockCorrection = (model: AirbagModel, currentStock: number) => {
+    setCorrectingGeneralModel(model);
+    setCorrectingGeneralCurrentStock(currentStock);
+    setCorrectingGeneralDesiredStock(currentStock.toString());
+    setCorrectingGeneralReason('');
+    setCorrectingGeneralError('');
+  };
+
+  const handleGeneralStockCorrectionSubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    setCorrectingGeneralError('');
+
+    if (!correctingGeneralModel) return;
+
+    const desiredQty = parseInt(correctingGeneralDesiredStock, 10);
+    if (isNaN(desiredQty)) {
+      setCorrectingGeneralError('Please enter a valid desired stock level.');
+      return;
+    }
+
+    if (!correctingGeneralReason || correctingGeneralReason.trim().length === 0) {
+      setCorrectingGeneralError('Reason for correction is required.');
+      return;
+    }
+
+    const difference = desiredQty - correctingGeneralCurrentStock;
+    if (difference === 0) {
+      setCorrectingGeneralError('The desired stock quantity is already equal to the current calculated stock level.');
+      return;
+    }
+
+    // Register a new correction stock entry that adjusts the quantity by difference
+    onAddEntry({
+      modelId: correctingGeneralModel,
+      workerName: `${currentUser.name}`,
+      date: getLocalDateStr(),
+      quantity: difference,
+      createdBy: currentUser.id,
+      machine: undefined,
+      planId: undefined,
+      // Pass the audit fields
+      originalQuantity: correctingGeneralCurrentStock,
+      correctedQuantity: desiredQty,
+      difference: difference,
+      edited: true,
+      editedBy: currentUser.name,
+      editedByProfileId: currentUser.id,
+      editReason: `General Stock Count Recount: ${correctingGeneralReason.trim()}`,
+    } as any);
+
+    setCorrectingGeneralModel(null);
+  };
+
+  // Expanded stock details history tracking state
+  const [expandedStockHistoryIds, setExpandedStockHistoryIds] = useState<Record<string, boolean>>({});
+
+  const toggleRowHistory = (id: string) => {
+    setExpandedStockHistoryIds((prev) => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
 
   const handleStartEdit = (entry: StockEntry) => {
     setEditingEntry(entry);
@@ -114,6 +185,7 @@ export default function StockManagement({
     setEditMachine(entry.machine || 'ALL');
     setEditPlanId(entry.planId || '');
     setEditFormError('');
+    setEditReason('');
   };
 
   const handleEditSubmit = (e: React.FormEvent) => {
@@ -126,18 +198,22 @@ export default function StockManagement({
       return;
     }
 
-    if (!editDate) {
-      setEditFormError('Assembly date is required.');
+    if (!editReason || editReason.trim().length === 0) {
+      setEditFormError('Reason for correction is required.');
       return;
     }
 
     if (editingEntry && onEditEntry) {
+      const originalQtyToStore = editingEntry.originalQuantity !== undefined ? editingEntry.originalQuantity : editingEntry.quantity;
       onEditEntry(editingEntry.id, {
-        modelId: editModel,
-        date: editDate,
         quantity: parsedQty,
-        machine: editMachine !== 'ALL' ? (editMachine as any) : null as any,
-        planId: editPlanId || null as any,
+        originalQuantity: originalQtyToStore,
+        correctedQuantity: parsedQty,
+        difference: parsedQty - originalQtyToStore,
+        edited: true,
+        editedBy: currentUser.name,
+        editedByProfileId: currentUser.id,
+        editReason: editReason.trim(),
       });
       setEditingEntry(null);
     }
@@ -518,7 +594,7 @@ export default function StockManagement({
               <motion.div
                 key={model}
                 whileHover={{ y: -3, scale: 1.02 }}
-                className={`p-4 rounded-xl border transition-all duration-300 ${
+                className={`p-4 rounded-xl border transition-all duration-300 relative group ${
                   isNegative
                     ? 'bg-rose-50/50 border-rose-200 text-rose-700 shadow-3xs'
                     : hasStock 
@@ -527,7 +603,19 @@ export default function StockManagement({
                 }`}
                 id={`stat-card-${model.replace(' ', '-')}`}
               >
-                <div className="text-2s font-mono text-slate-450 tracking-wider font-extrabold uppercase">{model}</div>
+                <div className="flex items-center justify-between">
+                  <div className="text-2s font-mono text-slate-450 tracking-wider font-extrabold uppercase">{model}</div>
+                  {currentUser.role === 'manager' && (
+                    <button
+                      onClick={() => handleStartGeneralStockCorrection(model, stockVal)}
+                      className="text-slate-400 hover:text-amber-600 hover:bg-amber-50 p-1.5 rounded-lg transition-all cursor-pointer opacity-0 group-hover:opacity-100 absolute top-2 right-2 duration-200"
+                      title={`Correct general stock level for ${model}`}
+                      id={`correct-general-stock-${model.replace(' ', '-')}`}
+                    >
+                      <Pencil size={11} />
+                    </button>
+                  )}
+                </div>
                 <div className="mt-2 flex items-baseline justify-between select-none">
                   <div className="flex items-baseline gap-1">
                     <span className={`text-2xl font-bold font-mono ${isNegative ? 'text-rose-600' : 'text-slate-900'}`}>
@@ -866,70 +954,135 @@ export default function StockManagement({
                         </tr>
                       ) : (
                         filteredEntries.map((e) => (
-                          <motion.tr
-                            key={e.id}
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            exit={{ opacity: 0 }}
-                            transition={{ duration: 0.15 }}
-                            className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
-                            id={`ledger-row-${e.id}`}
-                          >
-                            <td className="p-4">
-                              <div className="flex flex-wrap items-center gap-1.5">
-                                <span className="text-xs font-bold text-slate-800 font-mono tracking-wide bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
-                                  {e.modelId}
-                                </span>
-                                {e.machine && (
-                                  <span className="text-[9px] font-extrabold uppercase bg-sky-50 text-sky-600 border border-sky-100 rounded-md px-2 py-0.5 tracking-normal">
-                                    {e.machine}
+                          <React.Fragment key={e.id}>
+                            <motion.tr
+                              key={e.id}
+                              initial={{ opacity: 0 }}
+                              animate={{ opacity: 1 }}
+                              exit={{ opacity: 0 }}
+                              transition={{ duration: 0.15 }}
+                              className="border-b border-slate-100 hover:bg-slate-50/50 transition-colors"
+                              id={`ledger-row-${e.id}`}
+                            >
+                              <td className="p-4">
+                                <div className="flex flex-wrap items-center gap-1.5">
+                                  <span className="text-xs font-bold text-slate-800 font-mono tracking-wide bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
+                                    {e.modelId}
                                   </span>
-                                )}
-                                {e.planId && (
-                                  <span className="text-[9px] font-extrabold uppercase bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-md px-2 py-0.5 tracking-normal">
-                                    Linked Plan
-                                  </span>
-                                )}
-                              </div>
-                            </td>
-                            <td className="p-4 hidden sm:table-cell">
-                              <span className="text-xs font-bold text-slate-800">
-                                {e.workerName}
-                              </span>
-                            </td>
-                            <td className="p-4 text-xs font-mono text-slate-500 uppercase hidden sm:table-cell">
-                              {new Date(e.date).toLocaleDateString('en-US', {
-                                month: 'short',
-                                day: '2-digit',
-                                year: 'numeric',
-                              })}
-                            </td>
-                            <td className="p-4 text-xs font-extrabold text-right font-mono text-emerald-600 select-all">
-                              {e.quantity} pcs
-                            </td>
-                            {currentUser.role === 'manager' && (
-                              <td className="p-4 text-center">
-                                <div className="flex items-center justify-center gap-1.5">
-                                  <button
-                                    onClick={() => handleStartEdit(e)}
-                                    className="text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 p-2 rounded-lg transition-colors cursor-pointer"
-                                    title="Edit stock entry"
-                                    id={`edit-entry-${e.id}`}
-                                  >
-                                    <Pencil size={13.5} />
-                                  </button>
-                                  <button
-                                    onClick={() => onDeleteEntry?.(e.id)}
-                                    className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-2 rounded-lg transition-colors cursor-pointer"
-                                    title="Delete stock entry"
-                                    id={`delete-entry-${e.id}`}
-                                  >
-                                    <Trash2 size={13.5} />
-                                  </button>
+                                  {e.machine && (
+                                    <span className="text-[9px] font-extrabold uppercase bg-sky-50 text-sky-600 border border-sky-100 rounded-md px-2 py-0.5 tracking-normal">
+                                      {e.machine}
+                                    </span>
+                                  )}
+                                  {e.planId && (
+                                    <span className="text-[9px] font-extrabold uppercase bg-emerald-50 text-emerald-600 border border-emerald-100 rounded-md px-2 py-0.5 tracking-normal">
+                                      Linked Plan
+                                    </span>
+                                  )}
+                                  {e.edited && (
+                                    <button
+                                      onClick={() => currentUser.role === 'manager' && toggleRowHistory(e.id)}
+                                      className={`inline-flex items-center gap-1 text-[9px] font-extrabold uppercase rounded-md px-2 py-0.5 tracking-normal transition-all outline-hidden ${
+                                        currentUser.role === 'manager'
+                                          ? 'bg-amber-100 text-amber-705 border border-amber-200 hover:bg-amber-200 cursor-pointer'
+                                          : 'bg-amber-50 text-amber-600 border border-amber-100'
+                                      }`}
+                                      title={currentUser.role === 'manager' ? 'Click to expand correction history' : 'Stock has been corrected'}
+                                      id={`corrected-badge-${e.id}`}
+                                    >
+                                      <span>Corrected</span>
+                                      {currentUser.role === 'manager' && (
+                                        <ChevronDown size={10} className={`transform transition-transform ${expandedStockHistoryIds[e.id] ? 'rotate-180' : ''}`} />
+                                      )}
+                                    </button>
+                                  )}
                                 </div>
                               </td>
+                              <td className="p-4 hidden sm:table-cell">
+                                <span className="text-xs font-bold text-slate-800">
+                                  {e.workerName}
+                                </span>
+                              </td>
+                              <td className="p-4 text-xs font-mono text-slate-500 uppercase hidden sm:table-cell">
+                                {new Date(e.date).toLocaleDateString('en-US', {
+                                  month: 'short',
+                                  day: '2-digit',
+                                  year: 'numeric',
+                                })}
+                              </td>
+                              <td className={`p-4 text-xs font-extrabold text-right font-mono select-all ${e.quantity < 0 ? 'text-rose-605 bg-rose-50/20 border-r-2 border-rose-500 pr-3.5' : 'text-emerald-600'}`}>
+                                {e.quantity > 0 ? `+${e.quantity}` : e.quantity} pcs
+                              </td>
+                              {currentUser.role === 'manager' && (
+                                <td className="p-4 text-center">
+                                  <div className="flex items-center justify-center gap-1.5">
+                                    <button
+                                      onClick={() => handleStartEdit(e)}
+                                      className="text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 p-2 rounded-lg transition-colors cursor-pointer"
+                                      title="Edit stock entry"
+                                      id={`edit-entry-${e.id}`}
+                                    >
+                                      <Pencil size={13.5} />
+                                    </button>
+                                    <button
+                                      onClick={() => onDeleteEntry?.(e.id)}
+                                      className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-2 rounded-lg transition-colors cursor-pointer"
+                                      title="Delete stock entry"
+                                      id={`delete-entry-${e.id}`}
+                                    >
+                                      <Trash2 size={13.5} />
+                                    </button>
+                                  </div>
+                                </td>
+                              )}
+                            </motion.tr>
+                            {e.edited && expandedStockHistoryIds[e.id] && currentUser.role === 'manager' && (
+                              <tr className="bg-amber-50/20" id={`history-row-${e.id}`}>
+                                <td colSpan={5} className="p-4 pt-1 pb-4">
+                                  <div className="bg-white border border-amber-200/60 rounded-xl p-4 space-y-3 shadow-3xs max-w-2xl text-left border-l-4 border-l-amber-550">
+                                    <div className="flex items-center gap-1.5 text-xs font-bold text-amber-800 uppercase tracking-wider">
+                                      <SlidersHorizontal size={12} className="text-amber-550" />
+                                      <span>Correction Audit History</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-4 text-xs pt-1">
+                                      <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Original Quantity</p>
+                                        <p className="font-mono font-bold text-slate-650 bg-slate-50 border border-slate-100 rounded-md px-2 py-1 inline-block">{e.originalQuantity} pcs</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Corrected Quantity</p>
+                                        <p className="font-mono font-bold text-emerald-600 bg-emerald-50/50 border border-emerald-100 rounded-md px-2 py-1 inline-block">{e.quantity} pcs</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Edited By</p>
+                                        <p className="font-bold text-slate-700 bg-slate-50 border border-slate-100 rounded-md px-2 py-1 inline-block mt-0.5">{e.editedBy}</p>
+                                      </div>
+                                      <div>
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Edited At</p>
+                                        <p className="font-mono text-slate-500 text-[11px] bg-slate-50 border border-slate-100 rounded-md px-2 py-1 inline-block mt-0.5 border-amber-100 bg-amber-50/20">
+                                          {e.editedAt ? (
+                                            e.editedAt.toDate ? e.editedAt.toDate().toLocaleString() : new Date(e.editedAt).toLocaleString()
+                                          ) : 'Pending sync'}
+                                        </p>
+                                      </div>
+                                    </div>
+                                    {e.difference !== undefined && (
+                                      <div className="text-xs pt-1">
+                                        <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider inline-block mr-1.5">Difference:</span>
+                                        <span className={`font-mono font-bold px-2 py-0.5 rounded-md ${e.difference >= 0 ? 'text-emerald-700 bg-emerald-50 border border-emerald-150' : 'text-rose-700 bg-rose-50 border border-rose-150'}`}>
+                                          {e.difference >= 0 ? `+${e.difference}` : e.difference} pcs
+                                        </span>
+                                      </div>
+                                    )}
+                                    <div className="text-xs border-t border-slate-100 pt-2.5 mt-1">
+                                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Correction Reason:</span>
+                                      <p className="text-slate-700 mt-1 whitespace-pre-wrap font-semibold italic bg-amber-50/30 p-2.5 rounded-lg border border-amber-100/50">"{e.editReason}"</p>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
                             )}
-                          </motion.tr>
+                          </React.Fragment>
                         ))
                       )}
                     </AnimatePresence>
@@ -946,7 +1099,7 @@ export default function StockManagement({
         </div>
       </div>
 
-      {/* EDIT STOCK ENTRY DIALOG */}
+      {/* DOCK STOCK CORRECTION DIALOG */}
       <AnimatePresence>
         {editingEntry && (
           <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4" id="edit-stock-modal">
@@ -958,17 +1111,17 @@ export default function StockManagement({
             >
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2.5">
-                  <div className="p-2 bg-emerald-50 rounded-xl text-emerald-600 border border-emerald-100">
-                    <Pencil size={18} />
+                  <div className="p-2 bg-amber-50 rounded-xl text-amber-600 border border-amber-100 animate-pulse">
+                    <SlidersHorizontal size={18} />
                   </div>
                   <div>
-                    <h3 className="text-sm font-bold text-slate-900">Edit Stock Entry</h3>
-                    <p className="text-xs text-slate-500 font-semibold">Modify registered stock parameters</p>
+                    <h3 className="text-sm font-bold text-slate-900">Correct Stock Entry</h3>
+                    <p className="text-xs text-slate-500 font-semibold">Production Stock Correction System</p>
                   </div>
                 </div>
                 <button
                   onClick={() => setEditingEntry(null)}
-                  className="text-slate-450 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded-lg transition-all cursor-pointer"
+                  className="text-slate-450 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded-lg transition-all cursor-pointer outline-hidden"
                 >
                   <Plus size={16} className="rotate-45" strokeWidth={2.5} id="close-edit-stock-btn" />
                 </button>
@@ -981,70 +1134,55 @@ export default function StockManagement({
               )}
 
               <form onSubmit={handleEditSubmit} className="space-y-4">
-                {/* Model dropdown */}
+                {/* Airbag Model - Read Only */}
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Airbag Model</label>
-                  <div className="relative">
-                    <select
-                      value={editModel}
-                      onChange={(e) => setEditModel(e.target.value as AirbagModel)}
-                      className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-semibold focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-3xs"
-                    >
-                      {AIRBAG_MODELS.map((model) => (
-                        <option key={model} value={model}>
-                          {model}
-                        </option>
-                      ))}
-                    </select>
-                    <ChevronDown size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                  </div>
-                </div>
-
-                {/* Date select */}
-                <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Assembly Date</label>
                   <input
-                    type="date"
-                    value={editDate}
-                    onChange={(e) => setEditDate(e.target.value)}
-                    className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all shadow-3xs"
-                    required
+                    type="text"
+                    value={editModel}
+                    className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-500 font-semibold cursor-not-allowed shadow-3xs"
+                    disabled
+                    readOnly
                   />
                 </div>
 
-                {/* Machine Target */}
+                {/* Original Quantity - Read Only */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Target Machine</label>
-                  <div className="relative">
-                    <select
-                      value={editMachine}
-                      onChange={(e) => {
-                        const val = e.target.value;
-                        setEditMachine(val);
-                        if (val === 'ALL') {
-                          setEditPlanId('');
-                        }
-                      }}
-                      className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-semibold focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-3xs"
-                    >
-                      <option value="ALL">General Stock (No machine)</option>
-                      <option value="Big Machine">Big Machine</option>
-                      <option value="Small Machine">Small Machine</option>
-                    </select>
-                    <ChevronDown size={14} className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 pointer-events-none" />
-                  </div>
+                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Original Quantity (pcs)</label>
+                  <input
+                    type="number"
+                    value={editingEntry ? (editingEntry.originalQuantity !== undefined ? editingEntry.originalQuantity : editingEntry.quantity) : ''}
+                    className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-500 font-mono cursor-not-allowed shadow-3xs"
+                    disabled
+                    readOnly
+                  />
                 </div>
 
-                {/* Quantity */}
+                {/* New Quantity */}
                 <div className="space-y-1.5">
-                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Manufactured Quantity (pcs)</label>
+                  <label className="text-[10px] font-bold text-slate-550 tracking-wider uppercase">New Quantity (pcs)</label>
                   <input
                     type="number"
                     value={editQty}
                     onChange={(e) => setEditQty(e.target.value)}
-                    className="w-full bg-slate-50/40 hover:bg-slate-50/95 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-colors shadow-3xs"
+                    className="w-full bg-slate-50/40 hover:bg-slate-50/95 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-hidden focus:bg-white focus:border-amber-500 transition-colors shadow-3xs"
                     min="1"
                     required
+                    placeholder="Enter corrected quantity"
+                    id="new-quantity-input"
+                  />
+                </div>
+
+                {/* Correction Reason */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-550 tracking-wider uppercase">Correction Reason (Required)</label>
+                  <textarea
+                    value={editReason}
+                    onChange={(e) => setEditReason(e.target.value)}
+                    className="w-full bg-slate-50/40 hover:bg-slate-50/95 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-hidden focus:bg-white focus:border-amber-500 transition-colors shadow-3xs min-h-[80px] resize-none"
+                    required
+                    placeholder="Provide detailed context for history log (e.g. Typing mistake, machine recount)"
+                    id="correction-reason-input"
                   />
                 </div>
 
@@ -1058,10 +1196,124 @@ export default function StockManagement({
                   </button>
                   <button
                     type="submit"
-                    className="flex-1 bg-slate-900 hover:bg-slate-800 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
-                    id="save-edited-stock-btn"
+                    className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
+                    id="save-correction-btn"
                   >
-                    Save Changes
+                    Save Correction
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* DIRECT GENERAL STOCK CORRECTION DIALOG */}
+      <AnimatePresence>
+        {correctingGeneralModel && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4" id="correct-general-stock-modal">
+            <motion.div
+              initial={{ opacity: 0, scale: 0.95 }}
+              animate={{ opacity: 1, scale: 1 }}
+              exit={{ opacity: 0, scale: 0.95 }}
+              className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xl w-full max-w-md space-y-5"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-amber-50 rounded-xl text-amber-600 border border-amber-100 animate-pulse">
+                    <SlidersHorizontal size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Correct General Stock ({correctingGeneralModel})</h3>
+                    <p className="text-xs text-slate-500 font-semibold">Direct Perpetual Inventory Correction</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCorrectingGeneralModel(null)}
+                  className="text-slate-450 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded-lg transition-all cursor-pointer outline-hidden"
+                >
+                  <Plus size={16} className="rotate-45" strokeWidth={2.5} id="close-correct-general-btn" />
+                </button>
+              </div>
+
+              {correctingGeneralError && (
+                <div className="p-3 bg-rose-50 border border-rose-150 text-rose-705 rounded-xl text-xs font-semibold">
+                  {correctingGeneralError}
+                </div>
+              )}
+
+              <form onSubmit={handleGeneralStockCorrectionSubmit} className="space-y-4">
+                {/* Current Stock calculated - Read Only */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Active Calculated Stock</label>
+                  <input
+                    type="text"
+                    value={`${correctingGeneralCurrentStock} pcs`}
+                    className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-500 font-bold cursor-not-allowed shadow-3xs"
+                    disabled
+                    readOnly
+                  />
+                </div>
+
+                {/* Desired Stock Level input */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-555 tracking-wider uppercase">Desired Stock Level (pcs)</label>
+                  <input
+                    type="number"
+                    value={correctingGeneralDesiredStock}
+                    onChange={(e) => setCorrectingGeneralDesiredStock(e.target.value)}
+                    className="w-full bg-slate-50/40 hover:bg-slate-50/95 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-hidden focus:bg-white focus:border-amber-500 transition-colors shadow-3xs"
+                    required
+                    placeholder="Enter final physical available quantity"
+                    id="desired-general-qty-input"
+                  />
+                </div>
+
+                {/* Real-time difference prediction */}
+                {correctingGeneralDesiredStock && !isNaN(parseInt(correctingGeneralDesiredStock, 10)) && (
+                  <div className="text-xs p-3.5 bg-slate-50 border border-slate-200/60 rounded-xl">
+                    <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block mb-1">Adjustment Action:</span>
+                    <span className={`font-mono font-bold px-2 py-0.5 rounded-md text-[11px] ${
+                      parseInt(correctingGeneralDesiredStock, 10) - correctingGeneralCurrentStock >= 0 
+                        ? 'text-emerald-700 bg-emerald-50 border border-emerald-150' 
+                        : 'text-rose-700 bg-rose-50 border border-rose-150'
+                    }`}>
+                      {parseInt(correctingGeneralDesiredStock, 10) - correctingGeneralCurrentStock >= 0 
+                        ? `+${parseInt(correctingGeneralDesiredStock, 10) - correctingGeneralCurrentStock}` 
+                        : parseInt(correctingGeneralDesiredStock, 10) - correctingGeneralCurrentStock} pcs
+                    </span>
+                    <span className="text-slate-500 ml-1.5 text-[11px] font-semibold">adjustment entry will be generated.</span>
+                  </div>
+                )}
+
+                {/* Reason for correction text area */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-555 tracking-wider uppercase">Correction Reason (Required)</label>
+                  <textarea
+                    value={correctingGeneralReason}
+                    onChange={(e) => setCorrectingGeneralReason(e.target.value)}
+                    className="w-full bg-slate-50/40 hover:bg-slate-50/95 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 focus:outline-hidden focus:bg-white focus:border-amber-500 transition-colors shadow-3xs min-h-[80px] resize-none"
+                    required
+                    placeholder="E.g., Warehouse physical count audit, correction of unregistered scrap"
+                    id="general-correction-reason"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setCorrectingGeneralModel(null)}
+                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer text-center"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-amber-500 hover:bg-amber-600 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
+                    id="save-general-correction-btn"
+                  >
+                    Apply Adjustment
                   </button>
                 </div>
               </form>

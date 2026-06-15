@@ -693,21 +693,46 @@ export default function App() {
   };
 
   const handleAddStockEntry = (entry: Omit<StockEntry, 'id' | 'createdAt'>) => {
+    // Strip undefined keys to prevent Firestore crashes and parse numeric attributes robustly
+    const cleanedEntry = Object.fromEntries(
+      Object.entries(entry)
+        .filter(([_, v]) => v !== undefined)
+        .map(([k, v]) => {
+          if (['quantity', 'originalQuantity', 'correctedQuantity', 'difference'].includes(k)) {
+            return [k, typeof v === 'number' ? v : parseInt(String(v), 10) || 0];
+          }
+          return [k, v];
+        })
+    ) as any;
+
     const newEntry: StockEntry = {
-      ...entry,
+      ...cleanedEntry,
       id: `se-${Date.now()}`,
       createdAt: new Date().toISOString()
     };
 
     setDoc(doc(db, 'stock_entries', newEntry.id), newEntry)
       .then(() => {
-        addToast(`Registered output level: ${entry.quantity} units of ${entry.modelId} saved!`, 'success');
-        triggerNotification(
-          '📦 Stock Logged in Inventory',
-          `Worker ${entry.workerName} successfully submitted output log: +${entry.quantity} units of airbag ${entry.modelId} at ${entry.machine || 'Assembly Line'}.`,
-          'stock',
-          'all'
-        );
+        const isCorrection = newEntry.edited === true || newEntry.quantity < 0;
+        const formattedQty = newEntry.quantity >= 0 ? `+${newEntry.quantity}` : `${newEntry.quantity}`;
+        
+        if (isCorrection) {
+          addToast(`Stored stock adjustments: ${formattedQty} units of ${newEntry.modelId} corrected successfully!`, 'success');
+          triggerNotification(
+            '🔧 General Stock Corrected',
+            `Manager ${newEntry.workerName} successfully adjusted available stockpile for ${newEntry.modelId} by ${formattedQty} pcs: "${newEntry.editReason || 'manual adjustment'}".`,
+            'stock',
+            'all'
+          );
+        } else {
+          addToast(`Registered output level: +${newEntry.quantity} units of ${newEntry.modelId} saved!`, 'success');
+          triggerNotification(
+            '📦 Stock Logged in Inventory',
+            `Worker ${newEntry.workerName} successfully submitted output log: +${newEntry.quantity} units of airbag ${newEntry.modelId} at ${newEntry.machine || 'Assembly Line'}.`,
+            'stock',
+            'all'
+          );
+        }
       })
       .catch((err) => {
         handleFirestoreError(err, OperationType.CREATE, `stock_entries/${newEntry.id}`);
@@ -738,19 +763,23 @@ export default function App() {
     );
   };
 
-  const handleEditStockEntry = (id: string, updatedEntry: Partial<Omit<StockEntry, 'id' | 'createdAt'>>) => {
+  const handleEditStockEntry = (id: string, updatedEntry: Partial<StockEntry>) => {
     if (!currentUser || currentUser.role !== 'manager') {
       addToast('Security Block: Only managers are authorized to update stock specifications or quantities.', 'error');
       return;
     }
-    updateDoc(doc(db, 'stock_entries', id), updatedEntry)
+    const finalUpdate = {
+      ...updatedEntry,
+      editedAt: serverTimestamp()
+    };
+    updateDoc(doc(db, 'stock_entries', id), finalUpdate)
       .then(() => {
-        addToast('Successfully updated the stock entry specifications!', 'success');
+        addToast('Successfully registered and stored stock correction!', 'success');
         const entry = stockEntries.find(e => e.id === id);
         if (entry) {
           triggerNotification(
             'Stock Entry Corrected',
-            `Manager ${currentUser?.name} updated the logged assembly stock record for ${entry.modelId} (+${updatedEntry.quantity || entry.quantity} units).`,
+            `Manager ${currentUser?.name} updated Stockholm log for ${entry.modelId} (from ${finalUpdate.originalQuantity} to ${finalUpdate.quantity} pcs).`,
             'stock',
             'manager'
           );

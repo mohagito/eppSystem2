@@ -28,7 +28,15 @@
         "date": { "type": "string" },
         "quantity": { "type": "integer" },
         "createdBy": { "type": "string" },
-        "createdAt": { "type": "string" }
+        "createdAt": { "type": "string" },
+        "originalQuantity": { "type": "integer" },
+        "correctedQuantity": { "type": "integer" },
+        "difference": { "type": "integer" },
+        "edited": { "type": "boolean" },
+        "editedBy": { "type": "string" },
+        "editedByProfileId": { "type": "string" },
+        "editedAt": { "type": "string" },
+        "editReason": { "type": "string" }
       },
       "required": ["id", "modelId", "workerName", "date", "quantity", "createdBy", "createdAt"]
     },
