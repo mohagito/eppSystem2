@@ -905,28 +905,11 @@ export default function PlanningModule({
             </div>
             
             <div className="flex items-center gap-2 flex-wrap">
-              <button
-                onClick={handleStartWeekCopy}
-                className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-750 text-slate-150 border border-slate-705 hover:border-slate-600 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer transition-all active:scale-95"
-                title="Copy entire week layout target to another week"
-              >
-                <CalendarRange size={12} className="text-emerald-400" />
-                Copy Full Week
-              </button>
-              
-              <button
-                onClick={handleStartDayCopy}
-                className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-750 text-slate-150 border border-slate-705 hover:border-slate-600 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer transition-all active:scale-95"
-                title="Copy single day planning grid"
-              >
-                <Clock size={12} className="text-sky-400" />
-                Copy Single Day
-              </button>
-              
               {currentVisiblePlans.length > 0 && (
                 <button
+                  type="button"
                   onClick={handleToggleSelectAll}
-                  className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-750 text-emerald-400 border border-slate-705 hover:border-emerald-900 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer transition-all active:scale-95"
+                  className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-750 text-emerald-400 border border-slate-705 hover:border-emerald-950 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer transition-all active:scale-95"
                 >
                   <Check size={12} />
                   {isAllSelected ? "Deselect Week" : "Select All (This Week)"}
