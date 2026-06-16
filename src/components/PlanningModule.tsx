@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import Swal from 'sweetalert2';
 import { UserProfile, ProductionPlan, AirbagModel, MachineType, ShiftType, StockEntry } from '../types';
 import { AIRBAG_MODELS, MOCK_PROFILES } from '../data';
 import {
@@ -19,7 +20,10 @@ import {
   ChevronLeft,
   ChevronRight,
   Sparkles,
-  Pencil
+  Pencil,
+  Copy,
+  Trash2,
+  Check
 } from 'lucide-react';
 import {
   getPlanActualProduced,
@@ -39,6 +43,8 @@ interface PlanningProps {
   onUpdatePlanStatus?: (id: string, status: 'Pending' | 'Completed' | 'Delayed') => void;
   onDeletePlan?: (id: string) => void;
   onEditPlan?: (id: string, updatedPlan: Partial<Omit<ProductionPlan, 'id' | 'createdAt'>>) => void;
+  onBulkAddPlans?: (plans: Omit<ProductionPlan, 'id' | 'createdAt'>[]) => void;
+  onBulkDeletePlans?: (ids: string[]) => void;
 }
 
 export default function PlanningModule({
@@ -51,7 +57,9 @@ export default function PlanningModule({
   onAddPlan,
   onUpdatePlanStatus,
   onDeletePlan,
-  onEditPlan
+  onEditPlan,
+  onBulkAddPlans,
+  onBulkDeletePlans
 }: PlanningProps) {
   const formatLocalDate = (d: Date) => {
     const yyyy = d.getFullYear();
@@ -84,6 +92,19 @@ export default function PlanningModule({
   const [editNotes, setEditNotes] = useState<string>('');
   const [editStatus, setEditStatus] = useState<'Pending' | 'Completed' | 'Delayed'>('Pending');
   const [editFormError, setEditFormError] = useState<string>('');
+
+  // Selection and Advanced Slide-up / Modal States
+  const [selectedPlanIds, setSelectedPlanIds] = useState<string[]>([]);
+  const [showCopyModal, setShowCopyModal] = useState<boolean>(false);
+  const [copyMode, setCopyMode] = useState<'week' | 'day' | 'shift' | 'selected'>('selected');
+  const [targetWeekStart, setTargetWeekStart] = useState<string>('');
+  const [sourceDay, setSourceDay] = useState<string>('');
+  const [targetDay, setTargetDay] = useState<string>('');
+  const [sourceShift, setSourceShift] = useState<ShiftType>('Morning');
+  const [sourceMachine, setSourceMachine] = useState<MachineType>('Big Machine');
+  const [targetShift, setTargetShift] = useState<'Morning' | 'Evening' | 'Keep'>('Keep');
+  const [targetMachine, setTargetMachine] = useState<MachineType | 'Keep'>('Keep');
+  const [resetProgress, setResetProgress] = useState<boolean>(true);
 
   const handleStartEdit = (plan: ProductionPlan) => {
     setEditingPlan(plan);
@@ -288,6 +309,313 @@ export default function PlanningModule({
     );
   };
 
+  // ADVANCED SELECTION & COPY IMPLEMENTATION METHODS
+  const currentVisiblePlans = useMemo(() => {
+    const dayDates = weekDays.map((d) => d.dateStr);
+    return plans.filter((p) => dayDates.includes(p.planDate));
+  }, [plans, weekDays]);
+
+  const isAllSelected = useMemo(() => {
+    if (currentVisiblePlans.length === 0) return false;
+    return currentVisiblePlans.every((p) => selectedPlanIds.includes(p.id));
+  }, [currentVisiblePlans, selectedPlanIds]);
+
+  const handleToggleSelectPlan = (id: string) => {
+    setSelectedPlanIds((prev) =>
+      prev.includes(id) ? prev.filter((item) => item !== id) : [...prev, id]
+    );
+  };
+
+  const handleToggleSelectAll = () => {
+    if (isAllSelected) {
+      const idsToRemove = currentVisiblePlans.map((p) => p.id);
+      setSelectedPlanIds((prev) => prev.filter((id) => !idsToRemove.includes(id)));
+    } else {
+      const idsToAdd = currentVisiblePlans.map((p) => p.id);
+      setSelectedPlanIds((prev) => {
+        const newSelection = [...prev];
+        idsToAdd.forEach((id) => {
+          if (!newSelection.includes(id)) {
+            newSelection.push(id);
+          }
+        });
+        return newSelection;
+      });
+    }
+  };
+
+  const handleBulkDeleteSubmit = () => {
+    if (selectedPlanIds.length === 0) return;
+    if (onBulkDeletePlans) {
+      onBulkDeletePlans(selectedPlanIds);
+      setSelectedPlanIds([]);
+    }
+  };
+
+  const shiftDateStrByDays = (dateStr: string, daysOffset: number) => {
+    const d = new Date(dateStr + 'T12:00:00');
+    d.setDate(d.getDate() + daysOffset);
+    return formatLocalDate(d);
+  };
+
+  const nextWeekMondayStr = useMemo(() => {
+    const base = new Date(weekBaseDate + 'T12:00:00');
+    base.setDate(base.getDate() + 7);
+    const day = base.getDay();
+    const diff = base.getDate() - day + (day === 0 ? -6 : 1);
+    const monday = new Date(base.setDate(diff));
+    return formatLocalDate(monday);
+  }, [weekBaseDate]);
+
+  const handleStartCellCopy = (machineType: MachineType, shiftType: ShiftType, dateStr: string) => {
+    setSourceMachine(machineType);
+    setSourceShift(shiftType);
+    setSourceDay(dateStr);
+
+    const srcDate = new Date(dateStr + 'T12:00:00');
+    srcDate.setDate(srcDate.getDate() + 1);
+    setTargetDay(formatLocalDate(srcDate));
+
+    setTargetShift('Keep');
+    setTargetMachine('Keep');
+    setCopyMode('shift');
+    setShowCopyModal(true);
+  };
+
+  const handleStartDayCopy = () => {
+    const defaultSource = weekDays[0]?.dateStr || formatLocalDate(new Date());
+    setSourceDay(defaultSource);
+
+    const srcDate = new Date(defaultSource + 'T12:00:00');
+    srcDate.setDate(srcDate.getDate() + 1);
+    setTargetDay(formatLocalDate(srcDate));
+
+    setCopyMode('day');
+    setShowCopyModal(true);
+  };
+
+  const handleStartWeekCopy = () => {
+    setTargetWeekStart(nextWeekMondayStr);
+    setCopyMode('week');
+    setShowCopyModal(true);
+  };
+
+  const handleCopySubmit = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!onBulkAddPlans) return;
+
+    let plansToCopy: Omit<ProductionPlan, 'id' | 'createdAt'>[] = [];
+
+    if (copyMode === 'selected') {
+      const selectedPlans = plans.filter((p) => selectedPlanIds.includes(p.id));
+      if (selectedPlans.length === 0) return;
+
+      plansToCopy = selectedPlans.map((p) => {
+        const destDate = targetDay || p.planDate;
+        const destShift = targetShift === 'Keep' ? p.shift : targetShift;
+        const destMachine = targetMachine === 'Keep' ? p.machine : targetMachine;
+        return {
+          planDate: destDate,
+          machine: destMachine as MachineType,
+          shift: destShift as ShiftType,
+          model: p.model,
+          quantityPlanned: p.quantityPlanned,
+          quantityCompleted: resetProgress ? 0 : (p.quantityCompleted || 0),
+          assignedWorker: p.assignedWorker,
+          notes: p.notes,
+          status: resetProgress ? 'Pending' : p.status,
+          createdBy: currentUser.id,
+          copiedFrom: p.id
+        };
+      });
+
+    } else if (copyMode === 'shift') {
+      const sourcePlans = plans.filter(
+        (p) => p.planDate === sourceDay && p.shift === sourceShift && p.machine === sourceMachine
+      );
+      if (sourcePlans.length === 0) {
+        Swal.fire({
+          title: "Empty Source Slot",
+          text: "No operational schedules exist in the selected shift to duplicate.",
+          icon: "error",
+          background: '#0f172a',
+          color: '#cbd5e1',
+          confirmButtonText: 'Understood'
+        });
+        return;
+      }
+
+      if (!targetDay) {
+        Swal.fire({
+          title: "Format Error",
+          text: "Destination date configuration is invalid.",
+          icon: "error",
+          background: '#0f172a',
+          color: '#cbd5e1',
+          confirmButtonText: 'Understood'
+        });
+        return;
+      }
+
+      plansToCopy = sourcePlans.map((p) => {
+        const destShift = targetShift === 'Keep' ? p.shift : targetShift;
+        const destMachine = targetMachine === 'Keep' ? p.machine : targetMachine;
+        return {
+          planDate: targetDay,
+          machine: destMachine as MachineType,
+          shift: destShift as ShiftType,
+          model: p.model,
+          quantityPlanned: p.quantityPlanned,
+          quantityCompleted: resetProgress ? 0 : (p.quantityCompleted || 0),
+          assignedWorker: p.assignedWorker,
+          notes: p.notes,
+          status: resetProgress ? 'Pending' : p.status,
+          createdBy: currentUser.id,
+          copiedFrom: p.id
+        };
+      });
+
+    } else if (copyMode === 'day') {
+      const sourcePlans = plans.filter((p) => p.planDate === sourceDay);
+      if (sourcePlans.length === 0) {
+        Swal.fire({
+          title: "Empty Source Day",
+          text: `No operational schedules exist on ${sourceDay} to duplicate.`,
+          icon: "error",
+          background: '#0f172a',
+          color: '#cbd5e1',
+          confirmButtonText: 'Understood'
+        });
+        return;
+      }
+
+      if (!targetDay) {
+        Swal.fire({
+          title: "Format Error",
+          text: "Destination date is required.",
+          icon: "error",
+          background: '#0f172a',
+          color: '#cbd5e1',
+          confirmButtonText: 'Understood'
+        });
+        return;
+      }
+
+      plansToCopy = sourcePlans.map((p) => {
+        return {
+          planDate: targetDay,
+          machine: p.machine,
+          shift: p.shift,
+          model: p.model,
+          quantityPlanned: p.quantityPlanned,
+          quantityCompleted: resetProgress ? 0 : (p.quantityCompleted || 0),
+          assignedWorker: p.assignedWorker,
+          notes: p.notes,
+          status: resetProgress ? 'Pending' : p.status,
+          createdBy: currentUser.id,
+          copiedFrom: p.id
+        };
+      });
+
+    } else if (copyMode === 'week') {
+      const currentWeekDates = weekDays.map((d) => d.dateStr);
+      const sourcePlans = plans.filter((p) => currentWeekDates.includes(p.planDate));
+      if (sourcePlans.length === 0) {
+        Swal.fire({
+          title: "Empty Source Week",
+          text: "The current visible week contains no plans to copy.",
+          icon: "error",
+          background: '#0f172a',
+          color: '#cbd5e1',
+          confirmButtonText: 'Understood'
+        });
+        return;
+      }
+
+      if (!targetWeekStart) {
+        Swal.fire({
+          title: "Format Error",
+          text: "Target week starting date is required.",
+          icon: "error",
+          background: '#0f172a',
+          color: '#cbd5e1',
+          confirmButtonText: 'Understood'
+        });
+        return;
+      }
+
+      const sourceMondayDate = new Date(currentWeekDates[0] + 'T12:00:00');
+      const targetMondayDate = new Date(targetWeekStart + 'T12:00:00');
+      const diffTime = targetMondayDate.getTime() - sourceMondayDate.getTime();
+      const diffDays = Math.round(diffTime / (1000 * 60 * 60 * 24));
+
+      plansToCopy = sourcePlans.map((p) => {
+        const destDate = shiftDateStrByDays(p.planDate, diffDays);
+        return {
+          planDate: destDate,
+          machine: p.machine,
+          shift: p.shift,
+          model: p.model,
+          quantityPlanned: p.quantityPlanned,
+          quantityCompleted: resetProgress ? 0 : (p.quantityCompleted || 0),
+          assignedWorker: p.assignedWorker,
+          notes: p.notes,
+          status: resetProgress ? 'Pending' : p.status,
+          createdBy: currentUser.id,
+          copiedFrom: p.id
+        };
+      });
+    }
+
+    if (plansToCopy.length === 0) return;
+
+    // Check pre-existing plans in database to warning about accidental duplications
+    const duplicateThreats = plansToCopy.filter((newP) =>
+      plans.some(
+        (existingP) =>
+          existingP.planDate === newP.planDate &&
+          existingP.shift === newP.shift &&
+          existingP.machine === newP.machine &&
+          existingP.model === newP.model &&
+          existingP.assignedWorker === newP.assignedWorker
+      )
+    );
+
+    if (duplicateThreats.length > 0) {
+      Swal.fire({
+        title: "Duplicate Run Prevention",
+        text: `Identical matching runs (model, operator, slot) already exist in your target cells. Do you wish to proceed and insert parallel runs in these slots anyway?`,
+        icon: "warning",
+        showCancelButton: true,
+        confirmButtonText: "Yes, Duplicate",
+        cancelButtonText: "Cancel Copying",
+        background: '#0f172a',
+        color: '#cbd5e1',
+        iconColor: '#f59e0b',
+        customClass: {
+          popup: 'rounded-2xl border border-slate-800 shadow-2xl p-6 font-sans',
+          title: 'text-sm font-extrabold uppercase tracking-wider text-slate-100 font-sans mt-2',
+          confirmButton: 'px-5 py-2.5 bg-emerald-500 hover:bg-emerald-650 text-slate-950 rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md mx-1.5',
+          cancelButton: 'px-5 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md mx-1.5'
+        }
+      }).then((result) => {
+        if (result.isConfirmed) {
+          executeBulkAdd(plansToCopy);
+        }
+      });
+    } else {
+      executeBulkAdd(plansToCopy);
+    }
+  };
+
+  const executeBulkAdd = (plansToCopy: Omit<ProductionPlan, 'id' | 'createdAt'>[]) => {
+    if (onBulkAddPlans) {
+      onBulkAddPlans(plansToCopy);
+      setShowCopyModal(false);
+      setSelectedPlanIds([]);
+    }
+  };
+
   const getModelPillStyles = (model: AirbagModel) => {
     switch (model) {
       case 'TETOUAN':
@@ -358,8 +686,38 @@ export default function PlanningModule({
 
     return (
       <div className="space-y-1.5">
+        {/* Cell Toolbar for Manager */}
+        {currentUser.role === 'manager' && (
+          <div className="flex items-center justify-between border-b border-slate-100 pb-1 mb-1 text-[9px] text-slate-400 font-sans tracking-wide">
+            <span className="font-bold font-mono">BINS: {cellPlans.length}</span>
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleCellClick(machineType, shiftType, dateStr);
+                }}
+                className="text-slate-400 hover:text-emerald-600 p-0.5 rounded hover:bg-slate-50 transition-colors cursor-pointer"
+                title="Add another parallel plan to this shift cell"
+              >
+                <Plus size={10} strokeWidth={3} />
+              </button>
+              <button
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleStartCellCopy(machineType, shiftType, dateStr);
+                }}
+                className="text-slate-400 hover:text-indigo-600 p-0.5 rounded hover:bg-slate-50 transition-colors cursor-pointer"
+                title="Copy all shift plans in this cell"
+              >
+                <Copy size={9} strokeWidth={2.5} />
+              </button>
+            </div>
+          </div>
+        )}
+
         {cellPlans.map((plan) => {
           const isYourJob = plan.assignedWorker === currentUser.name;
+          const isSelected = selectedPlanIds.includes(plan.id);
           const actualQty = getPlanActualProduced(plan, entries, plans);
           const isComp = actualQty >= plan.quantityPlanned;
           const resolvedStatus = isComp 
@@ -370,16 +728,29 @@ export default function PlanningModule({
             <div
               key={plan.id}
               className={`p-1.5 rounded-lg border text-left transition-all ${
-                isYourJob
+                isSelected
+                  ? 'border-emerald-500 bg-emerald-50/40 ring-1 ring-emerald-300 shadow-inner'
+                  : isYourJob
                   ? 'bg-teal-50/90 border-teal-300 ring-2 ring-teal-400/10 shadow-2xs'
                   : 'bg-slate-50/60 border-slate-200 hover:border-slate-300'
               }`}
               title={`Operator: ${plan.assignedWorker}\nNotes: ${plan.notes || 'None'}`}
             >
               <div className="flex items-center justify-between gap-1">
-                <span className={`text-[10px] font-extrabold px-1.5 py-0.2 rounded border uppercase ${getModelPillStyles(plan.model)}`}>
-                  {plan.model.toLowerCase()}
-                </span>
+                <div className="flex items-center gap-1 min-w-0">
+                  {currentUser.role === 'manager' && (
+                    <input
+                      type="checkbox"
+                      checked={isSelected}
+                      onChange={() => handleToggleSelectPlan(plan.id)}
+                      className="h-3 w-3 rounded text-emerald-600 focus:ring-emerald-500 border-slate-300 cursor-pointer shrink-0"
+                      onClick={(e) => e.stopPropagation()}
+                    />
+                  )}
+                  <span className={`text-[9px] font-extrabold px-1 py-0.2 rounded border uppercase truncate ${getModelPillStyles(plan.model)}`}>
+                    {plan.model.toLowerCase()}
+                  </span>
+                </div>
                 <div className="flex items-center gap-1 shrink-0">
                   <span className={`text-[9px] font-extrabold ${
                     resolvedStatus === 'Completed'
@@ -429,7 +800,7 @@ export default function PlanningModule({
                       <span className={`text-[10px] font-black ${colors.text}`}>{typeof pctStr === 'number' ? `${pctVal}%` : 'No Target'}</span>
                     </div>
                     
-                    <div className="w-full bg-slate-100 h-1.5 rounded-full overflow-hidden border border-slate-200">
+                    <div className="w-full bg-slate-100 h-1 rounded-full overflow-hidden border border-slate-200">
                       <div 
                         className={`${colors.bar} h-full rounded-full transition-all duration-305`}
                         style={{ width: `${Math.min(pctVal, 100)}%` }}
@@ -517,13 +888,53 @@ export default function PlanningModule({
         </div>
 
         {/* ACTIVE FORMULA INPUT FIELD EXCEL STYLING */}
-        <div className="bg-white border-b border-slate-150 px-4 py-1.5 flex items-center gap-2 text-xs font-mono text-slate-600 select-none bg-slate-50/10">
+        <div className="bg-white border-b border-slate-151 px-4 py-1.5 flex items-center gap-2 text-xs font-mono text-slate-600 select-none bg-slate-50/10">
           <span className="font-bold text-slate-400 italic">fx</span>
           <div className="w-[1px] h-3.5 bg-slate-200"></div>
           <span className="text-emerald-700 font-semibold">
             {`=WORK_WEEK(${companyWeekInfo.weekNo}; "from ${companyWeekInfo.formattedMonday} to ${companyWeekInfo.formattedSunday}")`}
           </span>
         </div>
+
+        {/* ADVANCED Whiteboard Action Toolbar */}
+        {currentUser.role === 'manager' && (
+          <div className="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-white">
+            <div className="flex items-center gap-2">
+              <Sparkles size={14} className="text-emerald-400" />
+              <span className="text-xs font-extrabold tracking-tight">Schedule Matrix Utilities:</span>
+            </div>
+            
+            <div className="flex items-center gap-2 flex-wrap">
+              <button
+                onClick={handleStartWeekCopy}
+                className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-750 text-slate-150 border border-slate-705 hover:border-slate-600 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer transition-all active:scale-95"
+                title="Copy entire week layout target to another week"
+              >
+                <CalendarRange size={12} className="text-emerald-400" />
+                Copy Full Week
+              </button>
+              
+              <button
+                onClick={handleStartDayCopy}
+                className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-750 text-slate-150 border border-slate-705 hover:border-slate-600 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer transition-all active:scale-95"
+                title="Copy single day planning grid"
+              >
+                <Clock size={12} className="text-sky-400" />
+                Copy Single Day
+              </button>
+              
+              {currentVisiblePlans.length > 0 && (
+                <button
+                  onClick={handleToggleSelectAll}
+                  className="flex items-center gap-1.5 px-3 py-1 bg-slate-800 hover:bg-slate-750 text-emerald-400 border border-slate-705 hover:border-emerald-900 rounded-lg text-xs font-bold whitespace-nowrap cursor-pointer transition-all active:scale-95"
+                >
+                  <Check size={12} />
+                  {isAllSelected ? "Deselect Week" : "Select All (This Week)"}
+                </button>
+              )}
+            </div>
+          </div>
+        )}
 
         {/* EXCEL TABLE ENGINE */}
         <div className="overflow-x-auto scrollbar-thin">
@@ -1054,6 +1465,339 @@ export default function PlanningModule({
                     id="save-edited-plan-btn"
                   >
                     Save Changes
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* FLOATING BULK ACTIONS TOOLBAR */}
+      <AnimatePresence>
+        {selectedPlanIds.length > 0 && (
+          <motion.div
+            initial={{ y: 80, opacity: 0 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: 80, opacity: 0 }}
+            className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 border border-slate-800 text-white rounded-2xl shadow-2xl px-6 py-4 flex items-center justify-between gap-6 z-40 max-w-2xl w-[90%] md:w-auto"
+          >
+            <div className="flex items-center gap-3">
+              <div className="h-6 w-6 rounded-full bg-emerald-500 text-slate-950 flex items-center justify-center text-xs font-extrabold font-mono shadow-xs">
+                {selectedPlanIds.length}
+              </div>
+              <div className="text-left">
+                <p className="text-xs font-extrabold tracking-tight">Active Selections</p>
+                <button 
+                  onClick={() => setSelectedPlanIds([])}
+                  type="button"
+                  className="text-[10px] text-slate-400 hover:text-slate-150 font-bold underline cursor-pointer bg-transparent border-none p-0"
+                >
+                  Clear selection
+                </button>
+              </div>
+            </div>
+
+            <div className="h-6 w-[1px] bg-slate-800 hidden sm:block" />
+
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => {
+                  setCopyMode('selected');
+                  setTargetDay('');
+                  setTargetShift('Keep');
+                  setTargetMachine('Keep');
+                  setShowCopyModal(true);
+                }}
+                type="button"
+                className="flex items-center gap-1.5 px-4 py-2 bg-emerald-500 hover:bg-emerald-600 text-slate-950 border-none rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
+              >
+                <Copy size={12} strokeWidth={2.5} />
+                Copy Selected To
+              </button>
+
+              {onBulkDeletePlans && (
+                <button
+                  onClick={handleBulkDeleteSubmit}
+                  type="button"
+                  className="flex items-center gap-1.5 px-4 py-2 bg-rose-600 hover:bg-rose-700 text-white border-none rounded-xl text-xs font-bold transition-all cursor-pointer shadow-md active:scale-95 whitespace-nowrap"
+                >
+                  <Trash2 size={12} />
+                  Bulk Delete
+                </button>
+              )}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ADVANCED COPY & DUPLICATION WIZARD MODAL */}
+      <AnimatePresence>
+        {showCopyModal && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/75 backdrop-blur-xs overflow-y-auto">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white border border-slate-200 text-slate-800 rounded-2xl shadow-2xl overflow-hidden w-full max-w-lg font-sans flex flex-col my-8"
+            >
+              {/* Header */}
+              <div className="bg-slate-900 text-white px-5 py-4 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Copy size={15} className="text-emerald-400" />
+                  <h3 className="text-sm font-bold tracking-tight">Advanced Schedule Duplication Wizard</h3>
+                </div>
+                <button
+                  onClick={() => setShowCopyModal(false)}
+                  type="button"
+                  className="text-slate-300 hover:text-white p-1 rounded-md transition-all cursor-pointer border-none bg-transparent"
+                >
+                  <Plus size={16} className="rotate-45" strokeWidth={3} />
+                </button>
+              </div>
+
+              <form onSubmit={handleCopySubmit} className="p-5 space-y-4 text-left flex-1">
+                {/* Mode Selector Tabs */}
+                <div className="bg-slate-100 p-1 rounded-xl flex gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setCopyMode('selected')}
+                    className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg text-center transition-all cursor-pointer ${
+                      copyMode === 'selected'
+                        ? 'bg-white text-slate-950 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    Selected ({selectedPlanIds.length})
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCopyMode('shift')}
+                    className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg text-center transition-all cursor-pointer ${
+                      copyMode === 'shift'
+                        ? 'bg-white text-slate-950 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    Shift Cell
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCopyMode('day')}
+                    className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg text-center transition-all cursor-pointer ${
+                      copyMode === 'day'
+                        ? 'bg-white text-slate-950 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    Single Day
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setCopyMode('week')}
+                    className={`flex-1 py-1.5 text-[11px] font-bold rounded-lg text-center transition-all cursor-pointer ${
+                      copyMode === 'week'
+                        ? 'bg-white text-slate-950 shadow-xs'
+                        : 'text-slate-500 hover:text-slate-900'
+                    }`}
+                  >
+                    Full Week
+                  </button>
+                </div>
+
+                {/* Subtitle / Mode Guide */}
+                <p className="text-[10px] text-slate-400 font-extrabold tracking-wide uppercase border-b border-slate-100 pb-1.5">
+                  {copyMode === 'selected' && "Copy specific active list select runs"}
+                  {copyMode === 'shift' && "Clone operation stack inside specific machine shift slot"}
+                  {copyMode === 'day' && "Clone complete operational matrix of a day"}
+                  {copyMode === 'week' && "Duplicate current active 7-day layout plan"}
+                </p>
+
+                {/* FIELDS DYNAMIC RENDERING */}
+                {copyMode === 'selected' && (
+                  <div className="space-y-3">
+                    <div className="bg-emerald-50 border border-emerald-150 rounded-xl p-3 text-emerald-800 text-xs font-semibold flex items-center gap-2">
+                      <CheckCircle2 size={14} className="shrink-0" />
+                      <span>Duplicating {selectedPlanIds.length} designated selected planning runs concurrently.</span>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Target Destination Date</label>
+                      <input
+                        type="date"
+                        value={targetDay}
+                        onChange={(e) => setTargetDay(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-805 font-medium shadow-3xs hover:bg-slate-50/70"
+                        placeholder="Leave blank to preserve original date"
+                      />
+                      <span className="text-[9.5px] text-slate-400 block mt-0.5">Leave empty to preserve each item's original calendar day.</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Override Shift</label>
+                        <select
+                          value={targetShift}
+                          onChange={(e) => setTargetShift(e.target.value as any)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800 cursor-pointer"
+                        >
+                          <option value="Keep">Keep Original Shift</option>
+                          <option value="Morning">Morning (AM)</option>
+                          <option value="Evening">Evening (PM)</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Override Machine</label>
+                        <select
+                          value={targetMachine}
+                          onChange={(e) => setTargetMachine(e.target.value as any)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800 cursor-pointer"
+                        >
+                          <option value="Keep">Keep Original Machine</option>
+                          <option value="Big Machine">Big Machine</option>
+                          <option value="Small Machine">Small Machine</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {copyMode === 'shift' && (
+                  <div className="space-y-3">
+                    <div className="p-3 bg-slate-50 border border-slate-150 rounded-xl space-y-1">
+                      <span className="text-[8.5px] text-slate-400 uppercase font-black">Designated Source Slot:</span>
+                      <div className="text-[11px] font-bold text-slate-800 font-mono flex flex-wrap items-center gap-1.5">
+                        <span className="px-1.5 py-0.5 bg-slate-200 rounded leading-none">{sourceDay}</span>
+                        <span className="text-slate-400">/</span>
+                        <span className="px-1.5 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-700 rounded leading-none">{sourceShift}</span>
+                        <span className="text-slate-400">/</span>
+                        <span className="px-1.5 py-0.5 bg-teal-50 border border-teal-200 text-teal-700 rounded leading-none">{sourceMachine}</span>
+                      </div>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Destination Date</label>
+                      <input
+                        type="date"
+                        value={targetDay}
+                        onChange={(e) => setTargetDay(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs text-slate-805 font-medium shadow-3xs"
+                        required
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Shift Override</label>
+                        <select
+                          value={targetShift}
+                          onChange={(e) => setTargetShift(e.target.value as any)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800 cursor-pointer"
+                        >
+                          <option value="Keep">Keep Original ({sourceShift})</option>
+                          <option value="Morning">Morning (AM)</option>
+                          <option value="Evening">Evening (PM)</option>
+                        </select>
+                      </div>
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Machine Override</label>
+                        <select
+                          value={targetMachine}
+                          onChange={(e) => setTargetMachine(e.target.value as any)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800 cursor-pointer"
+                        >
+                          <option value="Keep">Keep Original ({sourceMachine.split(' ')[0]})</option>
+                          <option value="Big Machine">Big Machine</option>
+                          <option value="Small Machine">Small Machine</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {copyMode === 'day' && (
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-3">
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Source Day</label>
+                        <select
+                          value={sourceDay}
+                          onChange={(e) => setSourceDay(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs font-bold text-slate-800 cursor-pointer"
+                        >
+                          {weekDays.map(d => (
+                            <option key={d.dateStr} value={d.dateStr}>{d.dayName} Mrc ({d.formattedDate})</option>
+                          ))}
+                        </select>
+                      </div>
+
+                      <div className="space-y-1">
+                        <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Target Destination Day</label>
+                        <input
+                          type="date"
+                          value={targetDay}
+                          onChange={(e) => setTargetDay(e.target.value)}
+                          className="w-full bg-slate-50 border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-805 font-medium shadow-3xs"
+                          required
+                        />
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {copyMode === 'week' && (
+                  <div className="space-y-3">
+                    <div className="p-3 bg-indigo-50 border border-indigo-150 text-indigo-950 rounded-xl text-xs space-y-1 font-semibold leading-relaxed">
+                      <p>This action clones the whole scheduled operational block of this current week {companyWeekInfo.weekNo} and shifts days across matching offsets to your selected destination starting week.</p>
+                      <p className="text-[10px] text-indigo-700">Source: {companyWeekInfo.formattedMonday} to {companyWeekInfo.formattedSunday}</p>
+                    </div>
+
+                    <div className="space-y-1">
+                      <label className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Target Week Starting Monday</label>
+                      <input
+                        type="date"
+                        value={targetWeekStart}
+                        onChange={(e) => setTargetWeekStart(e.target.value)}
+                        className="w-full bg-slate-50 border border-slate-200 rounded-lg px-3 py-1.5 text-xs font-mono font-bold text-indigo-850 cursor-pointer"
+                        required
+                      />
+                      <span className="text-[9.5px] text-slate-405 block mt-0.5">Please specify any calendar day within the target calendar week.</span>
+                    </div>
+                  </div>
+                )}
+
+                {/* Safe Progress Reset Option */}
+                <div className="border-t border-slate-100 pt-3.5 flex items-start gap-2.5">
+                  <input
+                    type="checkbox"
+                    id="copy-reset-progress"
+                    checked={resetProgress}
+                    onChange={(e) => setResetProgress(e.target.checked)}
+                    className="mt-0.5 h-4 w-4 rounded text-emerald-600 focus:ring-emerald-500 border-slate-250 cursor-pointer"
+                  />
+                  <div className="text-left leading-tight">
+                    <label htmlFor="copy-reset-progress" className="text-xs font-extrabold text-slate-800 cursor-pointer block">
+                      Reset Completion Progress to 0% & set status to 'Pending'
+                    </label>
+                    <span className="text-[10px] text-slate-400 font-semibold block mt-1">Recommended for future scheduled targets. Uncheck this if you wish to retain completed figures and active states.</span>
+                  </div>
+                </div>
+
+                {/* Form Buttons */}
+                <div className="flex gap-3 pt-3">
+                  <button
+                    type="button"
+                    onClick={() => setShowCopyModal(false)}
+                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-755 font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer text-center"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    className="flex-1 bg-emerald-500 hover:bg-emerald-600 text-slate-950 font-extrabold py-2.5 rounded-xl text-xs transition-all cursor-pointer flex items-center justify-center gap-1 shadow-xs active:scale-95"
+                  >
+                    <Copy size={13} strokeWidth={2.5} />
+                    Copy & Create Plans
                   </button>
                 </div>
               </form>

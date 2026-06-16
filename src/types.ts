@@ -66,6 +66,10 @@ export interface ProductionPlan {
   createdBy: string; // Manager ID
   createdAt: string; // ISO string
   status: 'Pending' | 'Completed' | 'Delayed';
+  updatedAt?: string;
+  updatedBy?: string;
+  copiedFrom?: string;
+  duplicatedFromId?: string;
 }
 
 export interface ToastMessage {

@@ -461,6 +461,33 @@ export default function App() {
           await batch.commit();
           addToast("Database cleared and optimized for real production operations!", "success");
         }
+
+        // ONE-TIME CLEANUP OF SPECIFIC WORKERS: DELETING "SALAH" AND KEEPING ONLY MOUAD AND MOHAMED
+        const cleanWorkersRef = doc(db, 'settings', 'workers_cleanup_v1');
+        const cleanWorkersSnap = await getDoc(cleanWorkersRef);
+        if (!cleanWorkersSnap.exists()) {
+          const batch = writeBatch(db);
+          const profilesSnap = await getDocs(collection(db, 'profiles'));
+          let countDeleted = 0;
+          profilesSnap.forEach((docSnap) => {
+            const data = docSnap.data();
+            if (data.role === 'worker') {
+              const nameLower = (data.name || '').toLowerCase().trim();
+              const userNameLower = (data.username || '').toLowerCase().trim();
+              const isMohamed = nameLower === 'mohamed' || userNameLower === 'mohamed';
+              const isMouad = nameLower === 'mouad' || userNameLower === 'mouad';
+              if (!isMohamed && !isMouad) {
+                batch.delete(docSnap.ref);
+                countDeleted++;
+              }
+            }
+          });
+          batch.set(cleanWorkersRef, { cleaned: true, countDeleted });
+          await batch.commit();
+          if (countDeleted > 0) {
+            addToast(`Database cleaned: Removed ${countDeleted} unrecognized worker profiles. Keeping only Mohamed and Mouad.`, "info");
+          }
+        }
       } catch (err) {
         console.error("Database initialization failed, subscribing anyway: ", err);
       } finally {
@@ -919,6 +946,60 @@ export default function App() {
     );
   };
 
+  const handleBulkAddProductionPlans = (newPlans: Omit<ProductionPlan, 'id' | 'createdAt'>[]) => {
+    if (newPlans.length === 0) return;
+    const batch = writeBatch(db);
+    newPlans.forEach((plan) => {
+      const id = `pl-${Date.now()}-${Math.floor(Math.random() * 100000)}`;
+      const item: ProductionPlan = {
+        ...plan,
+        id,
+        status: plan.status || 'Pending',
+        quantityCompleted: plan.quantityCompleted || 0,
+        createdAt: new Date().toISOString()
+      };
+      batch.set(doc(db, 'production_plans', id), item);
+    });
+
+    batch.commit()
+      .then(() => {
+        addToast(`Successfully duplicated and initialized ${newPlans.length} production plans!`, 'success');
+        triggerNotification(
+          '📅 Bulk Production Plans Created',
+          `Manager created/duplicated ${newPlans.length} plans on the planning whiteboard.`,
+          'plan',
+          'all'
+        );
+      })
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.CREATE, 'production_plans/bulk');
+        addToast('Failed to batch save production plans to Cloud Database.', 'error');
+      });
+  };
+
+  const handleBulkDeleteProductionPlans = (ids: string[]) => {
+    if (ids.length === 0) return;
+    triggerCustomConfirm(
+      'Confirm Bulk Deletion',
+      `Are you sure you want to permanently delete ${ids.length} selected production plans? This action cannot be undone.`,
+      () => {
+        const batch = writeBatch(db);
+        ids.forEach((id) => {
+          batch.delete(doc(db, 'production_plans', id));
+        });
+
+        batch.commit()
+          .then(() => {
+            addToast(`Successfully removed ${ids.length} production plans from whiteboard.`, 'success');
+          })
+          .catch((err) => {
+            handleFirestoreError(err, OperationType.DELETE, 'production_plans/bulk');
+            addToast('Failed to bulk delete production plans from Cloud Database.', 'error');
+          });
+      }
+    );
+  };
+
   const handleUpdateDailyTarget = (dateStr: string, targetValue: number) => {
     const newTargets = {
       ...dailyTargets,
@@ -1069,6 +1150,8 @@ export default function App() {
             onUpdatePlanStatus={handleUpdatePlanStatus}
             onDeletePlan={handleDeleteProductionPlan}
             onEditPlan={handleEditProductionPlan}
+            onBulkAddPlans={handleBulkAddProductionPlans}
+            onBulkDeletePlans={handleBulkDeleteProductionPlans}
           />
         );
 
