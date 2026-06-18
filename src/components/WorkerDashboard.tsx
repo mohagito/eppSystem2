@@ -57,7 +57,23 @@ export default function WorkerDashboard({
   }, [plans, currentUser.name]);
 
   const filteredPlans = useMemo(() => {
-    return filterType === 'my' ? myPlans : plans;
+    const list = filterType === 'my' ? myPlans : plans;
+    return [...list].sort((a, b) => {
+      // Sort chronologically ascending by planDate (earlier/current days first, future days towards the bottom)
+      const dateCompare = a.planDate.localeCompare(b.planDate);
+      if (dateCompare !== 0) return dateCompare;
+
+      // Sort Morning shift before Evening shift
+      const shiftOrder = { 'Morning': 1, 'Evening': 2 };
+      const valA = shiftOrder[a.shift] || 3;
+      const valB = shiftOrder[b.shift] || 3;
+      if (valA !== valB) return valA - valB;
+
+      // Sort ascending by creation time to preserve standard grid order
+      const timeA = a.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const timeB = b.createdAt ? new Date(b.createdAt).getTime() : 0;
+      return timeA - timeB;
+    });
   }, [filterType, myPlans, plans]);
 
   const handleLogProgress = (plan: ProductionPlan, val: string) => {
