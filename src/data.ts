@@ -8,7 +8,8 @@ export const AIRBAG_MODELS: AirbagModel[] = [
   'KUGA RHD',
   'TETOUAN',
   'SK216',
-  'VW217'
+  'VW217',
+  'VW110'
 ];
 
 export const MOCK_PROFILES: UserProfile[] = [

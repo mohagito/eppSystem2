@@ -11,7 +11,7 @@ export interface UserProfile {
   station?: string;
 }
 
-export type AirbagModel = 'BCB' | 'CRAFTER' | 'CADDY' | 'KUGA LHD' | 'KUGA RHD' | 'TETOUAN' | 'SK216' | 'VW217';
+export type AirbagModel = 'BCB' | 'CRAFTER' | 'CADDY' | 'KUGA LHD' | 'KUGA RHD' | 'TETOUAN' | 'SK216' | 'VW217' | 'VW110';
 
 export interface StockEntry {
   id: string;

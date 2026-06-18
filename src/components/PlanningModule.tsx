@@ -633,6 +633,8 @@ export default function PlanningModule({
         return 'bg-rose-50 border-rose-205 text-rose-800 font-mono font-bold';
       case 'VW217':
         return 'bg-teal-50 border-teal-205 text-teal-850 font-mono font-bold';
+      case 'VW110':
+        return 'bg-pink-50 border-pink-205 text-pink-850 font-mono font-bold';
       default:
         return 'bg-slate-50 border-slate-200 text-slate-800 font-mono font-bold';
     }
