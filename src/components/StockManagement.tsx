@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
+import Swal from 'sweetalert2';
 import { UserProfile, StockEntry, AirbagModel, ProductionPlan, DeliveryEntry } from '../types';
 import { AIRBAG_MODELS, MOCK_PROFILES } from '../data';
 import {
@@ -246,21 +247,40 @@ export default function StockManagement({
       return;
     }
 
-    onAddEntry({
-      modelId: selectedModel,
-      workerName: finalWorkerName,
-      date: entryDate || getLocalDateStr(),
-      quantity: parsedQty,
-      createdBy: currentUser.id,
-      machine: targetMachine !== 'ALL' ? (targetMachine as any) : undefined,
-      planId: targetPlanId || undefined,
-    });
+    Swal.fire({
+      title: 'Confirm Stock Addition',
+      html: `Do you want to add <strong>${parsedQty} units</strong> of model <strong>${selectedModel}</strong> to stock?`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Add Stock',
+      cancelButtonText: 'Cancel',
+      background: '#0f172a',
+      color: '#cbd5e1',
+      confirmButtonColor: '#10b981',
+      cancelButtonColor: '#f43f5e',
+      customClass: {
+        popup: 'rounded-2xl border border-slate-850 shadow-2xl p-6 font-sans',
+        title: 'text-sm font-extrabold uppercase tracking-wider text-slate-100 font-sans mt-2'
+      }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        onAddEntry({
+          modelId: selectedModel,
+          workerName: finalWorkerName,
+          date: entryDate || getLocalDateStr(),
+          quantity: parsedQty,
+          createdBy: currentUser.id,
+          machine: targetMachine !== 'ALL' ? (targetMachine as any) : undefined,
+          planId: targetPlanId || undefined,
+        });
 
-    // Reset fields except date and worker name
-    setQuantity('');
-    setAssociationType('NONE');
-    setTargetMachine('ALL');
-    setTargetPlanId('');
+        // Reset fields except date and worker name
+        setQuantity('');
+        setAssociationType('NONE');
+        setTargetMachine('ALL');
+        setTargetPlanId('');
+      }
+    });
   };
 
   // Pre-calculate per-model sums for stats cards (Subtract deliveries)

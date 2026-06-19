@@ -1,5 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { motion } from 'motion/react';
+import Swal from 'sweetalert2';
 import { UserProfile, StockEntry, ProductionPlan } from '../types';
 import { AIRBAG_MODELS } from '../data';
 import {
@@ -58,10 +59,45 @@ export default function WorkerDashboard({
 
   const filteredPlans = useMemo(() => {
     const list = filterType === 'my' ? myPlans : plans;
+    const todayStr = (() => {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    })();
+
     return [...list].sort((a, b) => {
-      // Sort chronologically ascending by planDate (earlier/current days first, future days towards the bottom)
-      const dateCompare = a.planDate.localeCompare(b.planDate);
-      if (dateCompare !== 0) return dateCompare;
+      const isTodayA = a.planDate === todayStr;
+      const isTodayB = b.planDate === todayStr;
+
+      // Prioritize active tasks scheduled for TODAY to the absolute top
+      if (isTodayA && !isTodayB) return -1;
+      if (!isTodayA && isTodayB) return 1;
+
+      // Group future tasks higher than past tasks, keeping chronological ordering within groups
+      const dateAVal = a.planDate;
+      const dateBVal = b.planDate;
+
+      if (dateAVal > todayStr && dateBVal > todayStr) {
+        // Both future: chronological ascending (earlier future dates first)
+        const dateCompare = dateAVal.localeCompare(dateBVal);
+        if (dateCompare !== 0) return dateCompare;
+      } else if (dateAVal < todayStr && dateBVal < todayStr) {
+        // Both past: chronological descending (most recent past date first)
+        const dateCompare = dateBVal.localeCompare(dateAVal);
+        if (dateCompare !== 0) return dateCompare;
+      } else if (dateAVal > todayStr && dateBVal < todayStr) {
+        // Future before past
+        return -1;
+      } else if (dateAVal < todayStr && dateBVal > todayStr) {
+        // Future after past
+        return 1;
+      } else {
+        // Fallback
+        const dateCompare = dateAVal.localeCompare(dateBVal);
+        if (dateCompare !== 0) return dateCompare;
+      }
 
       // Sort Morning shift before Evening shift
       const shiftOrder = { 'Morning': 1, 'Evening': 2 };
@@ -80,24 +116,43 @@ export default function WorkerDashboard({
     const amt = parseInt(val, 10);
     if (isNaN(amt) || amt <= 0) return;
 
-    if (onAddStockEntry) {
-      onAddStockEntry({
-        modelId: plan.model,
-        workerName: currentUser.name,
-        date: plan.planDate,
-        quantity: amt,
-        createdBy: currentUser.id,
-        machine: plan.machine,
-        planId: plan.id
-      });
-    }
+    Swal.fire({
+      title: 'Confirm Output Log',
+      html: `Do you want to log <strong>${amt} units</strong> of finished production for model <strong>${plan.model}</strong>?`,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Log Output',
+      cancelButtonText: 'Cancel',
+      background: '#0f172a',
+      color: '#cbd5e1',
+      confirmButtonColor: '#10b981',
+      cancelButtonColor: '#f43f5e',
+      customClass: {
+        popup: 'rounded-2xl border border-slate-850 shadow-2xl p-6 font-sans',
+        title: 'text-sm font-extrabold uppercase tracking-wider text-slate-100 font-sans mt-2'
+      }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        if (onAddStockEntry) {
+          onAddStockEntry({
+            modelId: plan.model,
+            workerName: currentUser.name,
+            date: plan.planDate,
+            quantity: amt,
+            createdBy: currentUser.id,
+            machine: plan.machine,
+            planId: plan.id
+          });
+        }
 
-    if (onUpdatePlanProgress) {
-      onUpdatePlanProgress(plan.id, amt);
-    }
+        if (onUpdatePlanProgress) {
+          onUpdatePlanProgress(plan.id, amt);
+        }
 
-    // Reset input
-    setProgressInputs((prev) => ({ ...prev, [plan.id]: '' }));
+        // Reset input
+        setProgressInputs((prev) => ({ ...prev, [plan.id]: '' }));
+      }
+    });
   };
 
   const handleCompleteProduction = (plan: ProductionPlan) => {
@@ -105,23 +160,42 @@ export default function WorkerDashboard({
     const remaining = plan.quantityPlanned - actual;
     const amtToLog = remaining > 0 ? remaining : plan.quantityPlanned;
 
-    if (onAddStockEntry) {
-      onAddStockEntry({
-        modelId: plan.model,
-        workerName: currentUser.name,
-        date: plan.planDate,
-        quantity: amtToLog,
-        createdBy: currentUser.id,
-        machine: plan.machine,
-        planId: plan.id
-      });
-    }
+    Swal.fire({
+      title: 'Complete Scheduled Target?',
+      html: `Are you sure you want to log the remaining <strong>${amtToLog} units</strong> and mark model <strong>${plan.model}</strong> as <strong>Completed</strong>?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Complete Schedule',
+      cancelButtonText: 'Cancel',
+      background: '#0f172a',
+      color: '#cbd5e1',
+      confirmButtonColor: '#10b981',
+      cancelButtonColor: '#64748b',
+      customClass: {
+        popup: 'rounded-2xl border border-slate-850 shadow-2xl p-6 font-sans',
+        title: 'text-sm font-extrabold uppercase tracking-wider text-slate-100 font-sans mt-2'
+      }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        if (onAddStockEntry) {
+          onAddStockEntry({
+            modelId: plan.model,
+            workerName: currentUser.name,
+            date: plan.planDate,
+            quantity: amtToLog,
+            createdBy: currentUser.id,
+            machine: plan.machine,
+            planId: plan.id
+          });
+        }
 
-    if (onUpdatePlanProgress) {
-      onUpdatePlanProgress(plan.id, amtToLog);
-    } else if (onUpdatePlanStatus) {
-      onUpdatePlanStatus(plan.id, 'Completed');
-    }
+        if (onUpdatePlanProgress) {
+          onUpdatePlanProgress(plan.id, amtToLog);
+        } else if (onUpdatePlanStatus) {
+          onUpdatePlanStatus(plan.id, 'Completed');
+        }
+      }
+    });
   };
 
   return (
