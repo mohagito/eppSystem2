@@ -20,7 +20,8 @@ import {
   MonitorCheck,
   AlertCircle,
   Truck,
-  Download
+  Download,
+  Printer
 } from 'lucide-react';
 import { UserProfile, StockEntry, ProductionPlan, ToastMessage, DeliveryEntry } from './types';
 import { MOCK_PROFILES, INITIAL_STOCK_ENTRIES, INITIAL_PLANS } from './data';

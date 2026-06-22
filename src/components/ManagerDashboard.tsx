@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
 import { UserProfile, StockEntry, ProductionPlan, DeliveryEntry } from '../types';
 import { AIRBAG_MODELS } from '../data';
@@ -120,14 +120,23 @@ export default function ManagerDashboard({
       .slice(0, 4);
   }, [plans, todayStr]);
 
+  // Segment/operator shift filter for Production Achievement Summary
+  const [operatorFilter, setOperatorFilter] = useState<'all' | 'Mohamed' | 'Mouad'>('all');
+
   // NEW: Memoized calculations for Production Achievement Stats
   const totalPlannedOverall = useMemo(() => {
-    return plans.reduce((sum, p) => sum + p.quantityPlanned, 0);
-  }, [plans]);
+    const targetPlans = operatorFilter === 'all' 
+      ? plans 
+      : plans.filter(p => p.assignedWorker.toLowerCase() === operatorFilter.toLowerCase());
+    return targetPlans.reduce((sum, p) => sum + p.quantityPlanned, 0);
+  }, [plans, operatorFilter]);
 
   const totalActualOverall = useMemo(() => {
-    return plans.reduce((sum, p) => sum + getPlanActualProduced(p, entries, plans), 0);
-  }, [plans, entries]);
+    const targetPlans = operatorFilter === 'all' 
+      ? plans 
+      : plans.filter(p => p.assignedWorker.toLowerCase() === operatorFilter.toLowerCase());
+    return targetPlans.reduce((sum, p) => sum + getPlanActualProduced(p, entries, plans), 0);
+  }, [plans, entries, operatorFilter]);
 
   const overallAchievementPct = useMemo(() => {
     return getAchievementPercent(totalPlannedOverall, totalActualOverall);
@@ -143,7 +152,11 @@ export default function ManagerDashboard({
 
   const modelAchievementData = useMemo(() => {
     return AIRBAG_MODELS.map((model) => {
-      const modelPlans = plans.filter((p) => p.model === model);
+      const modelPlans = plans.filter((p) => {
+        const matchesModel = p.model === model;
+        const matchesOperator = operatorFilter === 'all' || p.assignedWorker.toLowerCase() === operatorFilter.toLowerCase();
+        return matchesModel && matchesOperator;
+      });
       const planned = modelPlans.reduce((sum, p) => sum + p.quantityPlanned, 0);
       const actual = modelPlans.reduce((sum, p) => sum + getPlanActualProduced(p, entries, plans), 0);
 
@@ -164,7 +177,7 @@ export default function ManagerDashboard({
         statusText
       };
     });
-  }, [plans, entries]);
+  }, [plans, entries, operatorFilter]);
 
   return (
     <div className="space-y-8" id="manager-dashboard-view">
@@ -257,18 +270,56 @@ export default function ManagerDashboard({
 
       {/* PRODUCTION ACHIEVEMENT ANALYTICS & MODEL BREAKDOWN */}
       <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-3xs space-y-6" id="achievement-summary-panel">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-slate-100 pb-4">
-          <div>
-            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-500 flex items-center gap-2">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 border-b border-slate-100 pb-4">
+          <div className="space-y-1">
+            <h3 className="text-sm font-bold uppercase tracking-wider text-slate-700 flex items-center gap-2">
               <Activity size={16} className="text-emerald-600" />
               Production Achievement Summary
             </h3>
+            <p className="text-xs text-slate-400">Track and compare efficiency of individual shifts and operator lines</p>
           </div>
-          <div className="flex items-center gap-2">
-            <span className="text-[10px] uppercase font-bold text-slate-400">Roster Status:</span>
-            <span className={`px-2.5 py-0.5 rounded-full border text-xs font-black uppercase font-mono ${overallColors.bg} ${overallColors.text}`}>
-              {overallStatus}
-            </span>
+          
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Shift Selector Tabs */}
+            <div className="flex bg-slate-100 p-1 rounded-xl border border-slate-200" id="operator-shift-tabs">
+              <button
+                onClick={() => setOperatorFilter('all')}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-extrabold uppercase tracking-wider transition-all cursor-pointer ${
+                  operatorFilter === 'all'
+                    ? 'bg-slate-900 text-white shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                All Combined
+              </button>
+              <button
+                onClick={() => setOperatorFilter('Mohamed')}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-extrabold uppercase tracking-wider transition-all cursor-pointer ${
+                  operatorFilter === 'Mohamed'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Mohamed's Line
+              </button>
+              <button
+                onClick={() => setOperatorFilter('Mouad')}
+                className={`px-3 py-1.5 rounded-lg text-[10px] font-extrabold uppercase tracking-wider transition-all cursor-pointer ${
+                  operatorFilter === 'Mouad'
+                    ? 'bg-teal-600 text-white shadow-xs'
+                    : 'text-slate-500 hover:text-slate-800'
+                }`}
+              >
+                Mouad's Line
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2 border-l border-slate-200 pl-3">
+              <span className="text-[10px] uppercase font-bold text-slate-400">Shift Status:</span>
+              <span className={`px-2.5 py-0.5 rounded-full border text-xs font-black uppercase font-mono ${overallColors.bg} ${overallColors.text}`}>
+                {overallStatus}
+              </span>
+            </div>
           </div>
         </div>
 
@@ -276,7 +327,13 @@ export default function ManagerDashboard({
           {/* Column 1: Overall Factory Performance */}
           <div className="md:col-span-5 bg-slate-50 border border-slate-150 rounded-2xl p-5 flex flex-col justify-between space-y-5">
             <div className="space-y-2">
-              <h4 className="text-2xs font-extrabold uppercase tracking-widest text-slate-455">Overall Factory Rate</h4>
+              <h4 className="text-2xs font-extrabold uppercase tracking-widest text-slate-455">
+                {operatorFilter === 'all' 
+                  ? 'Overall Factory Rate' 
+                  : operatorFilter === 'Mohamed' 
+                    ? "Mohamed's Shift Rate" 
+                    : "Mouad's Shift Rate"}
+              </h4>
               <div className="flex items-baseline gap-2">
                 <span className={`text-4xl font-black font-mono tracking-tight ${overallColors.text}`}>
                   {typeof overallAchievementPct === 'number' ? `${Math.round(overallAchievementPct)}%` : 'No Target'}
