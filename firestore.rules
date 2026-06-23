@@ -74,6 +74,21 @@ service cloud.firestore {
       allow delete: if true;
     }
 
+    // Rolls Traceability Collection
+    match /rolls/{rollId} {
+      allow read: if true;
+      allow create, update: if isValidId(rollId)
+        && request.resource.data.id == rollId
+        && request.resource.data.materialName is string && request.resource.data.materialName.size() <= 100
+        && request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.openedAt is string
+        && request.resource.data.barcode is string && request.resource.data.barcode.size() <= 200
+        && request.resource.data.operator is string && request.resource.data.operator.size() <= 100
+        && request.resource.data.createdBy is string
+        && request.resource.data.status is string && (request.resource.data.status == 'Active' || request.resource.data.status == 'Consumed');
+      allow delete: if true;
+    }
+
     // Settings / Daily Targets Document
     match /settings/{document} {
       allow read, write: if true;

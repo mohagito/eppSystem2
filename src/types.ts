@@ -77,3 +77,23 @@ export interface ToastMessage {
   message: string;
   type: 'success' | 'error' | 'info';
 }
+
+export type RollMaterial = 'White Huesker' | 'Yellow Huesker' | 'Delcotex India' | 'Kuga';
+
+export interface RollEntry {
+  id: string;
+  materialName: RollMaterial;
+  date: string; // YYYY-MM-DD
+  openedAt: string; // ISO string timestamps
+  barcode: string; // generated QR/barcode string
+  operator: string; // profile/worker name
+  createdBy: string; // profile user id
+  status: 'Active' | 'Consumed';
+  notes?: string;
+  initialWeightKg?: number; // optional tracking parameter (e.g., standard roll weights)
+  metersTotal?: number; // optional length
+  consumedMeters?: number; // tracker for cutting traceability
+  closedAt?: string; // ISO timestamp when roll is fully consumed
+  closedBy?: string; // name of operator who closed it
+}
+

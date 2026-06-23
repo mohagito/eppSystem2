@@ -104,6 +104,28 @@
         "createdBy": { "type": "string" }
       },
       "required": ["id", "title", "body", "createdAt", "category", "readBy", "targetRole"]
+    },
+    "RollEntry": {
+      "title": "RollEntry",
+      "description": "Traceability record of fabric rolls opened and used by operators",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "materialName": { "type": "string", "enum": ["White Huesker", "Yellow Huesker", "Delcotex India", "Kuga"] },
+        "date": { "type": "string" },
+        "openedAt": { "type": "string" },
+        "barcode": { "type": "string" },
+        "operator": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "status": { "type": "string", "enum": ["Active", "Consumed"] },
+        "notes": { "type": "string" },
+        "initialWeightKg": { "type": "number" },
+        "metersTotal": { "type": "number" },
+        "consumedMeters": { "type": "number" },
+        "closedAt": { "type": "string" },
+        "closedBy": { "type": "string" }
+      },
+      "required": ["id", "materialName", "date", "openedAt", "barcode", "operator", "createdBy", "status"]
     }
   },
   "firestore": {
@@ -122,6 +144,10 @@
     "deliveries/{deliveryId}": {
       "schema": "DeliveryEntry",
       "description": "Shipped deliveries from stockpile"
+    },
+    "rolls/{rollId}": {
+      "schema": "RollEntry",
+      "description": "Traceability collection for physical material rolls"
     },
     "notifications/{notificationId}": {
       "schema": "DatabaseNotification",
