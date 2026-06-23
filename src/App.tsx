@@ -21,10 +21,9 @@ import {
   AlertCircle,
   Truck,
   Download,
-  Printer,
-  Scroll
+  Printer
 } from 'lucide-react';
-import { UserProfile, StockEntry, ProductionPlan, ToastMessage, DeliveryEntry, RollEntry } from './types';
+import { UserProfile, StockEntry, ProductionPlan, ToastMessage, DeliveryEntry } from './types';
 import { MOCK_PROFILES, INITIAL_STOCK_ENTRIES, INITIAL_PLANS } from './data';
 import Swal from 'sweetalert2';
 import 'sweetalert2/dist/sweetalert2.min.css';
@@ -33,7 +32,7 @@ import ManagerDashboard from './components/ManagerDashboard';
 import StockManagement from './components/StockManagement';
 import PlanningModule from './components/PlanningModule';
 import DeliveryModule from './components/DeliveryModule';
-import RollsModule from './components/RollsModule';
+import LabelGenerator from './components/LabelGenerator';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import NotificationCenter, { playNotificationSound } from './components/NotificationCenter';
@@ -47,7 +46,6 @@ export default function App() {
   const [stockEntries, setStockEntries] = useState<StockEntry[]>([]);
   const [plans, setPlans] = useState<ProductionPlan[]>([]);
   const [deliveries, setDeliveries] = useState<DeliveryEntry[]>([]);
-  const [rolls, setRolls] = useState<RollEntry[]>([]);
 
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('epp_current_user');
@@ -328,7 +326,6 @@ export default function App() {
     let unsubPlans: (() => void) | null = null;
     let unsubTargets: (() => void) | null = null;
     let unsubDeliveries: (() => void) | null = null;
-    let unsubRolls: (() => void) | null = null;
 
     const setupSubscriptions = () => {
       if (!active) return;
@@ -415,18 +412,6 @@ export default function App() {
         setDeliveries(list);
       }, (err) => {
         handleFirestoreError(err, OperationType.LIST, 'deliveries');
-      });
-
-      // 6. Sync Rolls with Cloud Firestore for secure real-time tracking
-      unsubRolls = onSnapshot(collection(db, 'rolls'), (snapshot) => {
-        const list: RollEntry[] = [];
-        snapshot.forEach((doc) => {
-          list.push(doc.data() as RollEntry);
-        });
-        list.sort((a, b) => new Date(b.openedAt).getTime() - new Date(a.openedAt).getTime());
-        setRolls(list);
-      }, (err) => {
-        handleFirestoreError(err, OperationType.LIST, 'rolls');
       });
     };
 
@@ -521,7 +506,6 @@ export default function App() {
       if (unsubPlans) unsubPlans();
       if (unsubTargets) unsubTargets();
       if (unsubDeliveries) unsubDeliveries();
-      if (unsubRolls) unsubRolls();
     };
   }, []);
 
@@ -737,81 +721,7 @@ export default function App() {
     );
   };
 
-  // --- FASTER ROLLS MATERIAL TRACEABILITY ENGINE HANDLERS ---
-  const handleAddRoll = (roll: Omit<RollEntry, 'id' | 'openedAt'>) => {
-    const newRoll: RollEntry = {
-      ...roll,
-      id: `roll-${Date.now()}`,
-      openedAt: new Date().toISOString()
-    };
-
-    setDoc(doc(db, 'rolls', newRoll.id), newRoll)
-      .then(() => {
-        addToast(`Successfully registered opening of material roll: ${roll.materialName}!`, 'success');
-        triggerNotification(
-          '🧵 Fabric Roll Opened',
-          `Operator ${roll.operator} has opened a new roll of ${roll.materialName} (Serial/Barcode: ${roll.barcode}).`,
-          'system',
-          'all'
-        );
-      })
-      .catch((err) => {
-        handleFirestoreError(err, OperationType.CREATE, `rolls/${newRoll.id}`);
-        addToast('Failed to register material roll opening.', 'error');
-      });
-  };
-
-  const handleConsumeRoll = (id: string, remainingMeters: number, notes?: string) => {
-    const roll = rolls.find((r) => r.id === id);
-    if (!roll) return;
-
-    const updates: Partial<RollEntry> = {
-      status: 'Consumed',
-      closedAt: new Date().toISOString(),
-      closedBy: currentUser?.name || 'Unknown',
-      consumedMeters: Math.max(0, (roll.metersTotal || 0) - remainingMeters),
-      notes: notes || roll.notes || ''
-    };
-
-    updateDoc(doc(db, 'rolls', id), updates)
-      .then(() => {
-        addToast(`Roll ${roll.materialName} marked as fully consumed!`, 'success');
-        triggerNotification(
-          '🧵 Fabric Roll Consumed',
-          `Roll ${roll.materialName} (Serial/Barcode: ${roll.barcode}) was set to fully spent. Remaining meters declared: ${remainingMeters}m.`,
-          'system',
-          'all'
-        );
-      })
-      .catch((err) => {
-        handleFirestoreError(err, OperationType.UPDATE, `rolls/${id}`);
-        addToast('Failed to update roll consumption status.', 'error');
-      });
-  };
-
-  const handleDeleteRoll = (id: string) => {
-    if (!currentUser || currentUser.role !== 'manager') {
-      addToast('Security Block: Only managers are authorized to delete traceability logs.', 'error');
-      return;
-    }
-    const roll = rolls.find((r) => r.id === id);
-    if (!roll) return;
-
-    triggerCustomConfirm(
-      'Confirm Roll Record Removal',
-      `Are you sure you want to permanently delete the traceability record for ${roll.materialName} (${roll.barcode})? This action cannot be undone.`,
-      () => {
-        deleteDoc(doc(db, 'rolls', id))
-          .then(() => {
-            addToast(`Traceability log for roll ${roll.barcode} has been deleted.`, 'success');
-          })
-          .catch((err) => {
-            handleFirestoreError(err, OperationType.DELETE, `rolls/${id}`);
-            addToast('Failed to delete roll record from Cloud Database.', 'error');
-          });
-      }
-    );
-  };
+  // --- LABEL GENERATOR HANDLERS ---
 
   const handleAddStockEntry = (entry: Omit<StockEntry, 'id' | 'createdAt'>) => {
     // Strip undefined keys to prevent Firestore crashes and parse numeric attributes robustly
@@ -1261,14 +1171,10 @@ export default function App() {
           />
         );
 
-      case 'rolls':
+      case 'label_printer':
         return (
-          <RollsModule
+          <LabelGenerator
             currentUser={currentUser}
-            rolls={rolls}
-            onAddRoll={handleAddRoll}
-            onConsumeRoll={handleConsumeRoll}
-            onDeleteRoll={handleDeleteRoll}
           />
         );
 
@@ -1287,7 +1193,7 @@ export default function App() {
     { id: 'stock', label: 'Stock', icon: Database },
     { id: 'plans', label: 'Production Plan', icon: CalendarRange },
     { id: 'delivery', label: 'Deliveries', icon: Truck },
-    { id: 'rolls', label: 'Rolls', icon: Scroll }
+    { id: 'label_printer', label: 'Label Printer', icon: Printer }
   ];
 
   return (
@@ -1543,25 +1449,37 @@ export default function App() {
                 </div>
 
                 {/* User avatar bar summary */}
-                <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800 flex items-center gap-3">
-                  <div className={`w-9 h-9 rounded-xl shrink-0 flex items-center justify-center font-bold text-xs border ${
-                    currentUser.role === 'manager' 
-                      ? 'bg-amber-500/15 border-amber-500/30 text-amber-400' 
-                      : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
-                  }`}>
-                    {currentUser.name.substring(0, 2).toUpperCase()}
-                  </div>
-                  <div className="overflow-hidden">
-                    <div className="text-xs font-bold text-white truncate pr-1 text-[11.5px]">
-                      {currentUser.name}
+                <div className="bg-slate-950/70 p-3 rounded-2xl border border-slate-800 flex items-center justify-between gap-2">
+                  <div className="flex items-center gap-3 overflow-hidden">
+                    <div className={`w-9 h-9 rounded-xl shrink-0 flex items-center justify-center font-bold text-xs border ${
+                      currentUser.role === 'manager' 
+                        ? 'bg-amber-500/15 border-amber-500/30 text-amber-400' 
+                        : 'bg-emerald-500/15 border-emerald-500/30 text-emerald-400'
+                    }`}>
+                      {currentUser.name.substring(0, 2).toUpperCase()}
                     </div>
-                    <div className="text-[10px] text-slate-400 capitalize flex items-center gap-1 mt-0.5 font-semibold font-mono">
-                      <span className={`w-1.5 h-1.5 rounded-full ${
-                        currentUser.role === 'manager' ? 'bg-amber-400' : 'bg-emerald-400'
-                      }`} />
-                      {currentUser.role}
+                    <div className="overflow-hidden">
+                      <div className="text-xs font-bold text-white truncate pr-1 text-[11.5px]">
+                        {currentUser.name}
+                      </div>
+                      <div className="text-[10px] text-slate-400 capitalize flex items-center gap-1 mt-0.5 font-semibold font-mono">
+                        <span className={`w-1.5 h-1.5 rounded-full ${
+                          currentUser.role === 'manager' ? 'bg-amber-400' : 'bg-emerald-400'
+                        }`} />
+                        {currentUser.role}
+                      </div>
                     </div>
                   </div>
+
+                  {/* Top quick-access logout button */}
+                  <button
+                    onClick={handleLogout}
+                    className="p-2 bg-rose-500/10 hover:bg-rose-500/20 border border-rose-500/30 text-rose-400 hover:text-rose-350 rounded-xl transition-all cursor-pointer shadow-sm active:scale-95 shrink-0"
+                    title="Log Out Immediately"
+                    id="top-sidebar-logout-btn"
+                  >
+                    <LogOut size={13} />
+                  </button>
                 </div>
 
                 {/* Navigation Options list */}
