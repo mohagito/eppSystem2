@@ -22,7 +22,7 @@ interface LabelGeneratorProps {
 export default function LabelGenerator({ currentUser }: LabelGeneratorProps) {
   // 1. Form States matching specifications exactly
   const [selectedModel, setSelectedModel] = useState<string>('BCB');
-  const [piecesQty, setPiecesQty] = useState<number>(250);
+  const [piecesQty, setPiecesQty] = useState<number>(1000);
   const [creationDate, setCreationDate] = useState<string>(() => {
     const d = new Date();
     const yyyy = d.getFullYear();
@@ -31,7 +31,7 @@ export default function LabelGenerator({ currentUser }: LabelGeneratorProps) {
     return `${yyyy}-${mm}-${dd}`;
   });
   const [assignedOperator, setAssignedOperator] = useState<string>(currentUser?.name || 'Gonzalo');
-  const [packagingType, setPackagingType] = useState<string>('PLASTIC BAG');
+  const [packagingType, setPackagingType] = useState<string>('CARDBOARD BOX');
   const [qaStatus, setQaStatus] = useState<string>('APPROVED QUALITY');
   const [serialCode, setSerialCode] = useState<string>('');
   const [qrCodeDataUrl, setQrCodeDataUrl] = useState<string>('');
@@ -274,9 +274,13 @@ export default function LabelGenerator({ currentUser }: LabelGeneratorProps) {
                   <Layers className="w-3.5 h-3.5 text-slate-400" />
                   Package Pieces (Quantity)
                 </label>
-                <span className="text-[10px] text-emerald-600 font-extrabold">
-                  Apply Standard (250 pcs)
-                </span>
+                <button 
+                  type="button"
+                  onClick={() => applyPresetQty(1000)}
+                  className="text-[10px] text-emerald-600 hover:text-emerald-700 font-extrabold cursor-pointer transition-all focus:outline-hidden"
+                >
+                  Apply Standard (1000 pcs)
+                </button>
               </div>
               <div className="flex flex-col sm:flex-row gap-2">
                 <input
@@ -290,13 +294,13 @@ export default function LabelGenerator({ currentUser }: LabelGeneratorProps) {
                 />
                 
                 {/* Micro Preset selectors matching screen specs */}
-                <div className="flex gap-1.5 shrink-0" id="spec-presets-row">
-                  {[250, 380, 400].map((preset) => (
+                <div className="flex gap-1.5 shrink-0 overflow-x-auto pb-1 sm:pb-0" id="spec-presets-row">
+                  {[1000, 300, 600, 2400].map((preset) => (
                     <button
                       key={preset}
                       type="button"
                       onClick={() => applyPresetQty(preset)}
-                      className={`px-3 py-2 border rounded-xl text-xs font-extrabold transition-all cursor-pointer ${
+                      className={`px-3 py-2 border rounded-xl text-xs font-extrabold transition-all cursor-pointer whitespace-nowrap ${
                         piecesQty === preset 
                           ? 'bg-emerald-50 border-emerald-500 text-emerald-700' 
                           : 'bg-white border-slate-200 text-slate-600 hover:bg-slate-50'
