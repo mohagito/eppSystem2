@@ -84,11 +84,11 @@ export interface RollEntry {
   id: string;
   materialName: RollMaterial;
   date: string; // YYYY-MM-DD
-  openedAt: string; // ISO string timestamps
-  barcode: string; // generated QR/barcode string
+  openedAt?: string; // ISO string timestamps (optional for unopened)
+  barcode?: string; // generated QR/barcode string or blank for unopened stock
   operator: string; // profile/worker name
   createdBy: string; // profile user id
-  status: 'Active' | 'Consumed';
+  status: 'Unopened' | 'Active' | 'Consumed';
   notes?: string;
   initialWeightKg?: number; // optional tracking parameter (e.g., standard roll weights)
   metersTotal?: number; // optional length

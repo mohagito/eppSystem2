@@ -21,9 +21,10 @@ import {
   AlertCircle,
   Truck,
   Download,
-  Printer
+  Printer,
+  Scroll
 } from 'lucide-react';
-import { UserProfile, StockEntry, ProductionPlan, ToastMessage, DeliveryEntry } from './types';
+import { UserProfile, StockEntry, ProductionPlan, ToastMessage, DeliveryEntry, RollEntry } from './types';
 import { MOCK_PROFILES, INITIAL_STOCK_ENTRIES, INITIAL_PLANS } from './data';
 import Swal from 'sweetalert2';
 import 'sweetalert2/dist/sweetalert2.min.css';
@@ -33,6 +34,7 @@ import StockManagement from './components/StockManagement';
 import PlanningModule from './components/PlanningModule';
 import DeliveryModule from './components/DeliveryModule';
 import LabelGenerator from './components/LabelGenerator';
+import RollsModule from './components/RollsModule';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import NotificationCenter, { playNotificationSound } from './components/NotificationCenter';
@@ -46,6 +48,7 @@ export default function App() {
   const [stockEntries, setStockEntries] = useState<StockEntry[]>([]);
   const [plans, setPlans] = useState<ProductionPlan[]>([]);
   const [deliveries, setDeliveries] = useState<DeliveryEntry[]>([]);
+  const [rolls, setRolls] = useState<RollEntry[]>([]);
 
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     const saved = localStorage.getItem('epp_current_user');
@@ -326,6 +329,7 @@ export default function App() {
     let unsubPlans: (() => void) | null = null;
     let unsubTargets: (() => void) | null = null;
     let unsubDeliveries: (() => void) | null = null;
+    let unsubRolls: (() => void) | null = null;
 
     const setupSubscriptions = () => {
       if (!active) return;
@@ -412,6 +416,19 @@ export default function App() {
         setDeliveries(list);
       }, (err) => {
         handleFirestoreError(err, OperationType.LIST, 'deliveries');
+      });
+
+      // 6. Sync Material Rolls
+      unsubRolls = onSnapshot(collection(db, 'rolls'), (snapshot) => {
+        const list: RollEntry[] = [];
+        snapshot.forEach((doc) => {
+          list.push(doc.data() as RollEntry);
+        });
+        // Sort descending by registration ID (timestamp)
+        list.sort((a, b) => b.id.localeCompare(a.id));
+        setRolls(list);
+      }, (err) => {
+        handleFirestoreError(err, OperationType.LIST, 'rolls');
       });
     };
 
@@ -506,6 +523,7 @@ export default function App() {
       if (unsubPlans) unsubPlans();
       if (unsubTargets) unsubTargets();
       if (unsubDeliveries) unsubDeliveries();
+      if (unsubRolls) unsubRolls();
     };
   }, []);
 
@@ -1004,6 +1022,112 @@ export default function App() {
     );
   };
 
+  // --- FASTER ROLLS MATERIAL TRACEABILITY ENGINE HANDLERS ---
+  const handleAddRoll = (roll: Omit<RollEntry, 'id'>) => {
+    const newRoll: RollEntry = {
+      ...roll,
+      id: `roll-${Date.now()}`,
+      openedAt: roll.status === 'Active' ? new Date().toISOString() : undefined
+    };
+
+    setDoc(doc(db, 'rolls', newRoll.id), newRoll)
+      .then(() => {
+        const statusMsg = roll.status === 'Active' ? 'opened and registered' : 'added to unopened stock';
+        addToast(`Successfully ${statusMsg} material roll: ${roll.materialName}!`, 'success');
+        triggerNotification(
+          roll.status === 'Active' ? '🧵 Fabric Roll Opened' : '📦 New Roll in Stock',
+          roll.status === 'Active' 
+            ? `Operator ${roll.operator} has opened a new roll of ${roll.materialName} (Barcode: ${roll.barcode}).`
+            : `Operator ${roll.operator} has registered an unopened roll of ${roll.materialName} (Barcode: ${roll.barcode}) into factory reserve.`,
+          'system',
+          'all'
+        );
+      })
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.CREATE, `rolls/${newRoll.id}`);
+        addToast('Failed to register material roll.', 'error');
+      });
+  };
+
+  const handleOpenRoll = (id: string, barcode: string) => {
+    const roll = rolls.find((r) => r.id === id);
+    if (!roll) return;
+
+    const updates: Partial<RollEntry> = {
+      status: 'Active',
+      openedAt: new Date().toISOString(),
+      operator: currentUser?.name || roll.operator,
+      barcode: barcode.trim()
+    };
+
+    updateDoc(doc(db, 'rolls', id), updates)
+      .then(() => {
+        addToast(`Roll ${roll.materialName} (${barcode}) has been opened for production!`, 'success');
+        triggerNotification(
+          '🧵 Fabric Roll Opened',
+          `Roll ${roll.materialName} (Barcode: ${barcode}) is now ACTIVE and being consumed.`,
+          'system',
+          'all'
+        );
+      })
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.UPDATE, `rolls/${id}`);
+        addToast('Failed to open material roll.', 'error');
+      });
+  };
+
+  const handleConsumeRoll = (id: string, consumedMeters: number, notes?: string) => {
+    const roll = rolls.find((r) => r.id === id);
+    if (!roll) return;
+
+    const updates: Partial<RollEntry> = {
+      status: 'Consumed',
+      closedAt: new Date().toISOString(),
+      closedBy: currentUser?.name || 'Unknown',
+      consumedMeters: consumedMeters,
+      notes: notes || roll.notes || ''
+    };
+
+    updateDoc(doc(db, 'rolls', id), updates)
+      .then(() => {
+        addToast(`Roll ${roll.materialName} marked as fully consumed!`, 'success');
+        triggerNotification(
+          '🧵 Fabric Roll Consumed',
+          `Roll ${roll.materialName} (Serial/Barcode: ${roll.barcode}) was set to fully spent. Consumed length: ${consumedMeters}m.`,
+          'system',
+          'all'
+        );
+      })
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.UPDATE, `rolls/${id}`);
+        addToast('Failed to update roll consumption status.', 'error');
+      });
+  };
+
+  const handleDeleteRoll = (id: string) => {
+    if (!currentUser || currentUser.role !== 'manager') {
+      addToast('Security Block: Only managers are authorized to delete traceability logs.', 'error');
+      return;
+    }
+    const roll = rolls.find((r) => r.id === id);
+    if (!roll) return;
+
+    triggerCustomConfirm(
+      'Confirm Roll Record Removal',
+      `Are you sure you want to permanently delete the traceability record for ${roll.materialName} (${roll.barcode})? This action cannot be undone.`,
+      () => {
+        deleteDoc(doc(db, 'rolls', id))
+          .then(() => {
+            addToast(`Traceability log for roll ${roll.barcode} has been deleted.`, 'success');
+          })
+          .catch((err) => {
+            handleFirestoreError(err, OperationType.DELETE, `rolls/${id}`);
+            addToast('Failed to delete roll record from Cloud Database.', 'error');
+          });
+      }
+    );
+  };
+
   const handleUpdateDailyTarget = (dateStr: string, targetValue: number) => {
     const newTargets = {
       ...dailyTargets,
@@ -1178,6 +1302,18 @@ export default function App() {
           />
         );
 
+      case 'rolls':
+        return (
+          <RollsModule
+            currentUser={currentUser}
+            rolls={rolls}
+            onAddRoll={handleAddRoll}
+            onOpenRoll={handleOpenRoll}
+            onConsumeRoll={handleConsumeRoll}
+            onDeleteRoll={handleDeleteRoll}
+          />
+        );
+
       default:
         return (
           <div className="p-8 text-center text-slate-400">
@@ -1192,6 +1328,7 @@ export default function App() {
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'stock', label: 'Stock', icon: Database },
     { id: 'plans', label: 'Production Plan', icon: CalendarRange },
+    { id: 'rolls', label: 'Material Rolls', icon: Scroll },
     { id: 'delivery', label: 'Deliveries', icon: Truck },
     { id: 'label_printer', label: 'Label Printer', icon: Printer }
   ];
