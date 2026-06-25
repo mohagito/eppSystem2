@@ -117,7 +117,7 @@
         "barcode": { "type": "string" },
         "operator": { "type": "string" },
         "createdBy": { "type": "string" },
-        "status": { "type": "string", "enum": ["Active", "Consumed"] },
+        "status": { "type": "string", "enum": ["Unopened", "Active", "Consumed"] },
         "notes": { "type": "string" },
         "initialWeightKg": { "type": "number" },
         "metersTotal": { "type": "number" },
@@ -125,7 +125,7 @@
         "closedAt": { "type": "string" },
         "closedBy": { "type": "string" }
       },
-      "required": ["id", "materialName", "date", "openedAt", "barcode", "operator", "createdBy", "status"]
+      "required": ["id", "materialName", "date", "operator", "createdBy", "status"]
     }
   },
   "firestore": {

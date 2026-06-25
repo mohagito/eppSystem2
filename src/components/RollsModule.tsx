@@ -17,7 +17,8 @@ import {
   Archive,
   Scissors,
   FileText,
-  Search
+  Search,
+  Pencil
 } from 'lucide-react';
 import { RollEntry, RollMaterial, UserProfile } from '../types';
 import Swal from 'sweetalert2';
@@ -29,9 +30,24 @@ interface RollsModuleProps {
   onOpenRoll: (id: string, barcode: string) => void;
   onConsumeRoll: (id: string, consumedMeters: number, notes?: string) => void;
   onDeleteRoll: (id: string) => void;
+  onUpdateRoll?: (id: string, updates: Partial<RollEntry>) => void;
 }
 
 const MATERIAL_OPTIONS: RollMaterial[] = ['White Huesker', 'Yellow Huesker', 'Delcotex India', 'Kuga'];
+
+const getMaterialBrand = (material: RollMaterial) => {
+  switch (material) {
+    case 'White Huesker':
+    case 'Yellow Huesker':
+      return 'Huesker';
+    case 'Delcotex India':
+      return 'Delcotex';
+    case 'Kuga':
+      return 'Kuga';
+    default:
+      return 'Generic';
+  }
+};
 
 const getCategoryColorStyles = (material: RollMaterial) => {
   switch (material) {
@@ -79,7 +95,8 @@ export default function RollsModule({
   onAddRoll,
   onOpenRoll,
   onConsumeRoll,
-  onDeleteRoll
+  onDeleteRoll,
+  onUpdateRoll
 }: RollsModuleProps) {
   // Navigation inside the module
   const [subTab, setSubTab] = useState<'unopened' | 'active' | 'history'>('unopened');
@@ -267,6 +284,131 @@ export default function RollsModule({
     });
   };
 
+  // Edit Roll Record Dialog
+  const triggerEditRollDialog = (roll: RollEntry) => {
+    Swal.fire({
+      title: 'Edit Material Roll Record',
+      html: `
+        <div class="text-left space-y-4 font-sans text-xs">
+          <p class="text-slate-300 font-medium">Modify the registered parameters of this fabric roll record.</p>
+          
+          <div class="grid grid-cols-2 gap-3">
+            <div class="space-y-1.5">
+              <label class="text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono">Fabric Material</label>
+              <select id="swal-edit-material" class="w-full bg-slate-900 border border-slate-700 text-white p-2.5 rounded-lg text-xs">
+                ${MATERIAL_OPTIONS.map(opt => `<option value="${opt}" ${roll.materialName === opt ? 'selected' : ''}>${opt}</option>`).join('')}
+              </select>
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono">Status</label>
+              <select id="swal-edit-status" class="w-full bg-slate-900 border border-slate-700 text-white p-2.5 rounded-lg text-xs">
+                <option value="Unopened" ${roll.status === 'Unopened' ? 'selected' : ''}>📦 Unopened</option>
+                <option value="Active" ${roll.status === 'Active' ? 'selected' : ''}>🧵 Active (Opened)</option>
+                <option value="Consumed" ${roll.status === 'Consumed' ? 'selected' : ''}>✅ Consumed (Spent)</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono">Traceability Barcode / Serial No</label>
+            <input id="swal-edit-barcode" type="text" class="w-full bg-slate-900 border border-slate-700 text-white p-2.5 rounded-lg text-xs font-mono" value="${roll.barcode || ''}" placeholder="Pending opening..." />
+          </div>
+
+          <div class="grid grid-cols-2 gap-3">
+            <div class="space-y-1.5">
+              <label class="text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono">Operator</label>
+              <input id="swal-edit-operator" type="text" class="w-full bg-slate-900 border border-slate-700 text-white p-2.5 rounded-lg text-xs" value="${roll.operator}" />
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono">Date Added</label>
+              <input id="swal-edit-date" type="date" class="w-full bg-slate-900 border border-slate-700 text-white p-2.5 rounded-lg text-xs font-mono" value="${roll.date}" />
+            </div>
+          </div>
+
+          <div id="swal-edit-consumed-container" class="space-y-1.5 ${roll.status === 'Consumed' ? '' : 'hidden'}">
+            <label class="text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono">Consumed Length (meters)</label>
+            <input id="swal-edit-consumed" type="number" class="w-full bg-slate-900 border border-slate-700 text-white p-2.5 rounded-lg text-xs font-mono" value="${roll.consumedMeters !== undefined ? roll.consumedMeters : 1000}" min="0" />
+          </div>
+
+          <div class="space-y-1.5">
+            <label class="text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono">Notes / Remarks</label>
+            <textarea id="swal-edit-notes" class="w-full bg-slate-900 border border-slate-700 text-white p-2.5 rounded-lg text-xs h-16 resize-none" placeholder="Enter notes here...">${roll.notes || ''}</textarea>
+          </div>
+        </div>
+      `,
+      showCancelButton: true,
+      confirmButtonText: 'Save Changes',
+      cancelButtonText: 'Cancel',
+      background: '#0f172a',
+      color: '#cbd5e1',
+      confirmButtonColor: '#10b981',
+      cancelButtonColor: '#334155',
+      customClass: {
+        popup: 'rounded-2xl border border-slate-800 shadow-2xl p-6 font-sans',
+        title: 'text-sm font-extrabold uppercase tracking-wider text-slate-100 font-sans'
+      },
+      didOpen: () => {
+        const statusSelect = document.getElementById('swal-edit-status') as HTMLSelectElement;
+        const consumedContainer = document.getElementById('swal-edit-consumed-container');
+        if (statusSelect && consumedContainer) {
+          statusSelect.addEventListener('change', (e) => {
+            const val = (e.target as HTMLSelectElement).value;
+            if (val === 'Consumed') {
+              consumedContainer.classList.remove('hidden');
+            } else {
+              consumedContainer.classList.add('hidden');
+            }
+          });
+        }
+      },
+      preConfirm: () => {
+        const materialSelect = document.getElementById('swal-edit-material') as HTMLSelectElement;
+        const statusSelect = document.getElementById('swal-edit-status') as HTMLSelectElement;
+        const barcodeInput = document.getElementById('swal-edit-barcode') as HTMLInputElement;
+        const operatorInput = document.getElementById('swal-edit-operator') as HTMLInputElement;
+        const dateInput = document.getElementById('swal-edit-date') as HTMLInputElement;
+        const consumedInput = document.getElementById('swal-edit-consumed') as HTMLInputElement;
+        const notesInput = document.getElementById('swal-edit-notes') as HTMLTextAreaElement;
+
+        const materialVal = materialSelect.value as RollMaterial;
+        const statusVal = statusSelect.value as 'Unopened' | 'Active' | 'Consumed';
+        const barcodeVal = barcodeInput.value.trim();
+        const operatorVal = operatorInput.value.trim();
+        const dateVal = dateInput.value;
+        const consumedVal = parseFloat(consumedInput.value) || 0;
+        const notesVal = notesInput.value.trim();
+
+        if (!operatorVal) {
+          Swal.showValidationMessage('An operator name is required.');
+          return false;
+        }
+
+        if (statusVal !== 'Unopened' && !barcodeVal) {
+          Swal.showValidationMessage('A barcode is required for Active/Consumed rolls.');
+          return false;
+        }
+
+        return {
+          materialName: materialVal,
+          status: statusVal,
+          barcode: barcodeVal || undefined,
+          operator: operatorVal,
+          date: dateVal,
+          consumedMeters: statusVal === 'Consumed' ? consumedVal : undefined,
+          notes: notesVal
+        };
+      }
+    }).then((result) => {
+      if (result.isConfirmed && result.value) {
+        if (onUpdateRoll) {
+          onUpdateRoll(roll.id, result.value);
+        }
+      }
+    });
+  };
+
   // Filter rolls based on status and search query
   const filteredRolls = rolls.filter(r => {
     let matchesTab = false;
@@ -279,7 +421,7 @@ export default function RollsModule({
     }
     const matchesSearch = 
       r.materialName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      r.barcode.toLowerCase().includes(searchQuery.toLowerCase()) ||
+      (r.barcode || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
       (r.operator || '').toLowerCase().includes(searchQuery.toLowerCase());
     return matchesTab && matchesSearch;
   });
@@ -327,48 +469,6 @@ export default function RollsModule({
         </div>
       </div>
 
-      {/* Category Stock Summary Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4" id="category-stocks-summary">
-        {categoryStats.map((stat) => {
-          const colors = getCategoryColorStyles(stat.material);
-          return (
-            <div
-              key={stat.material}
-              className={`p-4 bg-white rounded-2xl border transition-all shadow-xs flex flex-col justify-between ${colors.bg}`}
-            >
-              <div>
-                <div className="flex items-center justify-between gap-2 border-b border-slate-100 pb-2">
-                  <span className="text-[10px] font-black text-slate-400 uppercase tracking-wider block truncate">
-                    {stat.material}
-                  </span>
-                  <span className={`w-2.5 h-2.5 rounded-full ${colors.dot}`} />
-                </div>
-
-                <div className="grid grid-cols-2 gap-2 mt-3">
-                  <div className="bg-indigo-50/50 p-2 rounded-xl border border-indigo-50">
-                    <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Reserve Stock</div>
-                    <div className="text-lg font-black text-indigo-600 font-mono mt-0.5">
-                      {stat.unopened} <span className="text-[9px] font-semibold text-slate-400">rolls</span>
-                    </div>
-                  </div>
-                  <div className="bg-emerald-50/40 p-2 rounded-xl border border-emerald-50">
-                    <div className="text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">Active In Use</div>
-                    <div className="text-lg font-black text-emerald-600 font-mono mt-0.5">
-                      {stat.active} <span className="text-[9px] font-semibold text-slate-400">rolls</span>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div className="mt-3 pt-2 border-t border-slate-100 flex items-center justify-between text-[9px] font-extrabold text-slate-400 uppercase tracking-wider">
-                <span>Spent History</span>
-                <span className="font-mono text-slate-500 font-bold">{stat.spent} rolls</span>
-              </div>
-            </div>
-          );
-        })}
-      </div>
-
       {/* Form Area with slide effect */}
       <AnimatePresence>
         {formOpen && (
@@ -376,7 +476,7 @@ export default function RollsModule({
             initial={{ opacity: 0, height: 0 }}
             animate={{ opacity: 1, height: 'auto' }}
             exit={{ opacity: 0, height: 0 }}
-            className="overflow-hidden"
+            className="overflow-hidden mb-6"
           >
             <form 
               onSubmit={handleRegisterRoll}
@@ -485,6 +585,111 @@ export default function RollsModule({
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* Factory Reserve & Material Stock Status (Spreadsheet Style) */}
+      <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden" id="material-stock-status-table-card">
+        <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+          <div>
+            <h2 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
+              <Layers size={14} className="text-indigo-600" />
+              Factory Reserve Stock Status
+            </h2>
+            <p className="text-[10px] text-slate-500 font-medium mt-0.5">
+              Live physical inventory count of unopened rolls available in the warehouse. Click any row to filter the detailed tracking list.
+            </p>
+          </div>
+          {searchQuery && (
+            <button
+              onClick={() => setSearchQuery('')}
+              className="text-[9px] font-extrabold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-lg transition-all self-start sm:self-center"
+            >
+              Clear Filter
+            </button>
+          )}
+        </div>
+
+        <div className="overflow-x-auto">
+          <table className="w-full text-left border-collapse" id="material-stock-spreadsheet">
+            <thead>
+              <tr className="bg-[#f0c2bd]/20 border-b border-[#e9b4af] text-[10px] font-extrabold text-[#7f342d] uppercase tracking-wider">
+                <th className="py-2.5 px-4 font-black">Material / Model</th>
+                <th className="py-2.5 px-4 font-black">Brand / Client</th>
+                <th className="py-2.5 px-4 text-center font-black">Total Stock Status</th>
+                <th className="py-2.5 px-4 font-black">Notes / Alert</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-slate-100">
+              {categoryStats
+                .sort((a, b) => b.unopened - a.unopened) // Sort matching user's spreadsheet: 9, 7, 4, 0
+                .map((stat) => {
+                  const brand = getMaterialBrand(stat.material);
+                  const isCurrentFilter = searchQuery.toLowerCase() === stat.material.toLowerCase();
+                  
+                  return (
+                    <tr 
+                      key={stat.material}
+                      onClick={() => setSearchQuery(isCurrentFilter ? '' : stat.material)}
+                      className={`hover:bg-slate-50/80 transition-all cursor-pointer group ${
+                        isCurrentFilter ? 'bg-indigo-50/40' : ''
+                      }`}
+                    >
+                      {/* Material Name */}
+                      <td className="py-3.5 px-4">
+                        <div className="flex items-center gap-2">
+                          <span className={`w-2 h-2 rounded-full ${
+                            stat.material === 'Yellow Huesker' ? 'bg-amber-400' :
+                            stat.material === 'White Huesker' ? 'bg-slate-300' :
+                            stat.material === 'Kuga' ? 'bg-rose-400' : 'bg-sky-400'
+                          }`} />
+                          <span className={`text-xs font-bold text-slate-800 group-hover:text-indigo-600 transition-colors ${
+                            isCurrentFilter ? 'text-indigo-600 font-extrabold' : ''
+                          }`}>
+                            {stat.material}
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* Brand / Client */}
+                      <td className="py-3.5 px-4 text-xs font-semibold text-slate-500">
+                        {brand}
+                      </td>
+
+                      {/* Total Stock Status */}
+                      <td className="py-3.5 px-4 text-center">
+                        <span className={`inline-flex items-center justify-center font-mono text-sm font-black w-8 h-8 rounded-full ${
+                          stat.unopened === 0 
+                            ? 'text-red-600 bg-red-50' 
+                            : stat.unopened <= 3 
+                            ? 'text-amber-600 bg-amber-50'
+                            : 'text-slate-800 bg-slate-100'
+                        }`}>
+                          {stat.unopened}
+                        </span>
+                      </td>
+
+                      {/* Notes / Alert */}
+                      <td className="py-3.5 px-4 text-xs font-bold">
+                        {stat.unopened === 0 ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-red-50 text-red-600 rounded-lg border border-red-100 text-[9px] uppercase tracking-wide">
+                            <AlertCircle size={11} className="animate-pulse" />
+                            ⚠️ Out of Stock
+                          </span>
+                        ) : stat.unopened <= 3 ? (
+                          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 bg-amber-50 text-amber-600 rounded-lg border border-amber-100 text-[9px] uppercase tracking-wide">
+                            <AlertCircle size={11} />
+                            Low Stock Alert
+                          </span>
+                        ) : (
+                          <span className="text-slate-400 font-medium italic text-[10px]">—</span>
+                        )}
+                      </td>
+                    </tr>
+                  );
+                })}
+            </tbody>
+          </table>
+        </div>
+      </div>
 
       {/* Main filter bar & tabs */}
       <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-4" id="rolls-main-list-card">
@@ -666,15 +871,21 @@ export default function RollsModule({
                           </button>
                         ) : null}
 
-                        {currentUser.role === 'manager' && (
-                          <button
-                            onClick={() => onDeleteRoll(roll.id)}
-                            className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
-                            title="Delete traceability log"
-                          >
-                            <Trash2 size={14} />
-                          </button>
-                        )}
+                        <button
+                          onClick={() => triggerEditRollDialog(roll)}
+                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
+                          title="Edit roll details"
+                        >
+                          <Pencil size={13} />
+                        </button>
+
+                        <button
+                          onClick={() => onDeleteRoll(roll.id)}
+                          className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
+                          title="Delete traceability log"
+                        >
+                          <Trash2 size={14} />
+                        </button>
                       </div>
                     </td>
 

@@ -434,80 +434,200 @@ export default function App() {
 
     const initializeAndSubscribe = async () => {
       try {
+        console.log("Starting DB initialization...");
         const initDocRef = doc(db, 'settings', 'init_status');
-        const initDocSnap = await getDoc(initDocRef);
+        let initDocSnap;
+        try {
+          initDocSnap = await getDoc(initDocRef);
+          console.log("initDocSnap read successful:", initDocSnap.exists());
+        } catch (e: any) {
+          console.error("Error reading settings/init_status:", e);
+          throw new Error("Failed at settings/init_status read: " + e.message);
+        }
 
         if (!initDocSnap.exists()) {
-          // First setup: Seed ONLY profiles and targets in one atomic batch
-          const batch = writeBatch(db);
+          console.log("Seeding initial profiles and targets...");
+          try {
+            const batch = writeBatch(db);
 
-          MOCK_PROFILES.forEach((profile) => {
-            batch.set(doc(db, 'profiles', profile.id), profile);
-          });
+            MOCK_PROFILES.forEach((profile) => {
+              batch.set(doc(db, 'profiles', profile.id), profile);
+            });
 
-          const defaultTargets = {
-            '2026-06-01': 250,
-            '2026-06-02': 300,
-            '2026-06-03': 300,
-            '2026-06-04': 250,
-            '2026-06-05': 300,
-            '2026-06-06': 350,
-            '2026-06-07': 300,
-          };
-          batch.set(doc(db, 'settings', 'daily_targets'), { targets: defaultTargets });
-          batch.set(initDocRef, { seeded: true });
+            const defaultTargets = {
+              '2026-06-01': 250,
+              '2026-06-02': 300,
+              '2026-06-03': 300,
+              '2026-06-04': 250,
+              '2026-06-05': 300,
+              '2026-06-06': 350,
+              '2026-06-07': 300,
+            };
+            batch.set(doc(db, 'settings', 'daily_targets'), { targets: defaultTargets });
+            batch.set(initDocRef, { seeded: true });
 
-          await batch.commit();
+            await batch.commit();
+            console.log("Seeding initial profiles and targets completed!");
+          } catch (e: any) {
+            console.error("Error seeding initial profiles/targets:", e);
+            throw new Error("Failed at seeding initial profiles/targets batch: " + e.message);
+          }
         }
 
         // ONE-TIME PURGE OF DEMO DATA FOR COMPANY PRODUCTION READINESS
         const cleanDocRef = doc(db, 'settings', 'production_cleaned_v1');
-        const cleanDocSnap = await getDoc(cleanDocRef);
+        let cleanDocSnap;
+        try {
+          cleanDocSnap = await getDoc(cleanDocRef);
+          console.log("cleanDocSnap read successful:", cleanDocSnap.exists());
+        } catch (e: any) {
+          console.error("Error reading production_cleaned_v1:", e);
+          throw new Error("Failed at production_cleaned_v1 read: " + e.message);
+        }
+
         if (!cleanDocSnap.exists()) {
-          const batch = writeBatch(db);
+          console.log("Purging demo data...");
+          try {
+            const batch = writeBatch(db);
 
-          const stockSnap = await getDocs(collection(db, 'stock_entries'));
-          stockSnap.forEach((docSnap) => {
-            batch.delete(docSnap.ref);
-          });
+            const stockSnap = await getDocs(collection(db, 'stock_entries'));
+            stockSnap.forEach((docSnap) => {
+              batch.delete(docSnap.ref);
+            });
 
-          const plansSnap = await getDocs(collection(db, 'production_plans'));
-          plansSnap.forEach((docSnap) => {
-            batch.delete(docSnap.ref);
-          });
+            const plansSnap = await getDocs(collection(db, 'production_plans'));
+            plansSnap.forEach((docSnap) => {
+              batch.delete(docSnap.ref);
+            });
 
-          batch.set(cleanDocRef, { cleaned: true });
-          await batch.commit();
-          addToast("Database cleared and optimized for real production operations!", "success");
+            batch.set(cleanDocRef, { cleaned: true });
+            await batch.commit();
+            console.log("Purging demo data completed!");
+            addToast("Database cleared and optimized for real production operations!", "success");
+          } catch (e: any) {
+            console.error("Error purging demo data:", e);
+            throw new Error("Failed at purging demo data: " + e.message);
+          }
         }
 
         // ONE-TIME CLEANUP OF SPECIFIC WORKERS: DELETING "SALAH" AND KEEPING ONLY MOUAD AND MOHAMED
         const cleanWorkersRef = doc(db, 'settings', 'workers_cleanup_v1');
-        const cleanWorkersSnap = await getDoc(cleanWorkersRef);
+        let cleanWorkersSnap;
+        try {
+          cleanWorkersSnap = await getDoc(cleanWorkersRef);
+          console.log("cleanWorkersSnap read successful:", cleanWorkersSnap.exists());
+        } catch (e: any) {
+          console.error("Error reading workers_cleanup_v1:", e);
+          throw new Error("Failed at workers_cleanup_v1 read: " + e.message);
+        }
+
         if (!cleanWorkersSnap.exists()) {
-          const batch = writeBatch(db);
-          const profilesSnap = await getDocs(collection(db, 'profiles'));
-          let countDeleted = 0;
-          profilesSnap.forEach((docSnap) => {
-            const data = docSnap.data();
-            if (data.role === 'worker') {
-              const nameLower = (data.name || '').toLowerCase().trim();
-              const userNameLower = (data.username || '').toLowerCase().trim();
-              const isMohamed = nameLower === 'mohamed' || userNameLower === 'mohamed';
-              const isMouad = nameLower === 'mouad' || userNameLower === 'mouad';
-              if (!isMohamed && !isMouad) {
-                batch.delete(docSnap.ref);
-                countDeleted++;
+          console.log("Cleaning up worker profiles...");
+          try {
+            const batch = writeBatch(db);
+            const profilesSnap = await getDocs(collection(db, 'profiles'));
+            let countDeleted = 0;
+            profilesSnap.forEach((docSnap) => {
+              const data = docSnap.data();
+              if (data.role === 'worker') {
+                const nameLower = (data.name || '').toLowerCase().trim();
+                const userNameLower = (data.username || '').toLowerCase().trim();
+                const isMohamed = nameLower === 'mohamed' || userNameLower === 'mohamed';
+                const isMouad = nameLower === 'mouad' || userNameLower === 'mouad';
+                if (!isMohamed && !isMouad) {
+                  batch.delete(docSnap.ref);
+                  countDeleted++;
+                }
               }
+            });
+            batch.set(cleanWorkersRef, { cleaned: true, countDeleted });
+            await batch.commit();
+            console.log("Cleaning up worker profiles completed, deleted count:", countDeleted);
+            if (countDeleted > 0) {
+              addToast(`Database cleaned: Removed ${countDeleted} unrecognized worker profiles. Keeping only Mohamed and Mouad.`, "info");
             }
-          });
-          batch.set(cleanWorkersRef, { cleaned: true, countDeleted });
-          await batch.commit();
-          if (countDeleted > 0) {
-            addToast(`Database cleaned: Removed ${countDeleted} unrecognized worker profiles. Keeping only Mohamed and Mouad.`, "info");
+          } catch (e: any) {
+            console.error("Error cleaning up worker profiles:", e);
+            throw new Error("Failed at cleaning up worker profiles: " + e.message);
           }
         }
-      } catch (err) {
+
+        // ONE-TIME SEEDING OF EXACT ROLLS DATA FROM SPREADSHEET
+        const rollsSeedRef = doc(db, 'settings', 'rolls_stock_seed_v5');
+        let rollsSeedSnap;
+        try {
+          rollsSeedSnap = await getDoc(rollsSeedRef);
+          console.log("rollsSeedSnap read successful:", rollsSeedSnap.exists());
+        } catch (e: any) {
+          console.error("Error reading rolls_stock_seed_v5:", e);
+          throw new Error("Failed at rolls_stock_seed_v5 read: " + e.message);
+        }
+
+        if (!rollsSeedSnap.exists()) {
+          console.log("Seeding rolls stock from spreadsheet...");
+          try {
+            const batch = writeBatch(db);
+            
+            // Clear all existing rolls to ensure count matches exactly
+            const rollsSnap = await getDocs(collection(db, 'rolls'));
+            rollsSnap.forEach((docSnap) => {
+              batch.delete(docSnap.ref);
+            });
+            
+            const todayDate = new Date().toISOString().split('T')[0];
+
+            // 1. Yellow Huesker (9 unopened rolls)
+            for (let i = 1; i <= 9; i++) {
+              const id = `roll-seed-yellow-${i}`;
+              batch.set(doc(db, 'rolls', id), {
+                id,
+                materialName: 'Yellow Huesker',
+                date: todayDate,
+                status: 'Unopened',
+                operator: 'Mohamed',
+                createdBy: 'system',
+                notes: `Initial stock seed - Roll #${i}`
+              });
+            }
+
+            // 2. Kuga (7 unopened rolls)
+            for (let i = 1; i <= 7; i++) {
+              const id = `roll-seed-kuga-${i}`;
+              batch.set(doc(db, 'rolls', id), {
+                id,
+                materialName: 'Kuga',
+                date: todayDate,
+                status: 'Unopened',
+                operator: 'Mohamed',
+                createdBy: 'system',
+                notes: `Initial stock seed - Roll #${i}`
+              });
+            }
+
+            // 3. White Huesker (4 unopened rolls)
+            for (let i = 1; i <= 4; i++) {
+              const id = `roll-seed-white-${i}`;
+              batch.set(doc(db, 'rolls', id), {
+                id,
+                materialName: 'White Huesker',
+                date: todayDate,
+                status: 'Unopened',
+                operator: 'Mohamed',
+                createdBy: 'system',
+                notes: `Initial stock seed - Roll #${i}`
+              });
+            }
+
+            batch.set(rollsSeedRef, { seeded: true });
+            await batch.commit();
+            console.log("Seeding rolls stock completed!");
+            addToast("Factory reserve rolls stock (9 Yellow Huesker, 7 Kuga, 4 White Huesker) successfully loaded into system!", "success");
+          } catch (e: any) {
+            console.error("Error seeding rolls stock:", e);
+            throw new Error("Failed at seeding rolls stock: " + e.message);
+          }
+        }
+      } catch (err: any) {
         console.error("Database initialization failed, subscribing anyway: ", err);
       } finally {
         setupSubscriptions();
@@ -1105,20 +1225,17 @@ export default function App() {
   };
 
   const handleDeleteRoll = (id: string) => {
-    if (!currentUser || currentUser.role !== 'manager') {
-      addToast('Security Block: Only managers are authorized to delete traceability logs.', 'error');
-      return;
-    }
+    if (!currentUser) return;
     const roll = rolls.find((r) => r.id === id);
     if (!roll) return;
 
     triggerCustomConfirm(
       'Confirm Roll Record Removal',
-      `Are you sure you want to permanently delete the traceability record for ${roll.materialName} (${roll.barcode})? This action cannot be undone.`,
+      `Are you sure you want to permanently delete the traceability record for ${roll.materialName} (${roll.barcode || 'Pending Barcode'})? This action cannot be undone.`,
       () => {
         deleteDoc(doc(db, 'rolls', id))
           .then(() => {
-            addToast(`Traceability log for roll ${roll.barcode} has been deleted.`, 'success');
+            addToast(`Traceability log for roll ${roll.barcode || roll.materialName} has been deleted.`, 'success');
           })
           .catch((err) => {
             handleFirestoreError(err, OperationType.DELETE, `rolls/${id}`);
@@ -1126,6 +1243,41 @@ export default function App() {
           });
       }
     );
+  };
+
+  const handleUpdateRoll = (id: string, updates: Partial<RollEntry>) => {
+    const roll = rolls.find((r) => r.id === id);
+    if (!roll) return;
+
+    // Build the final update map
+    const finalUpdates: Partial<RollEntry> = {
+      ...updates
+    };
+
+    // If status changed to Active and there's no openedAt, set it
+    if (updates.status === 'Active' && !roll.openedAt) {
+      finalUpdates.openedAt = new Date().toISOString();
+    }
+    // If status changed to Consumed and there's no closedAt, set it
+    if (updates.status === 'Consumed' && !roll.closedAt) {
+      finalUpdates.closedAt = new Date().toISOString();
+      finalUpdates.closedBy = currentUser?.name || 'Unknown';
+    }
+
+    updateDoc(doc(db, 'rolls', id), finalUpdates)
+      .then(() => {
+        addToast(`Successfully updated roll ${roll.materialName} record!`, 'success');
+        triggerNotification(
+          '🧵 Fabric Roll Updated',
+          `Roll ${roll.materialName} record was updated in the database by ${currentUser?.name}.`,
+          'system',
+          'all'
+        );
+      })
+      .catch((err) => {
+        handleFirestoreError(err, OperationType.UPDATE, `rolls/${id}`);
+        addToast('Failed to update roll record.', 'error');
+      });
   };
 
   const handleUpdateDailyTarget = (dateStr: string, targetValue: number) => {
@@ -1311,6 +1463,7 @@ export default function App() {
             onOpenRoll={handleOpenRoll}
             onConsumeRoll={handleConsumeRoll}
             onDeleteRoll={handleDeleteRoll}
+            onUpdateRoll={handleUpdateRoll}
           />
         );
 
