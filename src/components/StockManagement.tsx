@@ -321,14 +321,23 @@ export default function StockManagement({
 
   // Aggregate workers for helper filter dropdown
   const uniqueWorkersInHistory = useMemo(() => {
+    if (currentUser.role === 'worker') {
+      return [currentUser.name];
+    }
     const workers = new Set<string>();
     entries.forEach((e) => workers.add(e.workerName));
     return Array.from(workers);
-  }, [entries]);
+  }, [entries, currentUser]);
 
   // Filter & search implementation
   const filteredEntries = useMemo(() => {
-    return [...entries].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).filter((e) => {
+    let source = [...entries];
+    if (currentUser.role === 'worker') {
+      source = source.filter(
+        (e) => e.workerName.toLowerCase().trim() === currentUser.name.toLowerCase().trim()
+      );
+    }
+    return source.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).filter((e) => {
       const matchModel = filterModel === 'ALL' || e.modelId === filterModel;
       const matchWorker = filterWorker === 'ALL' || e.workerName === filterWorker;
       const matchSearch = filterSearch === '' || 
@@ -336,7 +345,7 @@ export default function StockManagement({
         e.modelId.toLowerCase().includes(filterSearch.toLowerCase());
       return matchModel && matchWorker && matchSearch;
     });
-  }, [entries, filterModel, filterWorker, filterSearch]);
+  }, [entries, currentUser, filterModel, filterWorker, filterSearch]);
 
   // CSV download function for external record-keeping
   const downloadCSV = () => {
@@ -1112,7 +1121,7 @@ export default function StockManagement({
             </div>
 
             <div className="flex justify-between items-center text-xs text-slate-450 px-1 font-mono">
-              <span>Showing {filteredEntries.length} of {entries.length} records</span>
+              <span>Showing {filteredEntries.length} of {currentUser.role === 'worker' ? entries.filter(e => e.workerName.toLowerCase().trim() === currentUser.name.toLowerCase().trim()).length : entries.length} records</span>
               <span>Sorted by Recency</span>
             </div>
           </div>

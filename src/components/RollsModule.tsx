@@ -410,21 +410,31 @@ export default function RollsModule({
   };
 
   // Filter rolls based on status and search query
-  const filteredRolls = rolls.filter(r => {
-    let matchesTab = false;
-    if (subTab === 'unopened') {
-      matchesTab = r.status === 'Unopened';
-    } else if (subTab === 'active') {
-      matchesTab = r.status === 'Active';
-    } else {
-      matchesTab = r.status === 'Consumed';
-    }
-    const matchesSearch = 
-      r.materialName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (r.barcode || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (r.operator || '').toLowerCase().includes(searchQuery.toLowerCase());
-    return matchesTab && matchesSearch;
-  });
+  const filteredRolls = rolls
+    .filter(r => {
+      if (currentUser.role === 'worker') {
+        return (
+          (r.operator || '').toLowerCase().trim() === currentUser.name.toLowerCase().trim() ||
+          r.createdBy === currentUser.id
+        );
+      }
+      return true;
+    })
+    .filter(r => {
+      let matchesTab = false;
+      if (subTab === 'unopened') {
+        matchesTab = r.status === 'Unopened';
+      } else if (subTab === 'active') {
+        matchesTab = r.status === 'Active';
+      } else {
+        matchesTab = r.status === 'Consumed';
+      }
+      const matchesSearch = 
+        r.materialName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (r.barcode || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (r.operator || '').toLowerCase().includes(searchQuery.toLowerCase());
+      return matchesTab && matchesSearch;
+    });
 
   // Calculate category stocks (Unopened, Active, Spent)
   const categoryStats = MATERIAL_OPTIONS.map(material => {

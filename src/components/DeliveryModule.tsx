@@ -175,17 +175,29 @@ export default function DeliveryModule({
 
   // Aggregate operators/dispatchers for filter dropdown
   const uniqueDispatchers = useMemo(() => {
+    if (currentUser.role === 'worker') {
+      return [currentUser.name];
+    }
     const workers = new Set<string>();
     deliveries.forEach((d) => {
       const name = d.loadedBy || d.workerName;
       if (name) workers.add(name);
     });
     return Array.from(workers);
-  }, [deliveries]);
+  }, [deliveries, currentUser]);
 
   // Filter list of deliveries
   const filteredDeliveries = useMemo(() => {
-    return [...deliveries]
+    let source = [...deliveries];
+    if (currentUser.role === 'worker') {
+      source = source.filter(
+        (d) =>
+          (d.loadedBy || '').toLowerCase().trim() === currentUser.name.toLowerCase().trim() ||
+          (d.workerName || '').toLowerCase().trim() === currentUser.name.toLowerCase().trim() ||
+          (d.createdBy || '').toLowerCase().trim() === currentUser.name.toLowerCase().trim()
+      );
+    }
+    return source
       .sort((a, b) => {
         const timeA = a.createdAt || '';
         const timeB = b.createdAt || '';
@@ -206,7 +218,7 @@ export default function DeliveryModule({
           
         return matchModel && matchWorker && matchInvoice && matchDate && matchSearch;
       });
-  }, [deliveries, filterModel, filterWorker, filterInvoice, filterDate, filterSearch]);
+  }, [deliveries, currentUser, filterModel, filterWorker, filterInvoice, filterDate, filterSearch]);
 
   const totalDeliveredSum = useMemo(() => {
     return deliveries.reduce((s, d) => s + d.quantity, 0);
@@ -968,7 +980,7 @@ export default function DeliveryModule({
             </div>
 
             <div className="flex justify-between items-center text-xs text-slate-450 px-1 font-mono">
-              <span>Showing {filteredDeliveries.length} of {deliveries.length} delivery records</span>
+              <span>Showing {filteredDeliveries.length} of {currentUser.role === 'worker' ? deliveries.filter(d => (d.loadedBy || '').toLowerCase().trim() === currentUser.name.toLowerCase().trim() || (d.workerName || '').toLowerCase().trim() === currentUser.name.toLowerCase().trim() || (d.createdBy || '').toLowerCase().trim() === currentUser.name.toLowerCase().trim()).length : deliveries.length} delivery records</span>
               <span>Sorted by Dispatch Recency</span>
             </div>
           </div>
