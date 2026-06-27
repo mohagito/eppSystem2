@@ -409,10 +409,30 @@ export default function RollsModule({
     });
   };
 
+  // Helper for computing counts of visible rolls under each status
+  const visibleRollsCount = (status: 'Unopened' | 'Active' | 'Consumed') => {
+    return rolls.filter(r => {
+      if (currentUser.role === 'worker') {
+        if (r.status === 'Unopened') {
+          return r.status === status;
+        }
+        return (
+          r.status === status &&
+          ((r.operator || '').toLowerCase().trim() === currentUser.name.toLowerCase().trim() ||
+            r.createdBy === currentUser.id)
+        );
+      }
+      return r.status === status;
+    }).length;
+  };
+
   // Filter rolls based on status and search query
   const filteredRolls = rolls
     .filter(r => {
       if (currentUser.role === 'worker') {
+        if (r.status === 'Unopened') {
+          return true;
+        }
         return (
           (r.operator || '').toLowerCase().trim() === currentUser.name.toLowerCase().trim() ||
           r.createdBy === currentUser.id
@@ -717,7 +737,7 @@ export default function RollsModule({
               }`}
             >
               <Archive size={13} className={subTab === 'unopened' ? 'text-indigo-600' : ''} />
-              Unopened Stock ({rolls.filter(r => r.status === 'Unopened').length})
+              Unopened Stock ({visibleRollsCount('Unopened')})
             </button>
             <button
               onClick={() => setSubTab('active')}
@@ -728,7 +748,7 @@ export default function RollsModule({
               }`}
             >
               <CheckCircle2 size={13} className={subTab === 'active' ? 'text-indigo-600' : ''} />
-              Active ({rolls.filter(r => r.status === 'Active').length})
+              Active ({visibleRollsCount('Active')})
             </button>
             <button
               onClick={() => setSubTab('history')}
@@ -739,7 +759,7 @@ export default function RollsModule({
               }`}
             >
               <History size={13} className={subTab === 'history' ? 'text-indigo-600' : ''} />
-              Spent ({rolls.filter(r => r.status === 'Consumed').length})
+              Spent ({visibleRollsCount('Consumed')})
             </button>
           </div>
 
