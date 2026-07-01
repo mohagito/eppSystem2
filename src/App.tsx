@@ -909,6 +909,59 @@ export default function App() {
       });
   };
 
+  const handleUndoStockEntry = (id: string) => {
+    const entry = stockEntries.find((e) => e.id === id);
+    if (!entry) return;
+
+    if (!currentUser) return;
+    
+    // Safety check: a worker can only undo their own entry
+    if (currentUser.role === 'worker' && entry.workerName.toLowerCase().trim() !== currentUser.name.toLowerCase().trim()) {
+      addToast('Security Block: You are not authorized to undo this entry.', 'error');
+      return;
+    }
+
+    triggerCustomConfirm(
+      'Confirm Undo Action',
+      `Are you sure you want to undo your last entry of ${entry.quantity} units of ${entry.modelId}? This will remove the entry and subtract the progress from the plan.`,
+      () => {
+        deleteDoc(doc(db, 'stock_entries', id))
+          .then(() => {
+            addToast(`Successfully undone and removed ${entry.quantity} units of ${entry.modelId}.`, 'success');
+
+            // Subtraction logic for the plan progress
+            if (entry.planId) {
+              const plan = plans.find((p) => p.id === entry.planId);
+              if (plan) {
+                const currentCompleted = plan.quantityCompleted || 0;
+                const newCompleted = Math.max(0, currentCompleted - entry.quantity);
+                const isNowCompleted = newCompleted >= plan.quantityPlanned;
+                const newStatus = isNowCompleted ? 'Completed' : 'Pending';
+
+                updateDoc(doc(db, 'production_plans', entry.planId), {
+                  quantityCompleted: newCompleted,
+                  status: newStatus
+                }).catch((err) => {
+                  console.error('Failed to subtract progress from production plan:', err);
+                });
+              }
+            }
+
+            triggerNotification(
+              'Stock Entry Undone',
+              `Worker ${entry.workerName} undid their last stock entry of ${entry.quantity} units for model ${entry.modelId}.`,
+              'stock',
+              'all'
+            );
+          })
+          .catch((err) => {
+            handleFirestoreError(err, OperationType.DELETE, `stock_entries/${id}`);
+            addToast('Failed to undo stock entry from Cloud Database.', 'error');
+          });
+      }
+    );
+  };
+
   const handleDeleteStockEntry = (id: string) => {
     if (!currentUser || currentUser.role !== 'manager') {
       addToast('Security Block: Only managers are authorized to delete stock entries.', 'error');
@@ -1400,6 +1453,7 @@ export default function App() {
             onUpdatePlanStatus={handleUpdatePlanStatus}
             onUpdatePlanProgress={handleUpdatePlanProgress}
             onAddStockEntry={handleAddStockEntry}
+            onUndoStockEntry={handleUndoStockEntry}
           />
         );
 
@@ -1414,6 +1468,7 @@ export default function App() {
             onAddEntry={handleAddStockEntry}
             onDeleteEntry={handleDeleteStockEntry}
             onEditEntry={handleEditStockEntry}
+            onUndoEntry={handleUndoStockEntry}
           />
         );
 

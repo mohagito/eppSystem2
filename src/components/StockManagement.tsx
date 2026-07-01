@@ -19,7 +19,8 @@ import {
   Pencil,
   Plus,
   Cpu,
-  Download
+  Download,
+  Undo
 } from 'lucide-react';
 
 interface StockProps {
@@ -31,6 +32,7 @@ interface StockProps {
   onAddEntry: (entry: Omit<StockEntry, 'id' | 'createdAt'>) => void;
   onDeleteEntry?: (id: string) => void;
   onEditEntry?: (id: string, updatedEntry: Partial<StockEntry>) => void;
+  onUndoEntry?: (id: string) => void;
 }
 
 export default function StockManagement({
@@ -41,7 +43,8 @@ export default function StockManagement({
   profiles = [],
   onAddEntry,
   onDeleteEntry,
-  onEditEntry
+  onEditEntry,
+  onUndoEntry
 }: StockProps) {
   // Input fields state
   const getLocalDateStr = () => {
@@ -968,8 +971,8 @@ export default function StockManagement({
                       <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase hidden sm:table-cell">Assembled By</th>
                       <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase hidden sm:table-cell">Date</th>
                       <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase text-right">Quantity</th>
-                      {currentUser.role === 'manager' && (
-                        <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase text-center w-12">Actions</th>
+                      {(currentUser.role === 'manager' || currentUser.role === 'worker') && (
+                        <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase text-center w-24">Actions</th>
                       )}
                     </tr>
                   </thead>
@@ -977,12 +980,12 @@ export default function StockManagement({
                     <AnimatePresence initial={false}>
                       {filteredEntries.length === 0 ? (
                         <tr>
-                          <td colSpan={currentUser.role === 'manager' ? 5 : 4} className="p-8 text-center text-xs text-slate-500">
+                          <td colSpan={currentUser.role === 'manager' || currentUser.role === 'worker' ? 5 : 4} className="p-8 text-center text-xs text-slate-500">
                             No stock registrations match your selected filter criteria.
                           </td>
                         </tr>
                       ) : (
-                        filteredEntries.map((e) => (
+                        filteredEntries.map((e, index) => (
                           <React.Fragment key={e.id}>
                             <motion.tr
                               key={e.id}
@@ -1042,25 +1045,40 @@ export default function StockManagement({
                               <td className={`p-4 text-xs font-extrabold text-right font-mono select-all ${e.quantity < 0 ? 'text-rose-605 bg-rose-50/20 border-r-2 border-rose-500 pr-3.5' : 'text-emerald-600'}`}>
                                 {e.quantity > 0 ? `+${e.quantity}` : e.quantity} pcs
                               </td>
-                              {currentUser.role === 'manager' && (
+                              {(currentUser.role === 'manager' || currentUser.role === 'worker') && (
                                 <td className="p-4 text-center">
                                   <div className="flex items-center justify-center gap-1.5">
-                                    <button
-                                      onClick={() => handleStartEdit(e)}
-                                      className="text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 p-2 rounded-lg transition-colors cursor-pointer"
-                                      title="Edit stock entry"
-                                      id={`edit-entry-${e.id}`}
-                                    >
-                                      <Pencil size={13.5} />
-                                    </button>
-                                    <button
-                                      onClick={() => onDeleteEntry?.(e.id)}
-                                      className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-2 rounded-lg transition-colors cursor-pointer"
-                                      title="Delete stock entry"
-                                      id={`delete-entry-${e.id}`}
-                                    >
-                                      <Trash2 size={13.5} />
-                                    </button>
+                                    {currentUser.role === 'manager' ? (
+                                      <>
+                                        <button
+                                          onClick={() => handleStartEdit(e)}
+                                          className="text-slate-400 hover:text-emerald-700 hover:bg-emerald-50 p-2 rounded-lg transition-colors cursor-pointer"
+                                          title="Edit stock entry"
+                                          id={`edit-entry-${e.id}`}
+                                        >
+                                          <Pencil size={13.5} />
+                                        </button>
+                                        <button
+                                          onClick={() => onDeleteEntry?.(e.id)}
+                                          className="text-slate-400 hover:text-rose-600 hover:bg-rose-50 p-2 rounded-lg transition-colors cursor-pointer"
+                                          title="Delete stock entry"
+                                          id={`delete-entry-${e.id}`}
+                                        >
+                                          <Trash2 size={13.5} />
+                                        </button>
+                                      </>
+                                    ) : (
+                                      index === 0 && onUndoEntry && (
+                                        <button
+                                          onClick={() => onUndoEntry(e.id)}
+                                          className="text-rose-600 hover:bg-rose-50 p-2 border border-rose-100 hover:border-rose-200 rounded-lg transition-all duration-200 cursor-pointer shadow-3xs group"
+                                          title="Undo/Delete your last entry"
+                                          id={`undo-entry-btn-ledger-${e.id}`}
+                                        >
+                                          <Trash2 size={13.5} className="transition-transform group-hover:scale-110 group-hover:rotate-6" />
+                                        </button>
+                                      )
+                                    )}
                                   </div>
                                 </td>
                               )}

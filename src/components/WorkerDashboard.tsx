@@ -8,7 +8,9 @@ import {
   Boxes,
   ArrowRight,
   Check,
-  CheckSquare
+  CheckSquare,
+  Undo,
+  Trash2
 } from 'lucide-react';
 import {
   getPlanActualProduced,
@@ -26,6 +28,7 @@ interface WorkerProps {
   onUpdatePlanStatus?: (id: string, status: 'Pending' | 'Completed' | 'Delayed') => void;
   onUpdatePlanProgress?: (id: string, additionalQuantity: number) => void;
   onAddStockEntry?: (entry: Omit<StockEntry, 'id' | 'createdAt'>) => void;
+  onUndoStockEntry?: (id: string) => void;
 }
 
 export default function WorkerDashboard({
@@ -35,7 +38,8 @@ export default function WorkerDashboard({
   onNavigate,
   onUpdatePlanStatus,
   onUpdatePlanProgress,
-  onAddStockEntry
+  onAddStockEntry,
+  onUndoStockEntry
 }: WorkerProps) {
   const [filterType, setFilterType] = useState<'my' | 'all'>('my');
   const [progressInputs, setProgressInputs] = useState<Record<string, string>>({});
@@ -472,9 +476,21 @@ export default function WorkerDashboard({
                       })}
                     </div>
                   </div>
-                  <div className="text-right">
-                    <div className="text-xs font-extrabold text-emerald-600 font-mono">+{e.quantity} pcs</div>
-                    <div className="text-[9px] text-slate-450 font-semibold font-sans">Bay Registered</div>
+                  <div className="text-right flex items-center gap-3">
+                    <div className="text-right">
+                      <div className="text-xs font-extrabold text-emerald-600 font-mono">+{e.quantity} pcs</div>
+                      <div className="text-[9px] text-slate-450 font-semibold font-sans">Bay Registered</div>
+                    </div>
+                    {index === 0 && onUndoStockEntry && (
+                      <button
+                        onClick={() => onUndoStockEntry(e.id)}
+                        className="p-2 hover:bg-rose-50 text-rose-600 border border-rose-100 hover:border-rose-200 rounded-lg transition-all duration-200 cursor-pointer shadow-3xs group shrink-0"
+                        title="Undo/Delete this last entry"
+                        id={`undo-entry-btn-${e.id}`}
+                      >
+                        <Trash2 size={13.5} className="transition-transform group-hover:scale-110 group-hover:rotate-6" />
+                      </button>
+                    )}
                   </div>
                 </div>
               ))}
