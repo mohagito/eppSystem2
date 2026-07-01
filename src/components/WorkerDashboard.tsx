@@ -202,6 +202,29 @@ export default function WorkerDashboard({
     });
   };
 
+  const getGreeting = () => {
+    const now = new Date();
+    const hours = now.getHours();
+    const minutes = now.getMinutes();
+    const totalMinutes = hours * 60 + minutes;
+
+    const morningStart = 7 * 60 + 30; // 07:30 is 450 minutes
+    const morningEnd = 15 * 60 + 45;   // 15:45 is 945 minutes
+    const eveningEnd = 23 * 60 + 45;   // 23:45 is 1425 minutes
+
+    if (totalMinutes >= morningStart && totalMinutes < morningEnd) {
+      return 'Bonjour';
+    } else if (totalMinutes >= morningEnd && totalMinutes < eveningEnd) {
+      return 'Bonsoir';
+    } else {
+      // Outside of morning and evening shifts (night hours from 23:45 to 07:30)
+      if (hours >= 0 && hours < 6) {
+        return 'Bonsoir';
+      }
+      return 'Bonjour';
+    }
+  };
+
   return (
     <div className="space-y-8" id="worker-dashboard-view">
       {/* GREETING CARD */}
@@ -215,7 +238,7 @@ export default function WorkerDashboard({
               Operator Station
             </div>
             <h2 className="text-xl md:text-2xl font-bold font-sans text-slate-900 tracking-tight">
-              Bonjour, {currentUser.name.split(' ')[0]}!
+              {getGreeting()}, {currentUser.name.split(' ')[0]}!
             </h2>
           </div>
         </div>
