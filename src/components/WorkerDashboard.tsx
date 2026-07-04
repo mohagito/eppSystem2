@@ -10,7 +10,10 @@ import {
   Check,
   CheckSquare,
   Undo,
-  Trash2
+  Trash2,
+  ChevronLeft,
+  ChevronRight,
+  Calendar
 } from 'lucide-react';
 import {
   getPlanActualProduced,
@@ -31,6 +34,39 @@ interface WorkerProps {
   onUndoStockEntry?: (id: string) => void;
 }
 
+function getISOWeekDetails(dateStr: string) {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return { year: 2026, weekNum: 1, label: 'Week 01', key: '2026-W01' };
+
+  // Get Monday of that week
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday
+  const monday = new Date(d.getFullYear(), d.getMonth(), diff);
+  
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  // Get ISO week number
+  const target = new Date(d.valueOf());
+  const dayNr = (d.getDay() + 6) % 7;
+  target.setDate(target.getDate() - dayNr + 3);
+  const firstThursday = target.valueOf();
+  target.setMonth(0, 4);
+  const dev = (target.getDay() + 6) % 7;
+  target.setDate(4 - dev);
+  const weekNum = Math.round((firstThursday - target.valueOf()) / 604800000) + 1;
+  const year = new Date(firstThursday).getFullYear();
+
+  const formatShortDate = (date: Date) => {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const label = `Week ${weekNum} (${formatShortDate(monday)} - ${formatShortDate(sunday)})`;
+  const key = `${year}-W${String(weekNum).padStart(2, '0')}`;
+
+  return { year, weekNum, label, key, monday, sunday };
+}
+
 export default function WorkerDashboard({
   currentUser,
   entries,
@@ -43,6 +79,7 @@ export default function WorkerDashboard({
 }: WorkerProps) {
   const [filterType, setFilterType] = useState<'my' | 'all'>('my');
   const [progressInputs, setProgressInputs] = useState<Record<string, string>>({});
+  const [selectedWeekKey, setSelectedWeekKey] = useState<string | null>(null);
 
   // 1. Get recent stock entries submitted by this specific worker
   const workerEntries = useMemo(() => {
@@ -115,6 +152,86 @@ export default function WorkerDashboard({
       return timeA - timeB;
     });
   }, [filterType, myPlans, plans]);
+
+  // Find the current week's key based on today's date
+  const currentWeekKey = useMemo(() => {
+    const todayStr = (() => {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    })();
+    return getISOWeekDetails(todayStr).key;
+  }, []);
+
+  // Group filteredPlans by week
+  const plansByWeek = useMemo(() => {
+    const groups: Record<string, { label: string; plans: ProductionPlan[]; sortKey: string }> = {};
+    
+    // Always guarantee that the current week is present as a selectable week option
+    const todayStr = (() => {
+      const d = new Date();
+      const yyyy = d.getFullYear();
+      const mm = String(d.getMonth() + 1).padStart(2, '0');
+      const dd = String(d.getDate()).padStart(2, '0');
+      return `${yyyy}-${mm}-${dd}`;
+    })();
+    const currentWeek = getISOWeekDetails(todayStr);
+    groups[currentWeek.key] = {
+      label: `${currentWeek.label} (Current)`,
+      plans: [],
+      sortKey: currentWeek.key
+    };
+
+    filteredPlans.forEach((plan) => {
+      const { label, key } = getISOWeekDetails(plan.planDate);
+      if (!groups[key]) {
+        groups[key] = { label, plans: [], sortKey: key };
+      }
+      groups[key].plans.push(plan);
+    });
+
+    return groups;
+  }, [filteredPlans]);
+
+  // Get sorted list of unique weeks with plans
+  const availableWeeks = useMemo(() => {
+    const list = Object.values(plansByWeek) as { label: string; plans: ProductionPlan[]; sortKey: string }[];
+    return list.sort((a, b) => b.sortKey.localeCompare(a.sortKey)); // Show most recent weeks first
+  }, [plansByWeek]);
+
+  // Determine which week key is active
+  const activeWeekKey = useMemo(() => {
+    if (selectedWeekKey && plansByWeek[selectedWeekKey]) {
+      return selectedWeekKey;
+    }
+    return currentWeekKey;
+  }, [selectedWeekKey, plansByWeek, currentWeekKey]);
+
+  // Find the index of activeWeekKey in availableWeeks
+  const activeWeekIndex = useMemo(() => {
+    if (!activeWeekKey) return -1;
+    return availableWeeks.findIndex((w) => w.sortKey === activeWeekKey);
+  }, [availableWeeks, activeWeekKey]);
+
+  const handlePrevWeek = () => {
+    if (activeWeekIndex < availableWeeks.length - 1) {
+      setSelectedWeekKey(availableWeeks[activeWeekIndex + 1].sortKey);
+    }
+  };
+
+  const handleNextWeek = () => {
+    if (activeWeekIndex > 0) {
+      setSelectedWeekKey(availableWeeks[activeWeekIndex - 1].sortKey);
+    }
+  };
+
+  // Get active week plans to render
+  const activeWeekPlans = useMemo(() => {
+    if (!activeWeekKey || !plansByWeek[activeWeekKey]) return [];
+    return plansByWeek[activeWeekKey].plans;
+  }, [activeWeekKey, plansByWeek]);
 
   const handleLogProgress = (plan: ProductionPlan, val: string) => {
     const amt = parseInt(val, 10);
@@ -298,8 +415,63 @@ export default function WorkerDashboard({
             }
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-            {filteredPlans.map((plan) => {
+          <div className="space-y-6">
+            {/* WEEK NAVIGATION BAR */}
+            {availableWeeks.length > 1 && (
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-4 bg-slate-50 border border-slate-200 rounded-xl">
+                <div className="flex items-center gap-2 text-slate-700">
+                  <Calendar size={16} className="text-emerald-600" />
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-500">Planning Week:</span>
+                  <span className="text-xs font-extrabold text-slate-900 font-sans">
+                    {plansByWeek[activeWeekKey!]?.label}
+                  </span>
+                </div>
+                
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handlePrevWeek}
+                    disabled={activeWeekIndex === availableWeeks.length - 1}
+                    className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-3xs cursor-pointer flex items-center justify-center"
+                    title="Previous Planning Week"
+                  >
+                    <ChevronLeft size={16} />
+                  </button>
+                  
+                  <select
+                    value={activeWeekKey || ''}
+                    onChange={(e) => setSelectedWeekKey(e.target.value)}
+                    className="text-xs font-bold text-slate-800 bg-white border border-slate-200 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer shadow-3xs"
+                  >
+                    {availableWeeks.map((w) => (
+                      <option key={w.sortKey} value={w.sortKey}>
+                        {w.label}
+                      </option>
+                    ))}
+                  </select>
+
+                  <button
+                    onClick={handleNextWeek}
+                    disabled={activeWeekIndex === 0}
+                    className="p-1.5 rounded-lg border border-slate-200 bg-white text-slate-600 hover:bg-slate-50 disabled:opacity-40 disabled:cursor-not-allowed transition-all shadow-3xs cursor-pointer flex items-center justify-center"
+                    title="Next Planning Week"
+                  >
+                    <ChevronRight size={16} />
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {activeWeekPlans.length === 0 ? (
+              <div className="py-12 px-6 text-center text-xs text-slate-500 font-semibold bg-slate-50/50 border border-dashed border-slate-200 rounded-xl space-y-2 flex flex-col items-center justify-center">
+                <Calendar size={28} className="text-slate-350 stroke-[1.5]" />
+                <p>No production plans scheduled for this week.</p>
+                <p className="text-[10px] font-medium text-slate-400 max-w-sm">
+                  Use the navigation buttons or the week selector above to view and log tasks for other planning weeks.
+                </p>
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {activeWeekPlans.map((plan) => {
               const actualQty = getPlanActualProduced(plan, entries, plans);
               const isComp = actualQty >= plan.quantityPlanned;
               const resolvedStatus = isComp 
@@ -459,6 +631,8 @@ export default function WorkerDashboard({
                 </div>
               );
             })}
+              </div>
+            )}
           </div>
         )}
       </div>

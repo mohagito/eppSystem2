@@ -1612,30 +1612,10 @@ export default function App() {
                 
                 {/* EMAIL / OR SIGN UP INTERFACES */}
                 <div className="bg-white border border-slate-200 shadow-xs p-6 rounded-2xl space-y-4" id="credential-form-shell">
-                  <div className="flex justify-between items-center pb-2 border-b border-slate-200">
-                    <button
-                      onClick={() => { setSignUpMode(false); setAuthError(''); }}
-                      className={`text-xs font-bold uppercase tracking-wider pb-1.5 border-b-2 transition-all cursor-pointer ${
-                        !signUpMode 
-                          ? 'border-emerald-600 text-slate-900' 
-                          : 'border-transparent text-slate-450 hover:text-slate-800'
-                      }`}
-                      id="toggle-sign-in"
-                    >
+                  <div className="text-center pb-2 border-b border-slate-200">
+                    <span className="text-xs font-extrabold uppercase tracking-widest text-slate-900 font-sans">
                       Authenticate User
-                    </button>
-                    
-                    <button
-                      onClick={() => { setSignUpMode(true); setAuthError(''); }}
-                      className={`text-xs font-bold uppercase tracking-wider pb-1.5 border-b-2 transition-all cursor-pointer ${
-                        signUpMode 
-                          ? 'border-emerald-600 text-slate-900' 
-                          : 'border-transparent text-slate-450 hover:text-slate-800'
-                      }`}
-                      id="toggle-sign-up"
-                    >
-                      Join Roster
-                    </button>
+                    </span>
                   </div>
 
                   {authError && (
