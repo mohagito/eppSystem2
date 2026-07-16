@@ -728,7 +728,7 @@ export default function StockManagement({
               >
                 <div>
                   <div className="flex items-center justify-between mb-4">
-                    <div className="flex items-center gap-2.5 min-w-0">
+                    <div className="flex items-center gap-2.5 min-w-0 w-full">
                       <div className={`p-2 border rounded-xl shrink-0 ${
                         isCaddy 
                           ? 'bg-rose-100/50 border-rose-200 text-rose-600' 
@@ -748,16 +748,6 @@ export default function StockManagement({
                           </span>
                         )}
                       </div>
-                    </div>
-                    <div 
-                      className={`text-[11px] font-mono font-bold px-3 py-1 rounded-full border whitespace-nowrap shrink-0 ${
-                        isCaddy 
-                          ? 'bg-rose-50 text-rose-700 border-rose-100' 
-                          : 'bg-slate-100 text-slate-500 border-slate-200/60'
-                      }`} 
-                      title={`Standard package size: ${PACKAGING_SIZES[model] || 250} pcs`}
-                    >
-                      Pkg: {PACKAGING_SIZES[model] || 250}
                     </div>
                   </div>
 
