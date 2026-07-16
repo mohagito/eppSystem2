@@ -9,7 +9,6 @@ import {
   Calendar,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
   Layers,
   CheckCircle,
   HelpCircle,

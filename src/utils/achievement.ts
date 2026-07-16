@@ -5,8 +5,12 @@ import { ProductionPlan, StockEntry } from '../types';
  * by summarizing matching stock entries in the log database.
  */
 export function getPlanActualProduced(plan: ProductionPlan, stockEntries: StockEntry[], allPlans?: ProductionPlan[]): number {
-  // 1. Get all entries that match basic info (date, model, and worker)
+  // 1. Get all entries that match basic info (date, model, and worker) and are production-related
   const matchingEntries = stockEntries.filter((e) => {
+    // Only count production entries or legacy untyped entries
+    const isProductionType = e.type === 'production' || e.type === undefined;
+    if (!isProductionType) return false;
+
     const dateMatch = e.date === plan.planDate;
     const modelMatch = e.modelId === plan.model;
     const exactWorkerMatch = e.workerName.toLowerCase() === plan.assignedWorker.toLowerCase();

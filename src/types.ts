@@ -11,7 +11,7 @@ export interface UserProfile {
   station?: string;
 }
 
-export type AirbagModel = 'BCB' | 'CRAFTER' | 'CADDY' | 'KUGA LHD' | 'KUGA RHD' | 'TETOUAN' | 'SK216' | 'VW217' | 'VW110';
+export type AirbagModel = 'BCB' | 'CRAFTER' | 'CADDY' | 'KUGA LHD' | 'KUGA RHD' | 'TETOUAN' | 'SK216' | 'VW217';
 
 export interface StockEntry {
   id: string;
@@ -23,6 +23,7 @@ export interface StockEntry {
   createdAt: string; // ISO string
   machine?: MachineType; // Optional: target machine context
   planId?: string;       // Optional: directly associated production plan ID
+  type?: 'production' | 'packaging'; // production = manufactured pieces, packaging = packaged pieces
   
   // Correction System Fields
   originalQuantity?: number;

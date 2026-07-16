@@ -13,7 +13,8 @@ export default defineConfig(() => {
         registerType: 'autoUpdate',
         injectRegister: 'inline',
         workbox: {
-          globPatterns: ['**/*.{js,css,html,svg,ico,png,webp}']
+          globPatterns: ['**/*.{js,css,html,svg,ico,png,webp}'],
+          maximumFileSizeToCacheInBytes: 4000000
         },
         manifest: {
           name: 'EPP Airbag MES',

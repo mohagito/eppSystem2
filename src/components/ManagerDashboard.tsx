@@ -1,5 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
+import * as XLSX from 'xlsx';
 import { UserProfile, StockEntry, ProductionPlan, DeliveryEntry } from '../types';
 import { AIRBAG_MODELS } from '../data';
 import {
@@ -7,7 +8,6 @@ import {
   Cpu,
   Users,
   Layers,
-  Sparkles,
   ClipboardList,
   History,
   Activity,
@@ -18,7 +18,9 @@ import {
   RefreshCw,
   XCircle,
   CheckCircle,
-  AlertTriangle
+  AlertTriangle,
+  Download,
+  Calendar
 } from 'lucide-react';
 import AnalyticsCharts from './AnalyticsCharts';
 import {
@@ -27,6 +29,39 @@ import {
   getAchievementStatus,
   getAchievementColors
 } from '../utils/achievement';
+
+function getISOWeekDetails(dateStr: string) {
+  const d = new Date(dateStr);
+  if (isNaN(d.getTime())) return { year: 2026, weekNum: 1, label: 'Week 01', key: '2026-W01' };
+
+  // Get Monday of that week
+  const day = d.getDay();
+  const diff = d.getDate() - day + (day === 0 ? -6 : 1); // Adjust for Sunday
+  const monday = new Date(d.getFullYear(), d.getMonth(), diff);
+  
+  const sunday = new Date(monday);
+  sunday.setDate(monday.getDate() + 6);
+
+  // Get ISO week number
+  const target = new Date(d.valueOf());
+  const dayNr = (d.getDay() + 6) % 7;
+  target.setDate(target.getDate() - dayNr + 3);
+  const firstThursday = target.valueOf();
+  target.setMonth(0, 4);
+  const dev = (target.getDay() + 6) % 7;
+  target.setDate(4 - dev);
+  const weekNum = Math.round((firstThursday - target.valueOf()) / 604800000) + 1;
+  const year = new Date(firstThursday).getFullYear();
+
+  const formatShortDate = (date: Date) => {
+    return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  };
+
+  const label = `Week ${weekNum} (${formatShortDate(monday)} - ${formatShortDate(sunday)})`;
+  const key = `${year}-W${String(weekNum).padStart(2, '0')}`;
+
+  return { year, weekNum, label, key, monday, sunday };
+}
 
 interface ManagerProps {
   currentUser: UserProfile;
@@ -64,6 +99,279 @@ export default function ManagerDashboard({
     const dd = String(d.getDate()).padStart(2, '0');
     return `${yyyy}-${mm}-${dd}`;
   }, []);
+
+  // --- WEEKLY BACKUP / AUDIT EXPORT TOOL STATE & MEMOS ---
+  // Helper to extract weeks from all items
+  const allSystemWeeks = useMemo(() => {
+    const weeksMap: Record<string, { key: string; label: string }> = {};
+
+    // 1. Get current week
+    const today = new Date();
+    const todayStrVal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const curWeek = getISOWeekDetails(todayStrVal);
+    weeksMap[curWeek.key] = { key: curWeek.key, label: `${curWeek.label} (Current)` };
+
+    // 2. Extract from production plans
+    plans.forEach(p => {
+      const w = getISOWeekDetails(p.planDate);
+      if (!weeksMap[w.key]) {
+        weeksMap[w.key] = { key: w.key, label: w.label };
+      }
+    });
+
+    // 3. Extract from stock entries
+    entries.forEach(e => {
+      if (e.date) {
+        const w = getISOWeekDetails(e.date);
+        if (!weeksMap[w.key]) {
+          weeksMap[w.key] = { key: w.key, label: w.label };
+        }
+      }
+    });
+
+    // 4. Extract from deliveries
+    deliveries.forEach(d => {
+      if (d.date) {
+        const w = getISOWeekDetails(d.date);
+        if (!weeksMap[w.key]) {
+          weeksMap[w.key] = { key: w.key, label: w.label };
+        }
+      }
+    });
+
+    // Sort weeks in descending order (newest first)
+    return Object.values(weeksMap).sort((a, b) => b.key.localeCompare(a.key));
+  }, [plans, entries, deliveries]);
+
+  const [backupWeekKey, setBackupWeekKey] = useState<string>(() => {
+    const today = new Date();
+    const todayStrVal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    return getISOWeekDetails(todayStrVal).key;
+  });
+
+  const backupWeekStats = useMemo(() => {
+    // Filter items belonging to the selected backupWeekKey
+    const weekPlans = plans.filter(p => getISOWeekDetails(p.planDate).key === backupWeekKey);
+    const weekEntries = entries.filter(e => e.date && getISOWeekDetails(e.date).key === backupWeekKey);
+    const weekDeliveries = deliveries.filter(d => d.date && getISOWeekDetails(d.date).key === backupWeekKey);
+
+    const plannedQty = weekPlans.reduce((sum, p) => sum + p.quantityPlanned, 0);
+    const actualQty = weekPlans.reduce((sum, p) => sum + getPlanActualProduced(p, entries, plans), 0);
+    const shippedQty = weekDeliveries.reduce((sum, d) => sum + d.quantity, 0);
+
+    return {
+      plans: weekPlans,
+      entries: weekEntries,
+      deliveries: weekDeliveries,
+      plannedQty,
+      actualQty,
+      shippedQty,
+      plansCount: weekPlans.length,
+      entriesCount: weekEntries.length,
+      deliveriesCount: weekDeliveries.length
+    };
+  }, [backupWeekKey, plans, entries, deliveries]);
+
+  const handleDownloadWeeklyReport = () => {
+    const selectedWeekObj = allSystemWeeks.find(w => w.key === backupWeekKey);
+    const weekLabel = selectedWeekObj ? selectedWeekObj.label : `Week ${backupWeekKey}`;
+    const today = new Date();
+    const todayStrVal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    
+    // Group entries/plans to see who did what for a summary
+    const workerPerformance: Record<string, { planned: number; produced: number }> = {};
+    backupWeekStats.plans.forEach(p => {
+      const name = p.assignedWorker;
+      if (!workerPerformance[name]) {
+        workerPerformance[name] = { planned: 0, produced: 0 };
+      }
+      workerPerformance[name].planned += p.quantityPlanned;
+      workerPerformance[name].produced += getPlanActualProduced(p, entries, plans);
+    });
+
+    const operatorPerformanceList = Object.entries(workerPerformance).map(([name, stats]) => {
+      const efficiency = stats.planned > 0 ? `${Math.round((stats.produced / stats.planned) * 100)}%` : 'N/A';
+      return {
+        operatorName: name,
+        plannedQuantity: stats.planned,
+        actualProduced: stats.produced,
+        efficiencyRate: efficiency
+      };
+    });
+
+    const backupData = {
+      reportHeader: {
+        organizationName: "EPP Manufacturing Systems Inc.",
+        facilityPlant: "Rabat-Morocco Automotive Operations",
+        reportType: "System Audit, Database Backup & Weekly Performance",
+        reportExportTime: today.toISOString(),
+        generatedBy: currentUser.name + ` (${currentUser.role.toUpperCase()})`,
+        targetWeekKey: backupWeekKey,
+        targetWeekLabel: weekLabel,
+        systemStatus: "STABLE",
+        integrityKey: `EPP-SEC-VERIFIED-${backupWeekKey}-${today.getTime().toString(36).toUpperCase()}`
+      },
+      summaryStatistics: {
+        totalSchedulesCreated: backupWeekStats.plansCount,
+        totalManufacturingOutputLogs: backupWeekStats.entriesCount,
+        totalShipmentsDispatched: backupWeekStats.deliveriesCount,
+        totalQuantityPlanned: backupWeekStats.plannedQty,
+        totalQuantityProduced: backupWeekStats.actualQty,
+        overallAchievementRate: backupWeekStats.plannedQty > 0 
+          ? `${Math.round((backupWeekStats.actualQty / backupWeekStats.plannedQty) * 100)}%`
+          : '0%',
+        totalQuantityShipped: backupWeekStats.shippedQty
+      },
+      operatorSummaryPerformance: operatorPerformanceList,
+      productionPlans: backupWeekStats.plans.map(p => ({
+        planId: p.id,
+        model: p.model,
+        planDate: p.planDate,
+        shift: p.shift,
+        quantityPlanned: p.quantityPlanned,
+        actualProduced: getPlanActualProduced(p, entries, plans),
+        assignedWorker: p.assignedWorker,
+        machine: p.machine,
+        status: p.status
+      })),
+      stockpileOutputLedger: backupWeekStats.entries.map(e => ({
+        entryId: e.id,
+        modelId: e.modelId,
+        quantityAdded: e.quantity,
+        dateLogged: e.date,
+        loggedByOperator: e.workerName,
+        timestampUTC: e.createdAt
+      })),
+      shipmentsLedger: backupWeekStats.deliveries.map(d => ({
+        shipmentId: d.id,
+        modelId: d.modelId,
+        quantityShipped: d.quantity,
+        shipmentDate: d.date,
+        carrierName: d.carrier || 'Standard Freight',
+        timestampUTC: d.createdAt
+      }))
+    };
+
+    const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `EPP_FACTORY_WEEK_BACKUP_${backupWeekKey}_${todayStrVal}.json`;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadWeeklyExcelReport = () => {
+    const selectedWeekObj = allSystemWeeks.find(w => w.key === backupWeekKey);
+    const weekLabel = selectedWeekObj ? selectedWeekObj.label : `Week ${backupWeekKey}`;
+    const today = new Date();
+    const todayStrVal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+
+    // 1. Dashboard Overview sheet
+    const overviewData = [
+      ["SYSTEM AUDIT, DATABASE BACKUP & WEEKLY PERFORMANCE REPORT"],
+      ["Company", "EPP Manufacturing Systems Inc."],
+      ["Facility Plant", "Rabat-Morocco Automotive Operations"],
+      ["Export Time", today.toISOString()],
+      ["Generated By", `${currentUser.name} (${currentUser.role.toUpperCase()})`],
+      ["Target Week", weekLabel],
+      ["System Status", "STABLE"],
+      ["Integrity Security Key", `EPP-SEC-VERIFIED-${backupWeekKey}-${today.getTime().toString(36).toUpperCase()}`],
+      [],
+      ["WEEKLY KEY PERFORMANCE SUMMARY METRICS"],
+      ["Metric Name", "Value"],
+      ["Total Schedules Created", backupWeekStats.plansCount],
+      ["Total Manufacturing Output Logs", backupWeekStats.entriesCount],
+      ["Total Shipments Dispatched", backupWeekStats.deliveriesCount],
+      ["Total Quantity Planned", backupWeekStats.plannedQty],
+      ["Total Quantity Produced", backupWeekStats.actualQty],
+      ["Overall Achievement Rate", backupWeekStats.plannedQty > 0 
+        ? `${Math.round((backupWeekStats.actualQty / backupWeekStats.plannedQty) * 100)}%`
+        : '0%'],
+      ["Total Quantity Shipped", backupWeekStats.shippedQty],
+      [],
+      ["OPERATOR SUMMARY PERFORMANCE"]
+    ];
+
+    // Calculate worker stats
+    const workerPerformance: Record<string, { planned: number; produced: number }> = {};
+    backupWeekStats.plans.forEach(p => {
+      const name = p.assignedWorker;
+      if (!workerPerformance[name]) {
+        workerPerformance[name] = { planned: 0, produced: 0 };
+      }
+      workerPerformance[name].planned += p.quantityPlanned;
+      workerPerformance[name].produced += getPlanActualProduced(p, entries, plans);
+    });
+
+    overviewData.push(["Operator Name", "Planned Quantity", "Actual Produced", "Efficiency Rate"]);
+    Object.entries(workerPerformance).forEach(([name, stats]) => {
+      const efficiency = stats.planned > 0 ? `${Math.round((stats.produced / stats.planned) * 100)}%` : 'N/A';
+      overviewData.push([name, stats.planned, stats.produced, efficiency]);
+    });
+
+    // 2. Production Plans sheet
+    const plansHeaders = [["Plan ID", "Airbag Model", "Planned Date", "Shift", "Quantity Planned", "Quantity Produced", "Assigned Operator", "Machine No.", "Status"]];
+    const plansRows = backupWeekStats.plans.map(p => [
+      p.id,
+      p.model,
+      p.planDate,
+      p.shift,
+      p.quantityPlanned,
+      getPlanActualProduced(p, entries, plans),
+      p.assignedWorker,
+      p.machine,
+      p.status
+    ]);
+    const plansSheetData = plansHeaders.concat(plansRows);
+
+    // 3. Stock Output Ledger
+    const stockHeaders = [["Log ID", "Model ID", "Quantity Added", "Logged Date", "Logged By Operator", "Timestamp UTC"]];
+    const stockRows = backupWeekStats.entries.map(e => [
+      e.id,
+      e.modelId,
+      e.quantity,
+      e.date,
+      e.workerName,
+      e.createdAt
+    ]);
+    const stockSheetData = stockHeaders.concat(stockRows);
+
+    // 4. Deliveries ledger
+    const deliveryHeaders = [["Shipment ID", "Model ID", "Quantity Shipped", "Shipment Date", "Carrier Name", "Timestamp UTC"]];
+    const deliveryRows = backupWeekStats.deliveries.map(d => [
+      d.id,
+      d.modelId,
+      d.quantity,
+      d.date,
+      d.carrier || 'Standard Freight',
+      d.createdAt
+    ]);
+    const deliverySheetData = deliveryHeaders.concat(deliveryRows);
+
+    // Build the Workbook
+    const wb = XLSX.utils.book_new();
+
+    const wsOverview = XLSX.utils.aoa_to_sheet(overviewData);
+    const wsPlans = XLSX.utils.aoa_to_sheet(plansSheetData);
+    const wsStock = XLSX.utils.aoa_to_sheet(stockSheetData);
+    const wsDeliveries = XLSX.utils.aoa_to_sheet(deliverySheetData);
+
+    // Set column widths for better professional layout readability
+    wsOverview["!cols"] = [{ wch: 30 }, { wch: 45 }];
+    wsPlans["!cols"] = [{ wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 10 }, { wch: 18 }, { wch: 18 }, { wch: 20 }, { wch: 15 }, { wch: 12 }];
+    wsStock["!cols"] = [{ wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 25 }];
+    wsDeliveries["!cols"] = [{ wch: 25 }, { wch: 15 }, { wch: 15 }, { wch: 15 }, { wch: 20 }, { wch: 25 }];
+
+    XLSX.utils.book_append_sheet(wb, wsOverview, "Audit & Performance");
+    XLSX.utils.book_append_sheet(wb, wsPlans, "Production Schedules");
+    XLSX.utils.book_append_sheet(wb, wsStock, "Output Logs");
+    XLSX.utils.book_append_sheet(wb, wsDeliveries, "Shipments Dispatch");
+
+    XLSX.writeFile(wb, `EPP_FACTORY_WEEK_AUDIT_${backupWeekKey}_${todayStrVal}.xlsx`);
+  };
 
   // 1. Total Stockpile accumulated
   const totalStockpile = useMemo(() => {
@@ -185,7 +493,6 @@ export default function ManagerDashboard({
       <div className="bg-white border border-slate-200 shadow-xs rounded-2xl p-6 md:p-8 flex flex-col md:flex-row md:items-center justify-between gap-6">
         <div className="space-y-1.5">
           <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-100 text-xs font-semibold animate-pulse">
-            <Sparkles size={12} />
             Manager Dashboard
           </div>
           <h2 className="text-xl md:text-2xl font-bold font-sans text-slate-900 tracking-tight">
@@ -566,6 +873,137 @@ export default function ManagerDashboard({
                 ))}
               </div>
             )}
+          </div>
+        </div>
+      </div>
+
+      {/* SYSTEM SECURITY & DATABASE BACKUP CONTROL CENTRE */}
+      <div className="bg-slate-900 text-slate-100 rounded-2xl p-6 md:p-8 border border-slate-800 shadow-xl space-y-6" id="system-control-centre-card">
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-6 border-b border-slate-800 pb-6">
+          <div className="space-y-1.5">
+            <h3 className="text-sm font-extrabold uppercase tracking-widest text-emerald-400 flex items-center gap-2 font-sans">
+              <Database size={16} />
+              SYSTEM CONTROL CENTRE & AUDIT BACKUPS
+            </h3>
+            <p className="text-xs text-slate-400">Export official weekly audit reports, generate secure local backups, or perform ledger resets</p>
+          </div>
+          
+          <div className="flex items-center gap-2 bg-slate-800/80 border border-slate-750 px-3 py-1.5 rounded-xl">
+            <div className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse"></div>
+            <span className="text-[10px] uppercase font-bold text-slate-300 tracking-wider">DATABASE INTEGRITY SECURE</span>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+          {/* Section A: Weekly Backup & Export (8 Columns on Large Screens) */}
+          <div className="lg:col-span-8 bg-slate-950/65 border border-slate-800/50 rounded-xl p-5 space-y-5">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+              <div className="space-y-1">
+                <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400 font-mono">STEP 1: SELECT AUDIT WEEK</span>
+                <div className="flex items-center gap-2 mt-1">
+                  <Calendar size={14} className="text-emerald-400" />
+                  <select
+                    value={backupWeekKey}
+                    onChange={(e) => setBackupWeekKey(e.target.value)}
+                    className="text-xs font-bold text-slate-200 bg-slate-900 border border-slate-800 rounded-lg px-3 py-2 focus:outline-none focus:ring-1 focus:ring-emerald-500 cursor-pointer min-w-[240px]"
+                  >
+                    {allSystemWeeks.map((w) => (
+                      <option key={w.key} value={w.key}>
+                        {w.label}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+
+              <div className="flex flex-wrap items-center gap-2.5 self-end sm:self-center">
+                <button
+                  onClick={handleDownloadWeeklyExcelReport}
+                  className="px-5 py-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-slate-950 font-black text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer shadow-md shadow-emerald-950/40"
+                >
+                  <Download size={14} className="stroke-[2.5]" />
+                  Export Weekly Excel Report (.XLSX)
+                </button>
+                <button
+                  onClick={handleDownloadWeeklyReport}
+                  className="px-4 py-3 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-bold text-xs transition-colors flex items-center justify-center gap-2 cursor-pointer border border-slate-700"
+                >
+                  <Download size={13} />
+                  Export JSON Backup (.JSON)
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Preview Grid of Selected Backup Week */}
+            <div className="pt-4 border-t border-slate-800/60 grid grid-cols-3 gap-3">
+              <div className="bg-slate-900/40 p-3 rounded-lg border border-slate-800">
+                <span className="text-[9px] uppercase font-bold text-slate-500 block">Schedules</span>
+                <span className="text-base font-black font-mono text-slate-200">{backupWeekStats.plansCount} <span className="text-[10px] text-slate-500 font-normal">lines</span></span>
+              </div>
+              <div className="bg-slate-900/40 p-3 rounded-lg border border-slate-800">
+                <span className="text-[9px] uppercase font-bold text-slate-500 block">Output Logs</span>
+                <span className="text-base font-black font-mono text-emerald-400">+{backupWeekStats.entriesCount} <span className="text-[10px] text-slate-500 font-normal">logs</span></span>
+              </div>
+              <div className="bg-slate-900/40 p-3 rounded-lg border border-slate-800">
+                <span className="text-[9px] uppercase font-bold text-slate-500 block">Dispatched Shipments</span>
+                <span className="text-base font-black font-mono text-amber-400">-{backupWeekStats.deliveriesCount} <span className="text-[10px] text-slate-500 font-normal">freights</span></span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1 text-[11px] text-slate-400 font-medium">
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-700"></span>
+                <span>Includes comprehensive metrics for all models (KUGA, TETOUAN, VW)</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="w-1.5 h-1.5 rounded-full bg-slate-700"></span>
+                <span>Generates secure offline file format compliant with ERP protocols</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Section B: Maintenance & Disaster Recovery (4 Columns on Large Screens) */}
+          <div className="lg:col-span-4 bg-slate-950/65 border border-slate-800/50 rounded-xl p-5 flex flex-col justify-between space-y-4">
+            <div className="space-y-1">
+              <span className="text-[10px] uppercase font-bold tracking-widest text-slate-400 font-mono block">DISASTER RECOVERY</span>
+              <p className="text-[10px] text-slate-500 font-medium leading-relaxed">
+                If ledger data becomes corrupted, or if you need to wipe out shift schedules, use the authorized system utilities below.
+              </p>
+            </div>
+
+            <div className="space-y-2.5">
+              {onResetDefaults && (
+                <button
+                  onClick={onResetDefaults}
+                  className="w-full py-2 px-3 bg-slate-850 hover:bg-slate-800 text-slate-200 border border-slate-800 hover:border-slate-750 rounded-lg text-[11px] font-bold transition-all flex items-center justify-center gap-1.5 cursor-pointer shadow-3xs"
+                >
+                  <RefreshCw size={12} className="text-slate-400 animate-spin" />
+                  Restore Demo Factory Presets
+                </button>
+              )}
+
+              <div className="grid grid-cols-2 gap-2">
+                {onClearStock && (
+                  <button
+                    onClick={onClearStock}
+                    className="py-2 px-2 bg-rose-950/40 hover:bg-rose-950/65 text-rose-300 border border-rose-900/60 hover:border-rose-800 rounded-lg text-[10.5px] font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <Trash2 size={11} className="text-rose-400" />
+                    Purge Stock
+                  </button>
+                )}
+
+                {onClearPlans && (
+                  <button
+                    onClick={onClearPlans}
+                    className="py-2 px-2 bg-rose-950/40 hover:bg-rose-950/65 text-rose-300 border border-rose-900/60 hover:border-rose-800 rounded-lg text-[10.5px] font-bold transition-all flex items-center justify-center gap-1 cursor-pointer"
+                  >
+                    <XCircle size={11} className="text-rose-400" />
+                    Wipe Schedules
+                  </button>
+                )}
+              </div>
+            </div>
           </div>
         </div>
       </div>

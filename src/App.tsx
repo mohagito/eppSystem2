@@ -876,7 +876,7 @@ export default function App() {
 
     const newEntry: StockEntry = {
       ...cleanedEntry,
-      id: `se-${Date.now()}`,
+      id: `se-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
       createdAt: new Date().toISOString()
     };
 

@@ -262,7 +262,8 @@ export default function WorkerDashboard({
             quantity: amt,
             createdBy: currentUser.id,
             machine: plan.machine,
-            planId: plan.id
+            planId: plan.id,
+            type: 'production'
           });
         }
 
@@ -306,7 +307,8 @@ export default function WorkerDashboard({
             quantity: amtToLog,
             createdBy: currentUser.id,
             machine: plan.machine,
-            planId: plan.id
+            planId: plan.id,
+            type: 'production'
           });
         }
 

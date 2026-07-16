@@ -2,7 +2,7 @@ import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import Swal from 'sweetalert2';
 import { UserProfile, StockEntry, AirbagModel, ProductionPlan, DeliveryEntry } from '../types';
-import { AIRBAG_MODELS, MOCK_PROFILES } from '../data';
+import { AIRBAG_MODELS, MOCK_PROFILES, PACKAGING_SIZES } from '../data';
 import {
   PlusCircle,
   Database,
@@ -20,7 +20,9 @@ import {
   Plus,
   Cpu,
   Download,
-  Undo
+  Undo,
+  Boxes,
+  Package
 } from 'lucide-react';
 
 interface StockProps {
@@ -115,13 +117,15 @@ export default function StockManagement({
   const [correctingGeneralModel, setCorrectingGeneralModel] = useState<AirbagModel | null>(null);
   const [correctingGeneralCurrentStock, setCorrectingGeneralCurrentStock] = useState<number>(0);
   const [correctingGeneralDesiredStock, setCorrectingGeneralDesiredStock] = useState<string>('');
+  const [correctingGeneralType, setCorrectingGeneralType] = useState<'production' | 'packaging'>('packaging');
   const [correctingGeneralReason, setCorrectingGeneralReason] = useState<string>('');
   const [correctingGeneralError, setCorrectingGeneralError] = useState<string>('');
 
-  const handleStartGeneralStockCorrection = (model: AirbagModel, currentStock: number) => {
+  const handleStartGeneralStockCorrection = (model: AirbagModel, currentStock: number, type: 'production' | 'packaging') => {
     setCorrectingGeneralModel(model);
     setCorrectingGeneralCurrentStock(currentStock);
     setCorrectingGeneralDesiredStock(currentStock.toString());
+    setCorrectingGeneralType(type);
     setCorrectingGeneralReason('');
     setCorrectingGeneralError('');
   };
@@ -158,6 +162,7 @@ export default function StockManagement({
       createdBy: currentUser.id,
       machine: undefined,
       planId: undefined,
+      type: correctingGeneralType,
       // Pass the audit fields
       originalQuantity: correctingGeneralCurrentStock,
       correctedQuantity: desiredQty,
@@ -165,7 +170,7 @@ export default function StockManagement({
       edited: true,
       editedBy: currentUser.name,
       editedByProfileId: currentUser.id,
-      editReason: `General Stock Count Recount: ${correctingGeneralReason.trim()}`,
+      editReason: `General Stock Count Recount (${correctingGeneralType === 'packaging' ? 'Packaged Stock' : 'Unpackaged Quantity'}): ${correctingGeneralReason.trim()}`,
     } as any);
 
     setCorrectingGeneralModel(null);
@@ -250,12 +255,43 @@ export default function StockManagement({
       return;
     }
 
+    const pkgSize = PACKAGING_SIZES[selectedModel] || 250;
+    const numPacks = Math.floor(parsedQty / pkgSize);
+    const autoPackagedQty = numPacks * pkgSize;
+    const autoUnpackagedQty = parsedQty - autoPackagedQty;
+
+    let htmlContent = `Do you want to log production of <strong>${parsedQty} pcs</strong> of model <strong>${selectedModel}</strong>?`;
+    if (autoPackagedQty > 0) {
+      htmlContent += `
+        <div class="text-left bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 text-xs space-y-2 mt-3.5">
+          <div class="flex justify-between items-center text-emerald-400">
+            <span class="font-bold flex items-center gap-1">📦 Auto-Packaged:</span>
+            <span class="font-extrabold font-mono">+${autoPackagedQty} pcs (${numPacks} package${numPacks > 1 ? 's' : ''})</span>
+          </div>
+          ${autoUnpackagedQty > 0 ? `
+          <div class="flex justify-between items-center text-amber-400 border-t border-slate-800/60 pt-2">
+            <span class="font-bold flex items-center gap-1">⏳ Left Unpackaged:</span>
+            <span class="font-extrabold font-mono">+${autoUnpackagedQty} pcs</span>
+          </div>
+          ` : `
+          <div class="text-[10px] text-slate-400 italic text-center border-t border-slate-800/60 pt-2">
+            Perfect match! All pieces are fully packaged.
+          </div>
+          `}
+        </div>`;
+    } else {
+      htmlContent += `
+        <div class="text-left bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 text-xs text-amber-400 mt-3.5">
+          ⚠️ <strong>${parsedQty} pcs</strong> is less than a standard package size (<strong>${pkgSize} pcs</strong>). It will go to <strong>unpackaged</strong>.
+        </div>`;
+    }
+
     Swal.fire({
       title: 'Confirm Stock Addition',
-      html: `Do you want to add <strong>${parsedQty} units</strong> of model <strong>${selectedModel}</strong> to stock?`,
+      html: htmlContent,
       icon: 'question',
       showCancelButton: true,
-      confirmButtonText: 'Yes, Add Stock',
+      confirmButtonText: 'Yes, Save & Auto-Package',
       cancelButtonText: 'Cancel',
       background: '#0f172a',
       color: '#cbd5e1',
@@ -267,6 +303,7 @@ export default function StockManagement({
       }
     }).then((result) => {
       if (result.isConfirmed) {
+        // Add the production entry
         onAddEntry({
           modelId: selectedModel,
           workerName: finalWorkerName,
@@ -275,7 +312,20 @@ export default function StockManagement({
           createdBy: currentUser.id,
           machine: targetMachine !== 'ALL' ? (targetMachine as any) : undefined,
           planId: targetPlanId || undefined,
+          type: 'production'
         });
+
+        // Add the packaging entry automatically if we had complete packages
+        if (autoPackagedQty > 0) {
+          onAddEntry({
+            modelId: selectedModel,
+            workerName: finalWorkerName,
+            date: entryDate || getLocalDateStr(),
+            quantity: autoPackagedQty,
+            createdBy: currentUser.id,
+            type: 'packaging'
+          });
+        }
 
         // Reset fields except date and worker name
         setQuantity('');
@@ -286,8 +336,8 @@ export default function StockManagement({
     });
   };
 
-  // Pre-calculate per-model sums for stats cards (Subtract deliveries)
-  const stockSums = useMemo(() => {
+  // Pre-calculate per-model packaged stock sums (packaging entries/legacy entries minus deliveries)
+  const packagedStockSums = useMemo(() => {
     const sums = {} as Record<AirbagModel, number>;
     AIRBAG_MODELS.forEach((m) => {
       sums[m] = 0;
@@ -295,11 +345,13 @@ export default function StockManagement({
 
     entries.forEach((e) => {
       if (sums[e.modelId] !== undefined) {
-        sums[e.modelId] += e.quantity;
+        if (e.type === 'packaging' || e.type === undefined) {
+          sums[e.modelId] += e.quantity;
+        }
       }
     });
 
-    // Subtract deliveries to automatically remove from stock
+    // Subtract deliveries to automatically remove from packaged stock
     deliveries.forEach((d) => {
       if (sums[d.modelId] !== undefined) {
         sums[d.modelId] -= d.quantity;
@@ -309,18 +361,50 @@ export default function StockManagement({
     return sums;
   }, [entries, deliveries]);
 
+  // Pre-calculate per-model unpackaged quantity sums (production entries minus packaging entries)
+  const unpackagedQtySums = useMemo(() => {
+    const sums = {} as Record<AirbagModel, number>;
+    AIRBAG_MODELS.forEach((m) => {
+      sums[m] = 0;
+    });
+
+    entries.forEach((e) => {
+      if (sums[e.modelId] !== undefined) {
+        if (e.type === 'production') {
+          sums[e.modelId] += e.quantity;
+        } else if (e.type === 'packaging') {
+          sums[e.modelId] -= e.quantity;
+        }
+      }
+    });
+
+    return sums;
+  }, [entries]);
+
   // Totals for header
   const totalProduced = useMemo(() => {
-    return entries.reduce((sum, e) => sum + e.quantity, 0);
+    // Only count original production and legacy untyped entries
+    return entries.reduce((sum, e) => {
+      if (e.type === 'production' || e.type === undefined) {
+        return sum + e.quantity;
+      }
+      return sum;
+    }, 0);
   }, [entries]);
 
   const totalDelivered = useMemo(() => {
     return deliveries.reduce((sum, d) => sum + d.quantity, 0);
   }, [deliveries]);
 
+  // Net packaged units
   const totalNetAvailable = useMemo(() => {
-    return totalProduced - totalDelivered;
-  }, [totalProduced, totalDelivered]);
+    return AIRBAG_MODELS.reduce((sum, model) => sum + (packagedStockSums[model] || 0), 0);
+  }, [packagedStockSums]);
+
+  // Net unpackaged units
+  const totalUnpackagedAvailable = useMemo(() => {
+    return AIRBAG_MODELS.reduce((sum, model) => sum + (unpackagedQtySums[model] || 0), 0);
+  }, [unpackagedQtySums]);
 
   // Aggregate workers for helper filter dropdown
   const uniqueWorkersInHistory = useMemo(() => {
@@ -605,56 +689,125 @@ export default function StockManagement({
     <div className="space-y-8" id="stock-management-view">
       {/* Overview stats per model */}
       <div id="model-aggregates-row">
-        <div className="flex items-center justify-between mb-4">
-          <h3 className="text-sm font-semibold tracking-wider uppercase text-slate-500 font-sans">Available Stock Per Model</h3>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-5 gap-3">
           <div className="flex items-center gap-2">
-            <span className="text-2s font-mono text-slate-450 tracking-wider font-extrabold uppercase">
-              Prod: {totalProduced} | Deliv: {totalDelivered}
+            <div className="p-1.5 bg-slate-100 text-slate-700 rounded-lg">
+              <Boxes size={18} />
+            </div>
+            <h3 className="text-sm font-bold tracking-wider uppercase text-slate-700 font-sans">Available Stock Per Model</h3>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-[10px] font-mono text-slate-500 tracking-wider font-extrabold uppercase bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg">
+              Total Prod: {totalProduced} | Shipped: {totalDelivered}
             </span>
-            <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-full font-mono font-bold shadow-3xs">
-              {totalNetAvailable} Available Units
+            <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-lg font-mono font-bold shadow-3xs" title="Total produced pieces awaiting packaging">
+              {totalUnpackagedAvailable} Unpackaged Units
+            </span>
+            <span className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg font-mono font-bold shadow-3xs" title="Total packaged stock available for delivery">
+              {totalNetAvailable} Packaged Stock Available
             </span>
           </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4">
+        <div className="grid grid-cols-1 min-[450px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
           {AIRBAG_MODELS.map((model) => {
-            const stockVal = stockSums[model];
-            const hasStock = stockVal > 0;
-            const isNegative = stockVal < 0;
+            const packagedStock = packagedStockSums[model] || 0;
+            const unpackagedQty = unpackagedQtySums[model] || 0;
+            const totalProd = packagedStock + unpackagedQty;
+            const isCaddy = model === 'CADDY';
 
             return (
               <motion.div
                 key={model}
-                whileHover={{ y: -3, scale: 1.02 }}
-                className={`p-4 rounded-xl border transition-all duration-300 relative group ${
-                  isNegative
-                    ? 'bg-rose-50/50 border-rose-200 text-rose-700 shadow-3xs'
-                    : hasStock 
-                      ? 'bg-white border-slate-200 shadow-3xs' 
-                      : 'bg-slate-50/50 border-slate-100 opacity-60'
+                whileHover={{ y: -3, scale: 1.015 }}
+                className={`p-6 rounded-[2rem] border shadow-3xs hover:shadow-xs transition-all duration-300 relative group flex flex-col justify-between ${
+                  isCaddy 
+                    ? 'bg-rose-50/60 border-rose-200/80 hover:bg-rose-100/50 hover:border-rose-300' 
+                    : 'bg-white border-slate-200 hover:border-slate-300'
                 }`}
                 id={`stat-card-${model.replace(' ', '-')}`}
               >
-                <div className="flex items-center justify-between">
-                  <div className="text-2s font-mono text-slate-450 tracking-wider font-extrabold uppercase">{model}</div>
-                  {currentUser.role === 'manager' && (
-                    <button
-                      onClick={() => handleStartGeneralStockCorrection(model, stockVal)}
-                      className="text-slate-400 hover:text-amber-600 hover:bg-amber-50 p-1.5 rounded-lg transition-all cursor-pointer opacity-0 group-hover:opacity-100 absolute top-2 right-2 duration-200"
-                      title={`Correct general stock level for ${model}`}
-                      id={`correct-general-stock-${model.replace(' ', '-')}`}
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <div className={`p-2 border rounded-xl shrink-0 ${
+                        isCaddy 
+                          ? 'bg-rose-100/50 border-rose-200 text-rose-600' 
+                          : 'bg-slate-50 border-slate-100 text-slate-500'
+                      }`}>
+                        <Package size={16} />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className={`text-base font-black font-sans tracking-tight truncate uppercase leading-tight ${
+                          isCaddy ? 'text-rose-950' : 'text-slate-800'
+                        }`} title={model}>
+                          {model}
+                        </span>
+                        {isCaddy && (
+                          <span className="text-[10px] font-black tracking-wider uppercase text-rose-500 leading-none mt-0.5">
+                            STOPPED
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                    <div 
+                      className={`text-[11px] font-mono font-bold px-3 py-1 rounded-full border whitespace-nowrap shrink-0 ${
+                        isCaddy 
+                          ? 'bg-rose-50 text-rose-700 border-rose-100' 
+                          : 'bg-slate-100 text-slate-500 border-slate-200/60'
+                      }`} 
+                      title={`Standard package size: ${PACKAGING_SIZES[model] || 250} pcs`}
                     >
-                      <Pencil size={11} />
-                    </button>
-                  )}
-                </div>
-                <div className="mt-2 flex items-baseline justify-between select-none">
-                  <div className="flex items-baseline gap-1">
-                    <span className={`text-2xl font-bold font-mono ${isNegative ? 'text-rose-600' : 'text-slate-900'}`}>
-                      {stockVal}
-                    </span>
-                    <span className="text-[10px] text-slate-450 font-bold">pcs</span>
+                      Pkg: {PACKAGING_SIZES[model] || 250}
+                    </div>
                   </div>
+
+                  <div className="space-y-3 mt-4">
+                    {/* Packaged Stock Row */}
+                    <div className="flex items-center justify-between py-3 px-5 rounded-full bg-emerald-50/40 border border-emerald-100/80 hover:bg-emerald-50/60 transition-all">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                        <span className="text-[11px] text-slate-500 font-extrabold uppercase tracking-wider font-sans" title="Packaged stock ready for delivery">Packaged</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-black font-mono text-emerald-600 select-all">{packagedStock}</span>
+                        {currentUser.role === 'manager' && (
+                          <button
+                            onClick={() => handleStartGeneralStockCorrection(model, packagedStock, 'packaging')}
+                            className="text-slate-400 hover:text-emerald-600 hover:bg-emerald-100/50 p-1 rounded-full transition-colors cursor-pointer"
+                            title={`Correct packaged stock for ${model}`}
+                          >
+                            <Pencil size={11} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Unpackaged Quantity Row */}
+                    <div className="flex items-center justify-between py-3 px-5 rounded-full bg-amber-50/40 border border-amber-100/80 hover:bg-amber-50/60 transition-all">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                        <span className="text-[11px] text-slate-500 font-extrabold uppercase tracking-wider font-sans" title="Produced pieces awaiting packaging">Unpackaged</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-black font-mono text-amber-600 select-all">{unpackagedQty}</span>
+                        {currentUser.role === 'manager' && (
+                          <button
+                            onClick={() => handleStartGeneralStockCorrection(model, unpackagedQty, 'production')}
+                            className="text-slate-400 hover:text-amber-600 hover:bg-amber-100/50 p-1 rounded-full transition-colors cursor-pointer"
+                            title={`Correct unpackaged quantity for ${model}`}
+                          >
+                            <Pencil size={11} />
+                          </button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Total Produced Row */}
+                <div className="flex items-center justify-between py-3 px-5 mt-5 rounded-full bg-[#ea580c] border border-[#ea580c] shadow-xs hover:bg-[#d97706] transition-all">
+                  <span className="text-[11px] text-orange-100 font-black uppercase tracking-widest font-sans" title="Total produced pieces (Packaged + Unpackaged)">Total</span>
+                  <span className="text-base font-black font-mono text-white select-all">{totalProd}</span>
                 </div>
               </motion.div>
             );
@@ -666,12 +819,12 @@ export default function StockManagement({
         {/* ADD STOCK ENTRY FORM */}
         <div className="lg:col-span-1" id="add-stock-form-container">
           <div className="bg-white border border-slate-200 rounded-2xl p-6 shadow-3xs sticky top-6">
-            <div className="flex items-center gap-3 mb-5">
+            <div className="flex items-center gap-3 mb-4">
               <div className="p-2.5 bg-emerald-50 text-emerald-600 rounded-xl">
                 <PlusCircle size={22} />
               </div>
               <div>
-                <h3 className="text-base font-semibold text-slate-900">Add Stock Entry</h3>
+                <h3 className="text-base font-semibold text-slate-900">Operations Panel</h3>
               </div>
             </div>
 
@@ -690,10 +843,10 @@ export default function StockManagement({
                 </label>
                 <div className="relative">
                   <select
-                     value={selectedModel}
-                     onChange={(e) => setSelectedModel(e.target.value as AirbagModel)}
-                     className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-semibold focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-3xs"
-                     id="stock-form-model"
+                    value={selectedModel}
+                    onChange={(e) => setSelectedModel(e.target.value as AirbagModel)}
+                    className="w-full bg-slate-50/40 hover:bg-slate-50/90 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-semibold focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all appearance-none cursor-pointer shadow-3xs"
+                    id="stock-form-model"
                   >
                     {AIRBAG_MODELS.map((model) => (
                       <option key={model} value={model} className="bg-white text-slate-800">
@@ -1001,8 +1154,18 @@ export default function StockManagement({
                                   <span className="text-xs font-bold text-slate-800 font-mono tracking-wide bg-slate-50 border border-slate-200 px-2.5 py-1 rounded-lg">
                                     {e.modelId}
                                   </span>
-                                  {e.machine && (
+                                  {/* Transaction Type Badge */}
+                                  {e.type === 'packaging' ? (
+                                    <span className="text-[9px] font-extrabold uppercase bg-amber-50 text-amber-700 border border-amber-200 rounded-md px-2 py-0.5 tracking-normal">
+                                      Packaging
+                                    </span>
+                                  ) : (
                                     <span className="text-[9px] font-extrabold uppercase bg-sky-50 text-sky-600 border border-sky-100 rounded-md px-2 py-0.5 tracking-normal">
+                                      Production
+                                    </span>
+                                  )}
+                                  {e.machine && (
+                                    <span className="text-[9px] font-extrabold uppercase bg-slate-50 text-slate-600 border border-slate-200 rounded-md px-2 py-0.5 tracking-normal">
                                       {e.machine}
                                     </span>
                                   )}
@@ -1036,11 +1199,18 @@ export default function StockManagement({
                                 </span>
                               </td>
                               <td className="p-4 text-xs font-mono text-slate-500 uppercase hidden sm:table-cell">
-                                {new Date(e.date).toLocaleDateString('en-US', {
-                                  month: 'short',
-                                  day: '2-digit',
-                                  year: 'numeric',
-                                })}
+                                <div title={`Recorded at: ${e.createdAt ? new Date(e.createdAt).toLocaleString() : 'N/A'}`}>
+                                  {new Date(e.date).toLocaleDateString('en-US', {
+                                    month: 'short',
+                                    day: '2-digit',
+                                    year: 'numeric',
+                                  })}
+                                  {e.createdAt && (
+                                    <span className="text-[10px] text-slate-400 block font-normal">
+                                      {new Date(e.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                                    </span>
+                                  )}
+                                </div>
                               </td>
                               <td className={`p-4 text-xs font-extrabold text-right font-mono select-all ${e.quantity < 0 ? 'text-rose-605 bg-rose-50/20 border-r-2 border-rose-500 pr-3.5' : 'text-emerald-600'}`}>
                                 {e.quantity > 0 ? `+${e.quantity}` : e.quantity} pcs

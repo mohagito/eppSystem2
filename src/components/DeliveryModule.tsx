@@ -82,10 +82,12 @@ export default function DeliveryModule({
       stock[m] = 0;
     });
 
-    // Add produced assemblies
+    // Add packaged assemblies (packaging entries or legacy untyped entries)
     entries.forEach((e) => {
       if (stock[e.modelId] !== undefined) {
-        stock[e.modelId] += e.quantity;
+        if (e.type === 'packaging' || e.type === undefined) {
+          stock[e.modelId] += e.quantity;
+        }
       }
     });
 

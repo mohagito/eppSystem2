@@ -19,7 +19,6 @@ import {
   ChevronDown,
   ChevronLeft,
   ChevronRight,
-  Sparkles,
   Pencil,
   Copy,
   Trash2,
@@ -633,8 +632,6 @@ export default function PlanningModule({
         return 'bg-rose-50 border-rose-205 text-rose-800 font-mono font-bold';
       case 'VW217':
         return 'bg-teal-50 border-teal-205 text-teal-850 font-mono font-bold';
-      case 'VW110':
-        return 'bg-pink-50 border-pink-205 text-pink-850 font-mono font-bold';
       default:
         return 'bg-slate-50 border-slate-200 text-slate-800 font-mono font-bold';
     }
@@ -902,7 +899,6 @@ export default function PlanningModule({
         {currentUser.role === 'manager' && (
           <div className="bg-slate-900 border-b border-slate-800 px-4 py-2.5 flex flex-wrap items-center justify-between gap-3 text-white">
             <div className="flex items-center gap-2">
-              <Sparkles size={14} className="text-emerald-400" />
               <span className="text-xs font-extrabold tracking-tight">Schedule Matrix Utilities:</span>
             </div>
             
