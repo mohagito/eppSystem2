@@ -186,6 +186,16 @@ export default function StockManagement({
     }));
   };
 
+  // Expanded automatic packaging trace tracking state
+  const [expandedTraceIds, setExpandedTraceIds] = useState<Record<string, boolean>>({});
+
+  const toggleTrace = (id: string) => {
+    setExpandedTraceIds((prev) => ({
+      ...prev,
+      [id]: !prev[id]
+    }));
+  };
+
   const handleStartEdit = (entry: StockEntry) => {
     setEditingEntry(entry);
     setEditModel(entry.modelId);
@@ -256,35 +266,45 @@ export default function StockManagement({
     }
 
     const pkgSize = PACKAGING_SIZES[selectedModel] || 250;
-    const numPacks = Math.floor(parsedQty / pkgSize);
-    const autoPackagedQty = numPacks * pkgSize;
-    const autoUnpackagedQty = parsedQty - autoPackagedQty;
+    const currentUnpackaged = unpackagedQtySums[selectedModel] || 0;
+    const totalAvailable = currentUnpackaged + parsedQty;
+    const autoPackagedQty = Math.floor(totalAvailable / pkgSize) * pkgSize;
+    const autoUnpackagedQty = totalAvailable % pkgSize;
+    const numPacks = autoPackagedQty / pkgSize;
 
     let htmlContent = `Do you want to log production of <strong>${parsedQty} pcs</strong> of model <strong>${selectedModel}</strong>?`;
-    if (autoPackagedQty > 0) {
-      htmlContent += `
-        <div class="text-left bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 text-xs space-y-2 mt-3.5">
-          <div class="flex justify-between items-center text-emerald-400">
-            <span class="font-bold flex items-center gap-1">📦 Auto-Packaged:</span>
-            <span class="font-extrabold font-mono">+${autoPackagedQty} pcs (${numPacks} package${numPacks > 1 ? 's' : ''})</span>
-          </div>
-          ${autoUnpackagedQty > 0 ? `
-          <div class="flex justify-between items-center text-amber-400 border-t border-slate-800/60 pt-2">
-            <span class="font-bold flex items-center gap-1">⏳ Left Unpackaged:</span>
-            <span class="font-extrabold font-mono">+${autoUnpackagedQty} pcs</span>
-          </div>
-          ` : `
-          <div class="text-[10px] text-slate-400 italic text-center border-t border-slate-800/60 pt-2">
-            Perfect match! All pieces are fully packaged.
-          </div>
-          `}
-        </div>`;
-    } else {
-      htmlContent += `
-        <div class="text-left bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 text-xs text-amber-400 mt-3.5">
-          ⚠️ <strong>${parsedQty} pcs</strong> is less than a standard package size (<strong>${pkgSize} pcs</strong>). It will go to <strong>unpackaged</strong>.
-        </div>`;
-    }
+    htmlContent += `
+      <div class="text-left bg-slate-900/80 border border-slate-800 rounded-xl p-3.5 text-xs space-y-2 mt-3.5">
+        <div class="flex justify-between items-center text-slate-300">
+          <span class="font-semibold flex items-center gap-1">⏳ Current Unpackaged Qty:</span>
+          <span class="font-bold font-mono">${currentUnpackaged} pcs</span>
+        </div>
+        <div class="flex justify-between items-center text-slate-300">
+          <span class="font-semibold flex items-center gap-1">➕ New Production Added:</span>
+          <span class="font-bold font-mono">+${parsedQty} pcs</span>
+        </div>
+        <div class="flex justify-between items-center text-blue-400 border-t border-slate-800/60 pt-2">
+          <span class="font-bold flex items-center gap-1">📊 Total Available:</span>
+          <span class="font-extrabold font-mono">${totalAvailable} pcs</span>
+        </div>
+        
+        ${autoPackagedQty > 0 ? `
+        <div class="flex justify-between items-center text-emerald-400 border-t border-slate-800/60 pt-2">
+          <span class="font-bold flex items-center gap-1">📦 Auto-Packaged:</span>
+          <span class="font-extrabold font-mono">+${autoPackagedQty} pcs (${numPacks} package${numPacks > 1 ? 's' : ''})</span>
+        </div>
+        ` : `
+        <div class="flex justify-between items-center text-slate-400 border-t border-slate-800/60 pt-2">
+          <span class="font-semibold flex items-center gap-1">📦 Auto-Packaged:</span>
+          <span class="font-mono">0 pcs</span>
+        </div>
+        `}
+        
+        <div class="flex justify-between items-center text-amber-400 border-t border-slate-800/60 pt-2">
+          <span class="font-bold flex items-center gap-1">⏳ Remaining Unpackaged:</span>
+          <span class="font-extrabold font-mono">${autoUnpackagedQty} pcs</span>
+        </div>
+      </div>`;
 
     Swal.fire({
       title: 'Confirm Stock Addition',
@@ -327,7 +347,7 @@ export default function StockManagement({
   // Pre-calculate per-model packaged stock sums and unpackaged quantities dynamically
   // Packaged stock is calculated automatically by grouping production quantities into multiples of standard package sizes.
   // Any remainder forms the unpackaged quantity. We also support legacy explicit packaging entries and untyped entries.
-  const { packagedStockSums, unpackagedQtySums } = useMemo(() => {
+  const { packagedStockSums, unpackagedQtySums, computedEntriesMap } = useMemo(() => {
     const packaged = {} as Record<AirbagModel, number>;
     const unpackaged = {} as Record<AirbagModel, number>;
     
@@ -336,38 +356,85 @@ export default function StockManagement({
       unpackaged[m] = 0;
     });
 
-    // Group entries by type
-    const prodSums = {} as Record<AirbagModel, number>;
-    const legacyPackSums = {} as Record<AirbagModel, number>;
-    const legacyUntypedSums = {} as Record<AirbagModel, number>;
-
+    // Group entries by model
+    const entriesByModel = {} as Record<AirbagModel, StockEntry[]>;
     AIRBAG_MODELS.forEach((m) => {
-      prodSums[m] = 0;
-      legacyPackSums[m] = 0;
-      legacyUntypedSums[m] = 0;
+      entriesByModel[m] = [];
     });
 
     entries.forEach((e) => {
-      if (prodSums[e.modelId] !== undefined) {
-        if (e.type === 'production') {
-          prodSums[e.modelId] += e.quantity;
-        } else if (e.type === 'packaging') {
-          legacyPackSums[e.modelId] += e.quantity;
-        } else if (e.type === undefined) {
-          legacyUntypedSums[e.modelId] += e.quantity;
-        }
+      if (entriesByModel[e.modelId] !== undefined) {
+        entriesByModel[e.modelId].push(e);
       }
     });
 
+    const computedEntriesMap = new Map<string, {
+      prevUnpackagedQty: number;
+      newProductionQty: number;
+      qtyAutoPackaged: number;
+      remainingUnpackagedQty: number;
+    }>();
+
     AIRBAG_MODELS.forEach((m) => {
       const pkgSize = PACKAGING_SIZES[m] || 250;
-      const totalProduction = prodSums[m];
       
-      const autoPackaged = Math.floor(totalProduction / pkgSize) * pkgSize;
-      const autoUnpackaged = totalProduction % pkgSize;
+      // Sort entries chronologically: oldest first
+      const sorted = [...entriesByModel[m]].sort((a, b) => {
+        const timeA = new Date(a.createdAt || a.date).getTime();
+        const timeB = new Date(b.createdAt || b.date).getTime();
+        return timeA - timeB;
+      });
 
-      packaged[m] = autoPackaged + legacyPackSums[m] + legacyUntypedSums[m];
-      unpackaged[m] = autoUnpackaged;
+      let currentUnpackaged = 0;
+      let currentPackaged = 0;
+
+      sorted.forEach((e) => {
+        if (e.type === 'production') {
+          const prevUnpackaged = currentUnpackaged;
+          const newProduction = e.quantity;
+          const totalAvailable = prevUnpackaged + newProduction;
+          
+          let autoPackaged = 0;
+          let remainingUnpackaged = 0;
+          
+          if (totalAvailable >= 0) {
+            autoPackaged = Math.floor(totalAvailable / pkgSize) * pkgSize;
+            remainingUnpackaged = totalAvailable % pkgSize;
+          } else {
+            autoPackaged = Math.floor(totalAvailable / pkgSize) * pkgSize;
+            remainingUnpackaged = (totalAvailable % pkgSize + pkgSize) % pkgSize;
+          }
+
+          computedEntriesMap.set(e.id, {
+            prevUnpackagedQty: prevUnpackaged,
+            newProductionQty: newProduction,
+            qtyAutoPackaged: autoPackaged,
+            remainingUnpackagedQty: remainingUnpackaged
+          });
+
+          currentPackaged += autoPackaged;
+          currentUnpackaged = remainingUnpackaged;
+        } else if (e.type === 'packaging') {
+          computedEntriesMap.set(e.id, {
+            prevUnpackagedQty: currentUnpackaged,
+            newProductionQty: 0,
+            qtyAutoPackaged: e.quantity,
+            remainingUnpackagedQty: currentUnpackaged
+          });
+          currentPackaged += e.quantity;
+        } else if (e.type === undefined) {
+          computedEntriesMap.set(e.id, {
+            prevUnpackagedQty: currentUnpackaged,
+            newProductionQty: 0,
+            qtyAutoPackaged: e.quantity,
+            remainingUnpackagedQty: currentUnpackaged
+          });
+          currentPackaged += e.quantity;
+        }
+      });
+
+      packaged[m] = currentPackaged;
+      unpackaged[m] = currentUnpackaged;
     });
 
     // Subtract deliveries to automatically remove from packaged stock
@@ -377,7 +444,7 @@ export default function StockManagement({
       }
     });
 
-    return { packagedStockSums: packaged, unpackagedQtySums: unpackaged };
+    return { packagedStockSums: packaged, unpackagedQtySums: unpackaged, computedEntriesMap };
   }, [entries, deliveries]);
 
   // Totals for header
@@ -1180,6 +1247,17 @@ export default function StockManagement({
                                       )}
                                     </button>
                                   )}
+                                  {(e.type === 'production' || e.type === undefined) && computedEntriesMap.has(e.id) && (
+                                    <button
+                                      onClick={() => toggleTrace(e.id)}
+                                      className="inline-flex items-center gap-1 text-[9px] font-extrabold uppercase rounded-md px-2 py-0.5 tracking-normal transition-all outline-hidden bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100 cursor-pointer"
+                                      title="Click to view automatic packaging audit log"
+                                      id={`trace-badge-${e.id}`}
+                                    >
+                                      <span>Trace</span>
+                                      <ChevronDown size={10} className={`transform transition-transform ${expandedTraceIds[e.id] ? 'rotate-180' : ''}`} />
+                                    </button>
+                                  )}
                                 </div>
                               </td>
                               <td className="p-4 hidden sm:table-cell">
@@ -1283,6 +1361,40 @@ export default function StockManagement({
                                     <div className="text-xs border-t border-slate-100 pt-2.5 mt-1">
                                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Correction Reason:</span>
                                       <p className="text-slate-700 mt-1 whitespace-pre-wrap font-semibold italic bg-amber-50/30 p-2.5 rounded-lg border border-amber-100/50">"{e.editReason}"</p>
+                                    </div>
+                                  </div>
+                                </td>
+                              </tr>
+                            )}
+                            {expandedTraceIds[e.id] && computedEntriesMap.has(e.id) && (
+                              <tr className="bg-slate-50/30" id={`trace-row-${e.id}`}>
+                                <td colSpan={currentUser.role === 'manager' || currentUser.role === 'worker' ? 5 : 4} className="p-4 pt-1 pb-4">
+                                  <div className="bg-white border border-slate-200/80 rounded-xl p-4 space-y-3 shadow-3xs max-w-2xl text-left border-l-4 border-l-emerald-500">
+                                    <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-800 uppercase tracking-wider">
+                                      <Boxes size={12} className="text-emerald-550" />
+                                      <span>Automatic Packaging Audit Log</span>
+                                    </div>
+                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs pt-1">
+                                      <div className="bg-slate-50 p-2.5 rounded-lg border border-slate-100">
+                                        <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider leading-none mb-1">Previous Unpackaged</p>
+                                        <p className="font-mono font-bold text-slate-700 mt-0.5">{computedEntriesMap.get(e.id)?.prevUnpackagedQty || 0} pcs</p>
+                                      </div>
+                                      <div className="bg-sky-50/40 p-2.5 rounded-lg border border-sky-100/50">
+                                        <p className="text-[10px] font-bold text-sky-500 uppercase tracking-wider leading-none mb-1">New Production</p>
+                                        <p className="font-mono font-bold text-sky-700 mt-0.5">+{computedEntriesMap.get(e.id)?.newProductionQty || 0} pcs</p>
+                                      </div>
+                                      <div className="bg-emerald-50/50 p-2.5 rounded-lg border border-emerald-100/50">
+                                        <p className="text-[10px] font-bold text-emerald-600 uppercase tracking-wider leading-none mb-1">Auto-Packaged</p>
+                                        <p className="font-mono font-bold text-emerald-700 mt-0.5">+{computedEntriesMap.get(e.id)?.qtyAutoPackaged || 0} pcs</p>
+                                      </div>
+                                      <div className="bg-amber-50/30 p-2.5 rounded-lg border border-amber-100/30">
+                                        <p className="text-[10px] font-bold text-amber-500 uppercase tracking-wider leading-none mb-1">Remaining Unpackaged</p>
+                                        <p className="font-mono font-bold text-amber-700 mt-0.5">{computedEntriesMap.get(e.id)?.remainingUnpackagedQty || 0} pcs</p>
+                                      </div>
+                                    </div>
+                                    <div className="text-[10px] text-slate-450 border-t border-slate-100 pt-2 flex items-center gap-2">
+                                      <span>Operator: <strong className="text-slate-700">{e.workerName}</strong></span>
+                                      <span>• Logged: <strong className="text-slate-700">{e.createdAt ? new Date(e.createdAt).toLocaleString() : new Date(e.date).toLocaleDateString()}</strong></span>
                                     </div>
                                   </div>
                                 </td>
