@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { UserProfile, StockEntry, DeliveryEntry, AirbagModel } from '../types';
-import { AIRBAG_MODELS, MOCK_PROFILES } from '../data';
+import { AIRBAG_MODELS, MOCK_PROFILES, PACKAGING_SIZES } from '../data';
 import {
   PlusCircle,
   Truck,
@@ -82,19 +82,41 @@ export default function DeliveryModule({
       stock[m] = 0;
     });
 
-    // Add packaged assemblies (packaging entries or legacy untyped entries)
+    // Group entries by type
+    const prodSums = {} as Record<AirbagModel, number>;
+    const legacyPackSums = {} as Record<AirbagModel, number>;
+    const legacyUntypedSums = {} as Record<AirbagModel, number>;
+
+    AIRBAG_MODELS.forEach((m) => {
+      prodSums[m] = 0;
+      legacyPackSums[m] = 0;
+      legacyUntypedSums[m] = 0;
+    });
+
     entries.forEach((e) => {
-      if (stock[e.modelId] !== undefined) {
-        if (e.type === 'packaging' || e.type === undefined) {
-          stock[e.modelId] += e.quantity;
+      if (prodSums[e.modelId] !== undefined) {
+        if (e.type === 'production') {
+          prodSums[e.modelId] += e.quantity;
+        } else if (e.type === 'packaging') {
+          legacyPackSums[e.modelId] += e.quantity;
+        } else if (e.type === undefined) {
+          legacyUntypedSums[e.modelId] += e.quantity;
         }
       }
+    });
+
+    AIRBAG_MODELS.forEach((m) => {
+      const pkgSize = PACKAGING_SIZES[m] || 250;
+      const totalProduction = prodSums[m];
+      
+      const autoPackaged = Math.floor(totalProduction / pkgSize) * pkgSize;
+      stock[m] = autoPackaged + legacyPackSums[m] + legacyUntypedSums[m];
     });
 
     // Subtract processed deliveries
     deliveries.forEach((d) => {
       if (stock[d.modelId] !== undefined) {
-        stock[d.modelId] -= d.quantity;
+        stock[d.modelId] = Math.max(0, stock[d.modelId] - d.quantity);
       }
     });
 

@@ -315,18 +315,6 @@ export default function StockManagement({
           type: 'production'
         });
 
-        // Add the packaging entry automatically if we had complete packages
-        if (autoPackagedQty > 0) {
-          onAddEntry({
-            modelId: selectedModel,
-            workerName: finalWorkerName,
-            date: entryDate || getLocalDateStr(),
-            quantity: autoPackagedQty,
-            createdBy: currentUser.id,
-            type: 'packaging'
-          });
-        }
-
         // Reset fields except date and worker name
         setQuantity('');
         setAssociationType('NONE');
@@ -336,50 +324,61 @@ export default function StockManagement({
     });
   };
 
-  // Pre-calculate per-model packaged stock sums (packaging entries/legacy entries minus deliveries)
-  const packagedStockSums = useMemo(() => {
-    const sums = {} as Record<AirbagModel, number>;
+  // Pre-calculate per-model packaged stock sums and unpackaged quantities dynamically
+  // Packaged stock is calculated automatically by grouping production quantities into multiples of standard package sizes.
+  // Any remainder forms the unpackaged quantity. We also support legacy explicit packaging entries and untyped entries.
+  const { packagedStockSums, unpackagedQtySums } = useMemo(() => {
+    const packaged = {} as Record<AirbagModel, number>;
+    const unpackaged = {} as Record<AirbagModel, number>;
+    
     AIRBAG_MODELS.forEach((m) => {
-      sums[m] = 0;
+      packaged[m] = 0;
+      unpackaged[m] = 0;
+    });
+
+    // Group entries by type
+    const prodSums = {} as Record<AirbagModel, number>;
+    const legacyPackSums = {} as Record<AirbagModel, number>;
+    const legacyUntypedSums = {} as Record<AirbagModel, number>;
+
+    AIRBAG_MODELS.forEach((m) => {
+      prodSums[m] = 0;
+      legacyPackSums[m] = 0;
+      legacyUntypedSums[m] = 0;
     });
 
     entries.forEach((e) => {
-      if (sums[e.modelId] !== undefined) {
-        if (e.type === 'packaging' || e.type === undefined) {
-          sums[e.modelId] += e.quantity;
+      if (prodSums[e.modelId] !== undefined) {
+        if (e.type === 'production') {
+          prodSums[e.modelId] += e.quantity;
+        } else if (e.type === 'packaging') {
+          legacyPackSums[e.modelId] += e.quantity;
+        } else if (e.type === undefined) {
+          legacyUntypedSums[e.modelId] += e.quantity;
         }
       }
+    });
+
+    AIRBAG_MODELS.forEach((m) => {
+      const pkgSize = PACKAGING_SIZES[m] || 250;
+      const totalProduction = prodSums[m];
+      
+      const autoPackaged = Math.floor(totalProduction / pkgSize) * pkgSize;
+      const autoUnpackaged = totalProduction % pkgSize;
+
+      packaged[m] = autoPackaged + legacyPackSums[m] + legacyUntypedSums[m];
+      unpackaged[m] = autoUnpackaged;
     });
 
     // Subtract deliveries to automatically remove from packaged stock
     deliveries.forEach((d) => {
-      if (sums[d.modelId] !== undefined) {
-        sums[d.modelId] -= d.quantity;
+      if (packaged[d.modelId] !== undefined) {
+        packaged[d.modelId] = Math.max(0, packaged[d.modelId] - d.quantity);
       }
     });
 
-    return sums;
+    return { packagedStockSums: packaged, unpackagedQtySums: unpackaged };
   }, [entries, deliveries]);
-
-  // Pre-calculate per-model unpackaged quantity sums (production entries minus packaging entries)
-  const unpackagedQtySums = useMemo(() => {
-    const sums = {} as Record<AirbagModel, number>;
-    AIRBAG_MODELS.forEach((m) => {
-      sums[m] = 0;
-    });
-
-    entries.forEach((e) => {
-      if (sums[e.modelId] !== undefined) {
-        if (e.type === 'production') {
-          sums[e.modelId] += e.quantity;
-        } else if (e.type === 'packaging') {
-          sums[e.modelId] -= e.quantity;
-        }
-      }
-    });
-
-    return sums;
-  }, [entries]);
 
   // Totals for header
   const totalProduced = useMemo(() => {
