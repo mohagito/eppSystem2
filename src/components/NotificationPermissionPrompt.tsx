@@ -45,8 +45,7 @@ export default function NotificationPermissionPrompt({ currentUser }: Notificati
 
   const handleEnableNotifications = async () => {
     setIsProcessing(true);
-    const supported = await isFcmSupported();
-    if (!supported) {
+    if (!isFcmSupported()) {
       Swal.fire({
         icon: 'error',
         title: 'Device Unsupported',

@@ -838,6 +838,9 @@ export default function PlanningModule({
         {/* EXCEL TITLE BAR & WEEK CONTROLS */}
         <div className="bg-slate-50 border-b border-slate-200 px-5 py-4 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
           <div className="flex items-center gap-3">
+            <div className="p-2 bg-slate-900 text-white rounded-lg text-xs font-mono font-bold select-none shadow-3xs">
+              MTRX
+            </div>
             <div>
               <div className="flex items-center gap-2">
                 <h3 className="text-sm font-bold text-slate-900 font-sans tracking-tight">
@@ -885,6 +888,8 @@ export default function PlanningModule({
 
         {/* ACTIVE FORMULA INPUT FIELD EXCEL STYLING */}
         <div className="bg-white border-b border-slate-151 px-4 py-1.5 flex items-center gap-2 text-xs font-mono text-slate-600 select-none bg-slate-50/10">
+          <span className="font-bold text-slate-400 italic">fx</span>
+          <div className="w-[1px] h-3.5 bg-slate-200"></div>
           <span className="text-emerald-700 font-semibold">
             {`=WORK_WEEK(${companyWeekInfo.weekNo}; "from ${companyWeekInfo.formattedMonday} to ${companyWeekInfo.formattedSunday}")`}
           </span>

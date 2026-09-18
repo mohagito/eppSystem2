@@ -624,9 +624,6 @@ export default function RollsModule({
               <Layers size={14} className="text-indigo-600" />
               Factory Reserve Stock Status
             </h2>
-            <p className="text-[10px] text-slate-500 font-medium mt-0.5">
-              Live physical inventory count of unopened rolls available in the warehouse. Click any row to filter the detailed tracking list.
-            </p>
           </div>
           {searchQuery && (
             <button
