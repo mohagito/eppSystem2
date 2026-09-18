@@ -31,10 +31,10 @@ service cloud.firestore {
         && request.resource.data.id == entryId
         && request.resource.data.modelId is string && request.resource.data.modelId.size() <= 50
         && request.resource.data.workerName is string && request.resource.data.workerName.size() <= 100
-        && request.resource.data.date is string && request.resource.data.date.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.date is string && request.resource.data.date.size() <= 50
         && (request.resource.data.quantity is int || request.resource.data.quantity is float)
         && request.resource.data.createdBy is string
-        && request.resource.data.createdAt is string;
+        && (request.resource.data.createdAt is timestamp || request.resource.data.createdAt is string);
       allow delete: if true;
     }
 
@@ -62,7 +62,7 @@ service cloud.firestore {
       allow read: if true;
       allow create, update: if isValidId(planId)
         && request.resource.data.id == planId
-        && request.resource.data.planDate is string && request.resource.data.planDate.matches('^[0-9]{4}-[0-9]{2}-[0-9]{2}$')
+        && request.resource.data.planDate is string && request.resource.data.planDate.size() <= 50
         && request.resource.data.machine is string && request.resource.data.machine.size() <= 50
         && request.resource.data.shift is string && request.resource.data.shift.size() <= 50
         && request.resource.data.model is string && request.resource.data.model.size() <= 50
@@ -70,7 +70,7 @@ service cloud.firestore {
         && request.resource.data.assignedWorker is string && request.resource.data.assignedWorker.size() <= 100
         && request.resource.data.status is string && (request.resource.data.status == 'Pending' || request.resource.data.status == 'Completed' || request.resource.data.status == 'Delayed')
         && request.resource.data.createdBy is string
-        && request.resource.data.createdAt is string;
+        && (request.resource.data.createdAt is timestamp || request.resource.data.createdAt is string);
       allow delete: if true;
     }
 

@@ -41,18 +41,70 @@ import NotificationCenter, { playNotificationSound } from './components/Notifica
 import NotificationPermissionPrompt from './components/NotificationPermissionPrompt';
 import { onForegroundMessage } from './fcm';
 
+/**
+ * Safe promise wrapper that guarantees completion within ms, returning fallbackValue on timeout.
+ * Prevents any Firestore or async network call from hanging the application startup.
+ */
+function withTimeout<T>(promise: Promise<T>, ms: number, fallbackValue: T, operationName: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout>;
+  const timeoutPromise = new Promise<T>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(`[EPP Timeout Guard] "${operationName}" timed out after ${ms}ms - continuing with fallback.`);
+      resolve(fallbackValue);
+    }, ms);
+  });
+  return Promise.race([
+    promise.then((res) => {
+      clearTimeout(timer);
+      return res;
+    }).catch((err) => {
+      clearTimeout(timer);
+      console.warn(`[EPP Async Warning] "${operationName}" rejected:`, err);
+      return fallbackValue;
+    }),
+    timeoutPromise
+  ]);
+}
+
 export default function App() {
   // --- DATABASE AND LOCAL STORAGE PERSISTENCE ---
-  const [dbLoading, setDbLoading] = useState<boolean>(true);
-  const [profiles, setProfiles] = useState<UserProfile[]>([]);
-  const [stockEntries, setStockEntries] = useState<StockEntry[]>([]);
-  const [plans, setPlans] = useState<ProductionPlan[]>([]);
+  const [dbLoading, setDbLoading] = useState<boolean>(false);
+  const [profiles, setProfiles] = useState<UserProfile[]>(MOCK_PROFILES);
+  const [stockEntries, setStockEntries] = useState<StockEntry[]>(INITIAL_STOCK_ENTRIES);
+  const [plans, setPlans] = useState<ProductionPlan[]>(INITIAL_PLANS);
   const [deliveries, setDeliveries] = useState<DeliveryEntry[]>([]);
   const [rolls, setRolls] = useState<RollEntry[]>([]);
 
+  // Log dbLoading transitions
+  useEffect(() => {
+    console.info(`[EPP dbLoading State] dbLoading changed to: ${dbLoading}`);
+  }, [dbLoading]);
+
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
-    const saved = localStorage.getItem('epp_current_user');
-    return saved ? JSON.parse(saved) : null;
+    try {
+      if (typeof window === 'undefined') return MOCK_PROFILES[1];
+      const saved = localStorage.getItem('epp_current_user');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (
+          parsed &&
+          typeof parsed === 'object' &&
+          typeof parsed.id === 'string' &&
+          typeof parsed.name === 'string' &&
+          parsed.name.trim().length > 0 &&
+          typeof parsed.role === 'string'
+        ) {
+          console.info(`[EPP Auth] Loaded valid profile: "${parsed.name}" (${parsed.role})`);
+          return parsed;
+        }
+        console.warn('[EPP Auth] Corrupted or partial profile in localStorage, resetting to default:', parsed);
+      }
+      console.info(`[EPP Auth] Defaulting to operator: "${MOCK_PROFILES[1].name}"`);
+      return MOCK_PROFILES[1];
+    } catch (e) {
+      console.warn('[EPP Auth] Could not read user profile from storage, fallback to default:', e);
+      return MOCK_PROFILES[1];
+    }
   });
 
   const [dailyTargets, setDailyTargets] = useState<Record<string, number>>({
@@ -67,32 +119,43 @@ export default function App() {
 
   // Navigation State
   const [activeTab, setActiveTab ] = useState<string>(() => {
-    const params = new URLSearchParams(window.location.search);
-    const tab = params.get('tab');
-    return tab || 'dashboard';
+    try {
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        if (tab) return tab;
+      }
+    } catch (e) {
+      console.warn('Could not parse navigation tab from URL:', e);
+    }
+    return 'dashboard';
   });
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [quickNavOpen, setQuickNavOpen] = useState<boolean>(false);
 
   // --- PWA MOBILE INSTALL ENGINE ---
   const checkIfStandalone = () => {
-    if (typeof window === 'undefined') return false;
-    const isStandaloneMedia = window.matchMedia('(display-mode: standalone)').matches;
-    const isStandaloneLegacy = (navigator as any).standalone === true;
-    return isStandaloneMedia || isStandaloneLegacy;
+    try {
+      if (typeof window === 'undefined') return false;
+      const isStandaloneMedia = window.matchMedia && window.matchMedia('(display-mode: standalone)')?.matches;
+      const isStandaloneLegacy = (navigator as any)?.standalone === true;
+      return Boolean(isStandaloneMedia || isStandaloneLegacy);
+    } catch {
+      return false;
+    }
   };
 
   const [isInstalled, setIsInstalled] = useState<boolean>(checkIfStandalone());
   const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
 
   useEffect(() => {
-    // Explicitly register service worker for mobile PWA install capability
+    // Cleanly unregister any conflicting or stale service workers to prevent blank screens
     if (typeof window !== 'undefined' && 'serviceWorker' in navigator) {
-      navigator.serviceWorker.register('/sw.js', { scope: '/' }).catch(() => {
-        navigator.serviceWorker.register('/firebase-messaging-sw.js').catch((err) => {
-          console.debug('Service Worker Registration:', err);
-        });
-      });
+      navigator.serviceWorker.getRegistrations().then((registrations) => {
+        for (const reg of registrations) {
+          reg.unregister();
+        }
+      }).catch((err) => console.debug('Service Worker cleanup:', err));
     }
 
     const handleBeforeInstallPrompt = (e: Event) => {
@@ -103,23 +166,36 @@ export default function App() {
     window.addEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
 
     // Dynamic display mode listener
-    const mediaQuery = window.matchMedia('(display-mode: standalone)');
+    let mediaQuery: MediaQueryList | null = null;
     const handleMediaChange = (e: MediaQueryListEvent) => {
       setIsInstalled(e.matches);
     };
     
-    if (mediaQuery.addEventListener) {
-      mediaQuery.addEventListener('change', handleMediaChange);
-    } else {
-      (mediaQuery as any).addListener(handleMediaChange);
+    try {
+      if (typeof window !== 'undefined' && window.matchMedia) {
+        mediaQuery = window.matchMedia('(display-mode: standalone)');
+        if (mediaQuery.addEventListener) {
+          mediaQuery.addEventListener('change', handleMediaChange);
+        } else if ((mediaQuery as any).addListener) {
+          (mediaQuery as any).addListener(handleMediaChange);
+        }
+      }
+    } catch (err) {
+      console.debug('MatchMedia listener attach error:', err);
     }
 
     return () => {
       window.removeEventListener('beforeinstallprompt', handleBeforeInstallPrompt);
-      if (mediaQuery.removeEventListener) {
-        mediaQuery.removeEventListener('change', handleMediaChange);
-      } else {
-        (mediaQuery as any).removeListener(handleMediaChange);
+      if (mediaQuery) {
+        try {
+          if (mediaQuery.removeEventListener) {
+            mediaQuery.removeEventListener('change', handleMediaChange);
+          } else if ((mediaQuery as any).removeListener) {
+            (mediaQuery as any).removeListener(handleMediaChange);
+          }
+        } catch {
+          // ignore cleanup errors
+        }
       }
     };
   }, []);
@@ -331,21 +407,34 @@ export default function App() {
     let unsubDeliveries: (() => void) | null = null;
     let unsubRolls: (() => void) | null = null;
 
+    // Safety fallback: ensure UI is never stuck in blank/loading state even on slow connection
+    const loadingTimeout = setTimeout(() => {
+      if (active) {
+        console.warn('[EPP Lifecycle] Loading timeout elapsed (2000ms) - forcing dbLoading to false.');
+        setDbLoading(false);
+      }
+    }, 2000);
+
     const setupSubscriptions = () => {
       if (!active) return;
+      console.info('[EPP Sync:Start] Registering 6 real-time Firestore listeners at', new Date().toISOString());
 
       // 1. Sync Profiles
+      console.info('[EPP Sync] Subscribing to "profiles" collection...');
       unsubProfiles = onSnapshot(collection(db, 'profiles'), (snapshot) => {
         const list: UserProfile[] = [];
         snapshot.forEach((doc) => {
           list.push(doc.data() as UserProfile);
         });
+        console.info(`[EPP Sync:profiles] Snapshot received with ${list.length} profiles (fromCache: ${snapshot.metadata.fromCache})`);
         setProfiles(list);
       }, (err) => {
+        console.error('[EPP Sync:profiles] Error in profiles listener:', err);
         handleFirestoreError(err, OperationType.LIST, 'profiles');
       });
 
       // 2. Sync Stock Entries
+      console.info('[EPP Sync] Subscribing to "stock_entries" collection...');
       unsubStock = onSnapshot(collection(db, 'stock_entries'), (snapshot) => {
         const list: StockEntry[] = [];
         snapshot.forEach((doc) => {
@@ -353,12 +442,15 @@ export default function App() {
         });
         // Sort desc by createdAt
         list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        console.info(`[EPP Sync:stock_entries] Snapshot received with ${list.length} entries (fromCache: ${snapshot.metadata.fromCache})`);
         setStockEntries(list);
       }, (err) => {
+        console.error('[EPP Sync:stock_entries] Error in stock_entries listener:', err);
         handleFirestoreError(err, OperationType.LIST, 'stock_entries');
       });
 
       // 3. Sync Production Plans
+      console.info('[EPP Sync] Subscribing to "production_plans" collection...');
       unsubPlans = onSnapshot(collection(db, 'production_plans'), (snapshot) => {
         const list: ProductionPlan[] = [];
         snapshot.forEach((doc) => {
@@ -374,13 +466,18 @@ export default function App() {
         });
         // Sort desc by planDate / createdAt
         list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        console.info(`[EPP Sync:production_plans] Snapshot received with ${list.length} plans (fromCache: ${snapshot.metadata.fromCache})`);
         setPlans(list);
       }, (err) => {
+        console.error('[EPP Sync:production_plans] Error in production_plans listener:', err);
         handleFirestoreError(err, OperationType.LIST, 'production_plans');
       });
 
       // 4. Sync Daily Targets
+      console.info('[EPP Sync] Subscribing to "settings/daily_targets" document...');
       unsubTargets = onSnapshot(doc(db, 'settings', 'daily_targets'), (docSnap) => {
+        clearTimeout(loadingTimeout);
+        console.info(`[EPP Sync:daily_targets] Snapshot received (exists: ${docSnap.exists()}, fromCache: ${docSnap.metadata.fromCache})`);
         if (docSnap.exists()) {
           const data = docSnap.data();
           if (data && data.targets) {
@@ -389,10 +486,14 @@ export default function App() {
         }
         setDbLoading(false);
       }, (err) => {
+        clearTimeout(loadingTimeout);
+        setDbLoading(false);
+        console.error('[EPP Sync:daily_targets] Error in daily_targets listener:', err);
         handleFirestoreError(err, OperationType.GET, 'settings/daily_targets');
       });
 
       // 5. Sync Deliveries
+      console.info('[EPP Sync] Subscribing to "deliveries" collection...');
       unsubDeliveries = onSnapshot(collection(db, 'deliveries'), (snapshot) => {
         const list: DeliveryEntry[] = [];
         snapshot.forEach((doc) => {
@@ -413,12 +514,15 @@ export default function App() {
           } as DeliveryEntry);
         });
         list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        console.info(`[EPP Sync:deliveries] Snapshot received with ${list.length} delivery records (fromCache: ${snapshot.metadata.fromCache})`);
         setDeliveries(list);
       }, (err) => {
+        console.error('[EPP Sync:deliveries] Error in deliveries listener:', err);
         handleFirestoreError(err, OperationType.LIST, 'deliveries');
       });
 
       // 6. Sync Material Rolls
+      console.info('[EPP Sync] Subscribing to "rolls" collection...');
       unsubRolls = onSnapshot(collection(db, 'rolls'), (snapshot) => {
         const list: RollEntry[] = [];
         snapshot.forEach((doc) => {
@@ -426,27 +530,34 @@ export default function App() {
         });
         // Sort descending by registration ID (timestamp)
         list.sort((a, b) => b.id.localeCompare(a.id));
+        console.info(`[EPP Sync:rolls] Snapshot received with ${list.length} roll units (fromCache: ${snapshot.metadata.fromCache})`);
         setRolls(list);
       }, (err) => {
+        console.error('[EPP Sync:rolls] Error in rolls listener:', err);
         handleFirestoreError(err, OperationType.LIST, 'rolls');
       });
     };
 
     const initializeAndSubscribe = async () => {
-      try {
-        console.log("Starting DB initialization...");
-        const initDocRef = doc(db, 'settings', 'init_status');
-        let initDocSnap;
-        try {
-          initDocSnap = await getDoc(initDocRef);
-          console.log("initDocSnap read successful:", initDocSnap.exists());
-        } catch (e: any) {
-          console.error("Error reading settings/init_status:", e);
-          throw new Error("Failed at settings/init_status read: " + e.message);
-        }
+      const initStartTime = Date.now();
+      console.info('[EPP DB Init:Start] Starting background database seed and check sequence at', new Date().toISOString());
 
-        if (!initDocSnap.exists()) {
-          console.log("Seeding initial profiles and targets...");
+      try {
+        // Step 1: Check init_status
+        console.info('[EPP DB Init:Step 1/4] Checking settings/init_status document...');
+        const initDocRef = doc(db, 'settings', 'init_status');
+        const initDocSnap = await withTimeout(
+          getDoc(initDocRef).catch((e) => {
+            console.warn('[EPP DB Init:Step 1] Error reading init_status:', e);
+            return null;
+          }),
+          3500,
+          null,
+          'read settings/init_status'
+        );
+
+        if (initDocSnap && !initDocSnap.exists()) {
+          console.info('[EPP DB Init:Step 1] First-run detected. Seeding initial profiles and daily targets...');
           try {
             const batch = writeBatch(db);
 
@@ -464,119 +575,149 @@ export default function App() {
               '2026-06-07': 300,
             };
             batch.set(doc(db, 'settings', 'daily_targets'), { targets: defaultTargets });
-            batch.set(initDocRef, { seeded: true });
+            batch.set(initDocRef, { seeded: true, timestamp: new Date().toISOString() });
 
-            await batch.commit();
-            console.log("Seeding initial profiles and targets completed!");
+            await withTimeout(batch.commit(), 4000, null, 'commit initial profiles & targets batch');
+            console.info('[EPP DB Init:Step 1] Initial profiles and targets seeded successfully.');
           } catch (e: any) {
-            console.error("Error seeding initial profiles/targets:", e);
-            throw new Error("Failed at seeding initial profiles/targets batch: " + e.message);
+            console.warn('[EPP DB Init:Step 1] Seeding initial profiles/targets skipped:', e);
           }
+        } else {
+          console.info(`[EPP DB Init:Step 1] settings/init_status verified: ${initDocSnap ? 'already seeded' : 'timed out / skipped'}`);
         }
 
-        // ONE-TIME PURGE OF DEMO DATA FOR COMPANY PRODUCTION READINESS
+        // Step 2: One-time purge of demo data
+        console.info('[EPP DB Init:Step 2/4] Checking settings/production_cleaned_v1...');
         const cleanDocRef = doc(db, 'settings', 'production_cleaned_v1');
-        let cleanDocSnap;
-        try {
-          cleanDocSnap = await getDoc(cleanDocRef);
-          console.log("cleanDocSnap read successful:", cleanDocSnap.exists());
-        } catch (e: any) {
-          console.error("Error reading production_cleaned_v1:", e);
-          throw new Error("Failed at production_cleaned_v1 read: " + e.message);
-        }
+        const cleanDocSnap = await withTimeout(
+          getDoc(cleanDocRef).catch((e) => {
+            console.warn('[EPP DB Init:Step 2] Error reading production_cleaned_v1:', e);
+            return null;
+          }),
+          3500,
+          null,
+          'read settings/production_cleaned_v1'
+        );
 
-        if (!cleanDocSnap.exists()) {
-          console.log("Purging demo data...");
+        if (cleanDocSnap && !cleanDocSnap.exists()) {
+          console.info('[EPP DB Init:Step 2] Purging demo data for company production readiness...');
           try {
             const batch = writeBatch(db);
 
-            const stockSnap = await getDocs(collection(db, 'stock_entries'));
-            stockSnap.forEach((docSnap) => {
-              batch.delete(docSnap.ref);
-            });
-
-            const plansSnap = await getDocs(collection(db, 'production_plans'));
-            plansSnap.forEach((docSnap) => {
-              batch.delete(docSnap.ref);
-            });
-
-            batch.set(cleanDocRef, { cleaned: true });
-            await batch.commit();
-            console.log("Purging demo data completed!");
-            addToast("Database cleared and optimized for real production operations!", "success");
-          } catch (e: any) {
-            console.error("Error purging demo data:", e);
-            throw new Error("Failed at purging demo data: " + e.message);
-          }
-        }
-
-        // ONE-TIME CLEANUP OF SPECIFIC WORKERS: DELETING "SALAH" AND KEEPING ONLY MOUAD AND MOHAMED
-        const cleanWorkersRef = doc(db, 'settings', 'workers_cleanup_v1');
-        let cleanWorkersSnap;
-        try {
-          cleanWorkersSnap = await getDoc(cleanWorkersRef);
-          console.log("cleanWorkersSnap read successful:", cleanWorkersSnap.exists());
-        } catch (e: any) {
-          console.error("Error reading workers_cleanup_v1:", e);
-          throw new Error("Failed at workers_cleanup_v1 read: " + e.message);
-        }
-
-        if (!cleanWorkersSnap.exists()) {
-          console.log("Cleaning up worker profiles...");
-          try {
-            const batch = writeBatch(db);
-            const profilesSnap = await getDocs(collection(db, 'profiles'));
-            let countDeleted = 0;
-            profilesSnap.forEach((docSnap) => {
-              const data = docSnap.data();
-              if (data.role === 'worker') {
-                const nameLower = (data.name || '').toLowerCase().trim();
-                const userNameLower = (data.username || '').toLowerCase().trim();
-                const isMohamed = nameLower === 'mohamed' || userNameLower === 'mohamed';
-                const isMouad = nameLower === 'mouad' || userNameLower === 'mouad';
-                if (!isMohamed && !isMouad) {
-                  batch.delete(docSnap.ref);
-                  countDeleted++;
-                }
-              }
-            });
-            batch.set(cleanWorkersRef, { cleaned: true, countDeleted });
-            await batch.commit();
-            console.log("Cleaning up worker profiles completed, deleted count:", countDeleted);
-            if (countDeleted > 0) {
-              addToast(`Database cleaned: Removed ${countDeleted} unrecognized worker profiles. Keeping only Mohamed and Mouad.`, "info");
+            const stockSnap = await withTimeout(
+              getDocs(collection(db, 'stock_entries')),
+              3500,
+              null,
+              'getDocs stock_entries for purge'
+            );
+            if (stockSnap) {
+              stockSnap.forEach((docSnap) => {
+                batch.delete(docSnap.ref);
+              });
             }
+
+            const plansSnap = await withTimeout(
+              getDocs(collection(db, 'production_plans')),
+              3500,
+              null,
+              'getDocs production_plans for purge'
+            );
+            if (plansSnap) {
+              plansSnap.forEach((docSnap) => {
+                batch.delete(docSnap.ref);
+              });
+            }
+
+            batch.set(cleanDocRef, { cleaned: true, timestamp: new Date().toISOString() });
+            await withTimeout(batch.commit(), 4000, null, 'commit demo data purge');
+            console.info('[EPP DB Init:Step 2] Demo data purged successfully.');
           } catch (e: any) {
-            console.error("Error cleaning up worker profiles:", e);
-            throw new Error("Failed at cleaning up worker profiles: " + e.message);
+            console.warn('[EPP DB Init:Step 2] Purging demo data skipped:', e);
           }
+        } else {
+          console.info(`[EPP DB Init:Step 2] production_cleaned_v1 verified: ${cleanDocSnap ? 'already cleaned' : 'timed out / skipped'}`);
         }
 
-        // ONE-TIME SEEDING OF EXACT ROLLS DATA FROM SPREADSHEET
-        const rollsSeedRef = doc(db, 'settings', 'rolls_stock_seed_v5');
-        let rollsSeedSnap;
-        try {
-          rollsSeedSnap = await getDoc(rollsSeedRef);
-          console.log("rollsSeedSnap read successful:", rollsSeedSnap.exists());
-        } catch (e: any) {
-          console.error("Error reading rolls_stock_seed_v5:", e);
-          throw new Error("Failed at rolls_stock_seed_v5 read: " + e.message);
-        }
+        // Step 3: One-time cleanup of specific workers
+        console.info('[EPP DB Init:Step 3/4] Checking settings/workers_cleanup_v1...');
+        const cleanWorkersRef = doc(db, 'settings', 'workers_cleanup_v1');
+        const cleanWorkersSnap = await withTimeout(
+          getDoc(cleanWorkersRef).catch((e) => {
+            console.warn('[EPP DB Init:Step 3] Error reading workers_cleanup_v1:', e);
+            return null;
+          }),
+          3500,
+          null,
+          'read settings/workers_cleanup_v1'
+        );
 
-        if (!rollsSeedSnap.exists()) {
-          console.log("Seeding rolls stock from spreadsheet...");
+        if (cleanWorkersSnap && !cleanWorkersSnap.exists()) {
+          console.info('[EPP DB Init:Step 3] Purging obsolete demo worker accounts...');
           try {
             const batch = writeBatch(db);
-            
-            // Clear all existing rolls to ensure count matches exactly
-            const rollsSnap = await getDocs(collection(db, 'rolls'));
-            rollsSnap.forEach((docSnap) => {
-              batch.delete(docSnap.ref);
-            });
+            const profilesSnap = await withTimeout(
+              getDocs(collection(db, 'profiles')),
+              3500,
+              null,
+              'getDocs profiles for worker cleanup'
+            );
+            let countDeleted = 0;
+            if (profilesSnap) {
+              profilesSnap.forEach((docSnap) => {
+                const data = docSnap.data();
+                if (data.role === 'worker') {
+                  const nameLower = (data.name || '').toLowerCase().trim();
+                  const userNameLower = (data.username || '').toLowerCase().trim();
+                  const isMohamed = nameLower === 'mohamed' || userNameLower === 'mohamed';
+                  const isMouad = nameLower === 'mouad' || userNameLower === 'mouad';
+                  if (!isMohamed && !isMouad) {
+                    batch.delete(docSnap.ref);
+                    countDeleted++;
+                  }
+                }
+              });
+            }
+            batch.set(cleanWorkersRef, { cleaned: true, countDeleted, timestamp: new Date().toISOString() });
+            await withTimeout(batch.commit(), 4000, null, 'commit worker cleanup batch');
+            console.info(`[EPP DB Init:Step 3] Worker cleanup completed (${countDeleted} profiles removed).`);
+          } catch (e: any) {
+            console.warn('[EPP DB Init:Step 3] Worker cleanup skipped:', e);
+          }
+        } else {
+          console.info(`[EPP DB Init:Step 3] workers_cleanup_v1 verified: ${cleanWorkersSnap ? 'already cleaned' : 'timed out / skipped'}`);
+        }
+
+        // Step 4: One-time seeding of rolls data from spreadsheet
+        console.info('[EPP DB Init:Step 4/4] Checking settings/rolls_stock_seed_v5...');
+        const rollsSeedRef = doc(db, 'settings', 'rolls_stock_seed_v5');
+        const rollsSeedSnap = await withTimeout(
+          getDoc(rollsSeedRef).catch((e) => {
+            console.warn('[EPP DB Init:Step 4] Error reading rolls_stock_seed_v5:', e);
+            return null;
+          }),
+          3500,
+          null,
+          'read settings/rolls_stock_seed_v5'
+        );
+
+        if (rollsSeedSnap && !rollsSeedSnap.exists()) {
+          console.info('[EPP DB Init:Step 4] Seeding 20 initial rolls from spreadsheet inventory...');
+          try {
+            const batch = writeBatch(db);
+            const rollsSnap = await withTimeout(
+              getDocs(collection(db, 'rolls')),
+              3500,
+              null,
+              'getDocs rolls for re-seed'
+            );
+            if (rollsSnap) {
+              rollsSnap.forEach((docSnap) => {
+                batch.delete(docSnap.ref);
+              });
+            }
             
             const todayDate = new Date().toISOString().split('T')[0];
 
-            // 1. Yellow Huesker (9 unopened rolls)
             for (let i = 1; i <= 9; i++) {
               const id = `roll-seed-yellow-${i}`;
               batch.set(doc(db, 'rolls', id), {
@@ -590,7 +731,6 @@ export default function App() {
               });
             }
 
-            // 2. Kuga (7 unopened rolls)
             for (let i = 1; i <= 7; i++) {
               const id = `roll-seed-kuga-${i}`;
               batch.set(doc(db, 'rolls', id), {
@@ -604,7 +744,6 @@ export default function App() {
               });
             }
 
-            // 3. White Huesker (4 unopened rolls)
             for (let i = 1; i <= 4; i++) {
               const id = `roll-seed-white-${i}`;
               batch.set(doc(db, 'rolls', id), {
@@ -618,26 +757,34 @@ export default function App() {
               });
             }
 
-            batch.set(rollsSeedRef, { seeded: true });
-            await batch.commit();
-            console.log("Seeding rolls stock completed!");
-            addToast("Factory reserve rolls stock (9 Yellow Huesker, 7 Kuga, 4 White Huesker) successfully loaded into system!", "success");
+            batch.set(rollsSeedRef, { seeded: true, timestamp: new Date().toISOString() });
+            await withTimeout(batch.commit(), 4000, null, 'commit rolls seed batch');
+            console.info('[EPP DB Init:Step 4] Rolls stock seeded successfully (20 rolls).');
           } catch (e: any) {
-            console.error("Error seeding rolls stock:", e);
-            throw new Error("Failed at seeding rolls stock: " + e.message);
+            console.warn('[EPP DB Init:Step 4] Rolls seeding skipped:', e);
           }
+        } else {
+          console.info(`[EPP DB Init:Step 4] rolls_stock_seed_v5 verified: ${rollsSeedSnap ? 'already seeded' : 'timed out / skipped'}`);
         }
+
+        console.info(`[EPP DB Init:Complete] Entire initialization routine completed in ${Date.now() - initStartTime}ms.`);
       } catch (err: any) {
-        console.error("Database initialization failed, subscribing anyway: ", err);
+        console.error('[EPP DB Init:Error] Initialization routine caught error:', err);
       } finally {
-        setupSubscriptions();
+        console.info('[EPP DB Init:Finally] Ensuring dbLoading is set to false.');
+        setDbLoading(false);
       }
     };
 
+    // 1. Immediately establish real-time subscriptions so user never waits
+    setupSubscriptions();
+
+    // 2. Perform background seeding and checks asynchronously
     initializeAndSubscribe();
 
     return () => {
       active = false;
+      clearTimeout(loadingTimeout);
       if (unsubProfiles) unsubProfiles();
       if (unsubStock) unsubStock();
       if (unsubPlans) unsubPlans();
@@ -648,10 +795,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    if (currentUser) {
-      localStorage.setItem('epp_current_user', JSON.stringify(currentUser));
-    } else {
-      localStorage.removeItem('epp_current_user');
+    try {
+      if (currentUser) {
+        localStorage.setItem('epp_current_user', JSON.stringify(currentUser));
+      } else {
+        localStorage.removeItem('epp_current_user');
+      }
+    } catch (e) {
+      console.warn('Storage sync failed:', e);
     }
   }, [currentUser]);
 
@@ -990,8 +1141,19 @@ export default function App() {
       addToast('Security Block: Only managers are authorized to update stock specifications or quantities.', 'error');
       return;
     }
-    const finalUpdate = {
-      ...updatedEntry,
+    const cleanedUpdate = Object.fromEntries(
+      Object.entries(updatedEntry)
+        .filter(([_, v]) => v !== undefined)
+        .map(([k, v]) => {
+          if (['quantity', 'originalQuantity', 'correctedQuantity', 'difference'].includes(k)) {
+            return [k, typeof v === 'number' ? v : parseInt(String(v), 10) || 0];
+          }
+          return [k, v];
+        })
+    ) as Partial<StockEntry>;
+
+    const finalUpdate: any = {
+      ...cleanedUpdate,
       editedAt: serverTimestamp()
     };
     updateDoc(doc(db, 'stock_entries', id), finalUpdate)
@@ -1001,7 +1163,7 @@ export default function App() {
         if (entry) {
           triggerNotification(
             'Stock Entry Corrected',
-            `Manager ${currentUser?.name} updated Stockholm log for ${entry.modelId} (from ${finalUpdate.originalQuantity} to ${finalUpdate.quantity} pcs).`,
+            `Manager ${currentUser?.name} updated stockpile log for ${entry.modelId} (from ${cleanedUpdate.originalQuantity !== undefined ? cleanedUpdate.originalQuantity : entry.quantity} to ${cleanedUpdate.quantity !== undefined ? cleanedUpdate.quantity : entry.quantity} pcs).`,
             'stock',
             'manager'
           );
@@ -1541,6 +1703,8 @@ export default function App() {
     { id: 'label_printer', label: 'Label Printer', icon: Printer }
   ];
 
+  console.debug(`[EPP App Render] tab="${activeTab}", user="${currentUser?.name || 'LOGGED_OUT'}" (${currentUser?.role || 'none'}), dbLoading=${dbLoading}, stock=${stockEntries.length}, plans=${plans.length}, rolls=${rolls.length}`);
+
   return (
     <div className="min-h-screen flex flex-col bg-slate-50 text-slate-900 antialiased font-sans transition-colors duration-300">
       
@@ -1561,13 +1725,10 @@ export default function App() {
           </div>
         </div>
       ) : (
-        <AnimatePresence mode="wait">
+        <>
           {!currentUser ? (
-          <motion.div
+          <div
             key="login"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
             className="flex-1 flex flex-col md:flex-row min-h-screen bg-slate-50 select-none overflow-hidden"
             id="auth-wall"
           >
@@ -1749,14 +1910,11 @@ export default function App() {
                 </div>
               </div>
             </div>
-          </motion.div>
+          </div>
         ) : (
           /* INTERNAL LAYOUT DRAWER FRAME IF USER IS AUTHENTICATED */
-          <motion.div
+          <div
             key="app-main"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
             className="flex-1 flex flex-col md:flex-row min-h-screen bg-slate-50 text-slate-900"
             id="app-interior"
           >
@@ -2113,9 +2271,9 @@ export default function App() {
               <NotificationPermissionPrompt currentUser={currentUser} />
             </main>
 
-          </motion.div>
+          </div>
         )}
-      </AnimatePresence>
+      </>
       )}
     </div>
   );

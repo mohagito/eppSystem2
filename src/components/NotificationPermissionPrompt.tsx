@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Bell, ShieldCheck, X, AlertCircle } from 'lucide-react';
-import { doc, getDoc } from 'firebase/firestore';
+import { doc, getDoc, updateDoc } from 'firebase/firestore';
 import { db } from '../firebase';
 import { setupFcmToken, isFcmSupported } from '../fcm';
 import { UserProfile } from '../types';
@@ -45,7 +45,8 @@ export default function NotificationPermissionPrompt({ currentUser }: Notificati
 
   const handleEnableNotifications = async () => {
     setIsProcessing(true);
-    if (!isFcmSupported()) {
+    const supported = await isFcmSupported();
+    if (!supported) {
       Swal.fire({
         icon: 'error',
         title: 'Device Unsupported',
@@ -82,7 +83,6 @@ export default function NotificationPermissionPrompt({ currentUser }: Notificati
   const handleDeclineNotifications = async () => {
     // If user clicks "Not Now" / declining, we set notificationEnabled which blocks showing this card again.
     try {
-      const { updateDoc, doc } = await import('firebase/firestore');
       await updateDoc(doc(db, 'profiles', currentUser.id), {
         notificationEnabled: false,
         lastTokenUpdate: new Date().toISOString()

@@ -49,6 +49,7 @@ export interface DeliveryEntry {
   createdBy: string; // Creator profile name
   createdAt: any; // ISO string or Firestore timestamp
   invoiceNumber: string;
+  carrier?: string;
 }
 
 export type MachineType = 'Big Machine' | 'Small Machine';

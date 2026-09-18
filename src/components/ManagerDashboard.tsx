@@ -313,8 +313,8 @@ export default function ManagerDashboard({
     });
 
     // 2. Production Plans sheet
-    const plansHeaders = [["Plan ID", "Airbag Model", "Planned Date", "Shift", "Quantity Planned", "Quantity Produced", "Assigned Operator", "Machine No.", "Status"]];
-    const plansRows = backupWeekStats.plans.map(p => [
+    const plansHeaders: (string | number)[][] = [["Plan ID", "Airbag Model", "Planned Date", "Shift", "Quantity Planned", "Quantity Produced", "Assigned Operator", "Machine No.", "Status"]];
+    const plansRows: (string | number)[][] = backupWeekStats.plans.map(p => [
       p.id,
       p.model,
       p.planDate,
@@ -328,8 +328,8 @@ export default function ManagerDashboard({
     const plansSheetData = plansHeaders.concat(plansRows);
 
     // 3. Stock Output Ledger
-    const stockHeaders = [["Log ID", "Model ID", "Quantity Added", "Logged Date", "Logged By Operator", "Timestamp UTC"]];
-    const stockRows = backupWeekStats.entries.map(e => [
+    const stockHeaders: (string | number)[][] = [["Log ID", "Model ID", "Quantity Added", "Logged Date", "Logged By Operator", "Timestamp UTC"]];
+    const stockRows: (string | number)[][] = backupWeekStats.entries.map(e => [
       e.id,
       e.modelId,
       e.quantity,
@@ -340,8 +340,8 @@ export default function ManagerDashboard({
     const stockSheetData = stockHeaders.concat(stockRows);
 
     // 4. Deliveries ledger
-    const deliveryHeaders = [["Shipment ID", "Model ID", "Quantity Shipped", "Shipment Date", "Carrier Name", "Timestamp UTC"]];
-    const deliveryRows = backupWeekStats.deliveries.map(d => [
+    const deliveryHeaders: (string | number)[][] = [["Shipment ID", "Model ID", "Quantity Shipped", "Shipment Date", "Carrier Name", "Timestamp UTC"]];
+    const deliveryRows: (string | number)[][] = backupWeekStats.deliveries.map(d => [
       d.id,
       d.modelId,
       d.quantity,
