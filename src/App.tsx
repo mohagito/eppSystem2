@@ -21,7 +21,6 @@ import {
   AlertCircle,
   Truck,
   Download,
-  Printer,
   Scroll
 } from 'lucide-react';
 import { UserProfile, StockEntry, ProductionPlan, ToastMessage, DeliveryEntry, RollEntry } from './types';
@@ -33,7 +32,6 @@ import ManagerDashboard from './components/ManagerDashboard';
 import StockManagement from './components/StockManagement';
 import PlanningModule from './components/PlanningModule';
 import DeliveryModule from './components/DeliveryModule';
-import LabelGenerator from './components/LabelGenerator';
 import RollsModule from './components/RollsModule';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDoc, getDocs, serverTimestamp } from 'firebase/firestore';
@@ -77,7 +75,7 @@ export default function App() {
       if (typeof window !== 'undefined') {
         const params = new URLSearchParams(window.location.search);
         const tab = params.get('tab');
-        if (tab) return tab;
+        if (tab && tab !== 'label_printer') return tab;
       }
     } catch (e) {
       console.warn('Could not parse navigation tab from URL:', e);
@@ -1568,13 +1566,6 @@ export default function App() {
           />
         );
 
-      case 'label_printer':
-        return (
-          <LabelGenerator
-            currentUser={currentUser}
-          />
-        );
-
       case 'rolls':
         return (
           <RollsModule
@@ -1603,8 +1594,7 @@ export default function App() {
     { id: 'stock', label: 'Stock', icon: Database },
     { id: 'plans', label: 'Production Plan', icon: CalendarRange },
     { id: 'rolls', label: 'Material Rolls', icon: Scroll },
-    { id: 'delivery', label: 'Deliveries', icon: Truck },
-    { id: 'label_printer', label: 'Label Printer', icon: Printer }
+    { id: 'delivery', label: 'Deliveries', icon: Truck }
   ];
 
   return (
