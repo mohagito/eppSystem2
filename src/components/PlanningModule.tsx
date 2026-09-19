@@ -1243,18 +1243,6 @@ export default function PlanningModule({
               </div>
             </div>
 
-            {/* Notes */}
-            <div className="space-y-1.5">
-              <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Production Directives (Notes)</label>
-              <textarea
-                placeholder="Provide specific notes/tolerances/setup requests..."
-                value={notes}
-                onChange={(e) => setNotes(e.target.value)}
-                className="w-full bg-slate-50/40 hover:bg-slate-50/95 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-hidden focus:bg-white focus:border-emerald-500 transition-all shadow-3xs min-h-[70px] resize-none placeholder-slate-400"
-                id="plan-form-notes"
-              />
-            </div>
-
             <button
               type="submit"
               className="w-full bg-slate-900 hover:bg-slate-800 text-white font-semibold py-2.5 rounded-xl text-xs transition-colors cursor-pointer flex items-center justify-center gap-1.5 shadow-xs"
