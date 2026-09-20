@@ -22,7 +22,9 @@ import {
   Clock,
   X,
   Download,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Boxes,
+  Package
 } from 'lucide-react';
 
 interface DeliveryProps {
@@ -524,63 +526,81 @@ export default function DeliveryModule({
   return (
     <div className="space-y-8" id="delivery-module-view">
       {/* Dynamic Stock Levels vs Deliveries */}
-      <div>
-        <div className="flex flex-col md:flex-row md:items-center justify-between mb-4 gap-2">
-          <div>
+      <div className="space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+          <div className="flex items-center gap-2.5">
+            <div className="p-2 bg-slate-900 text-white rounded-xl">
+              <Boxes size={18} />
+            </div>
             <h3 className="text-sm font-semibold tracking-wider uppercase text-slate-500 font-sans">Active Stock Available After Deliveries</h3>
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-xs text-amber-700 bg-amber-50 border border-amber-100 px-3 py-1 rounded-full font-mono font-bold shadow-3xs flex items-center gap-1">
-              <Truck size={12} />
-              {totalDeliveredSum} Logged Dispatches
-            </span>
-            <span className="text-xs text-emerald-700 bg-emerald-50 border border-emerald-100 px-3 py-1 rounded-full font-mono font-bold shadow-3xs">
-              {netStockSum} Pcs Net Stock Remaining
+            <span className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg font-mono font-bold shadow-3xs" title="Total packaged stock available for delivery">
+              {netStockSum} Packaged Stock Available
             </span>
           </div>
         </div>
 
         {/* Bento Board of Models */}
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-4" id="delivery-model-aggregate-cards">
+        <div className="grid grid-cols-1 min-[450px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4" id="delivery-model-aggregate-cards">
           {AIRBAG_MODELS.map((model) => {
-            const stockVal = availableStock[model];
-            const isNegative = stockVal < 0;
-            const hasGoodStock = stockVal > 100;
-            const hasCriticalStock = stockVal <= 10 && stockVal >= 0;
-
-            let badgeColor = 'bg-slate-50 border-slate-150 text-slate-800';
-            let textColor = 'text-slate-900';
-            
-            if (isNegative) {
-              badgeColor = 'bg-rose-50 border-rose-100 text-rose-700 animate-pulse';
-              textColor = 'text-rose-700';
-            } else if (hasGoodStock) {
-              badgeColor = 'bg-emerald-50/50 border-emerald-100 text-emerald-800';
-              textColor = 'text-emerald-900';
-            } else if (hasCriticalStock) {
-              badgeColor = 'bg-amber-50 border-amber-100 text-amber-800';
-              textColor = 'text-amber-800';
-            }
+            const stockVal = availableStock[model] || 0;
+            const isCaddy = model === 'CADDY';
 
             return (
               <motion.div
                 key={model}
-                whileHover={{ y: -3, scale: 1.01 }}
-                className={`p-4 rounded-xl border transition-all duration-300 bg-white shadow-3xs ${badgeColor}`}
+                whileHover={{ y: -3, scale: 1.015 }}
+                className={`p-6 rounded-[2rem] border shadow-3xs hover:shadow-xs transition-all duration-300 relative group flex flex-col justify-between ${
+                  isCaddy 
+                    ? 'bg-rose-50/60 border-rose-200/80 hover:bg-rose-100/50 hover:border-rose-300' 
+                    : 'bg-white border-slate-200 hover:border-slate-300'
+                }`}
                 id={`delivery-model-card-${model.replace(' ', '-')}`}
               >
-                <div className="text-2s font-mono text-slate-450 tracking-wider font-extrabold uppercase">{model}</div>
-                <div className="mt-2 flex items-baseline justify-between select-none">
-                  <div className="flex items-baseline gap-1">
-                    <span className={`text-2xl font-extrabold font-mono ${textColor}`}>
-                      {stockVal}
-                    </span>
-                    <span className="text-[10px] text-slate-450 font-bold">pcs</span>
+                <div>
+                  <div className="flex items-center justify-between mb-4">
+                    <div className="flex items-center gap-2.5 min-w-0 w-full">
+                      <div className={`p-2 border rounded-xl shrink-0 ${
+                        isCaddy 
+                          ? 'bg-rose-100/50 border-rose-200 text-rose-600' 
+                          : 'bg-slate-50 border-slate-100 text-slate-500'
+                      }`}>
+                        <Package size={16} />
+                      </div>
+                      <div className="flex flex-col min-w-0">
+                        <span className={`text-base font-black font-sans tracking-tight truncate uppercase leading-tight ${
+                          isCaddy ? 'text-rose-950' : 'text-slate-800'
+                        }`} title={model}>
+                          {model}
+                        </span>
+                        {isCaddy && (
+                          <span className="text-[10px] font-black tracking-wider uppercase text-rose-500 leading-none mt-0.5">
+                            STOPPED
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <div className="space-y-3 mt-4">
+                    {/* Packaged Stock Row */}
+                    <div className="flex items-center justify-between py-3 px-5 rounded-full bg-emerald-50/40 border border-emerald-100/80 hover:bg-emerald-50/60 transition-all">
+                      <div className="flex items-center gap-2.5">
+                        <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
+                        <span className="text-[11px] text-slate-500 font-extrabold uppercase tracking-wider font-sans" title="Packaged stock ready for delivery">Packaged</span>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-sm font-black font-mono text-emerald-600 select-all">{stockVal}</span>
+                      </div>
+                    </div>
                   </div>
                 </div>
-                
-                <div className="text-[9px] font-bold text-slate-400 mt-1 font-mono">
-                  {isNegative ? 'Negative Backlog' : hasCriticalStock ? 'Restock Advised' : 'Sufficient'} / Net Stock
+
+                {/* Total Produced / Available Row */}
+                <div className="flex items-center justify-between py-3 px-5 mt-5 rounded-full bg-[#ea580c] border border-[#ea580c] shadow-xs hover:bg-[#d97706] transition-all">
+                  <span className="text-[11px] text-orange-100 font-black uppercase tracking-widest font-sans" title="Total packaged stock available">Total</span>
+                  <span className="text-base font-black font-mono text-white select-all">{stockVal}</span>
                 </div>
               </motion.div>
             );
