@@ -583,7 +583,6 @@ export default function ManagerDashboard({
               <Activity size={16} className="text-emerald-600" />
               Production Achievement Summary
             </h3>
-            <p className="text-xs text-slate-400">Track and compare efficiency of individual shifts and operator lines</p>
           </div>
           
           <div className="flex flex-wrap items-center gap-3">

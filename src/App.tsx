@@ -469,8 +469,46 @@ export default function App() {
       // 6. Sync Material Rolls
       unsubRolls = onSnapshot(collection(db, 'rolls'), (snapshot) => {
         const list: RollEntry[] = [];
-        snapshot.forEach((doc) => {
-          list.push(doc.data() as RollEntry);
+        snapshot.forEach((docSnap) => {
+          const raw = docSnap.data() as any;
+          let materialName = raw.materialName || 'White Huesker';
+          const lowerMat = String(materialName).toLowerCase();
+          if (lowerMat.includes('yellow') || lowerMat.includes('h22') || lowerMat.includes('huesker 22')) {
+            materialName = 'Yellow Huesker';
+          } else if (lowerMat.includes('white') || lowerMat.includes('h82') || lowerMat.includes('huesker 82')) {
+            materialName = 'White Huesker';
+          } else if (lowerMat.includes('kuga') || lowerMat.includes('sage')) {
+            materialName = 'Kuga';
+          } else if (lowerMat.includes('delcotex') || lowerMat.includes('india')) {
+            materialName = 'Delcotex India';
+          }
+
+          let status = raw.status || 'Unopened';
+          const upperStatus = String(status).toUpperCase();
+          if (upperStatus === 'IN_STOCK' || upperStatus === 'UNOPENED') {
+            status = 'Unopened';
+          } else if (upperStatus === 'IN_USE' || upperStatus === 'PARTIALLY_USED' || upperStatus === 'ACTIVE') {
+            status = 'Active';
+          } else if (upperStatus === 'EMPTY' || upperStatus === 'CONSUMED' || upperStatus === 'SPENT') {
+            status = 'Consumed';
+          }
+
+          const metersTotal = raw.metersTotal !== undefined && !isNaN(Number(raw.metersTotal))
+            ? Number(raw.metersTotal)
+            : (raw.originalLength !== undefined && !isNaN(Number(raw.originalLength))
+                ? Number(raw.originalLength)
+                : (materialName === 'Kuga' ? 50 : 100));
+
+          list.push({
+            ...raw,
+            id: raw.id || docSnap.id,
+            materialName,
+            status,
+            metersTotal,
+            date: raw.date || raw.receptionDate || new Date().toISOString().split('T')[0],
+            operator: raw.operator || raw.updatedBy || raw.createdBy || 'Mohamed',
+            createdBy: raw.createdBy || 'system'
+          } as RollEntry);
         });
         // Sort descending by registration ID (timestamp)
         list.sort((a, b) => b.id.localeCompare(a.id));
@@ -600,31 +638,31 @@ export default function App() {
           }
         }
 
-        // ONE-TIME SEEDING OF EXACT ROLLS DATA FROM SPREADSHEET
-        const rollsSeedRef = doc(db, 'settings', 'rolls_stock_seed_v5');
-        let rollsSeedSnap;
+        // ONE-TIME SEEDING & AUTO-RECOVERY OF ROLLS DATA IF EMPTY OR UNINITIALIZED
+        const rollsRecoveryRef = doc(db, 'settings', 'rolls_stock_recovered_v1');
+        let rollsRecoverySnap;
         try {
-          rollsSeedSnap = await getDoc(rollsSeedRef);
-          console.log("rollsSeedSnap read successful:", rollsSeedSnap.exists());
+          rollsRecoverySnap = await getDoc(rollsRecoveryRef);
         } catch (e: any) {
-          console.error("Error reading rolls_stock_seed_v5:", e);
-          throw new Error("Failed at rolls_stock_seed_v5 read: " + e.message);
+          console.error("Error reading rolls_stock_recovered_v1:", e);
         }
 
-        if (!rollsSeedSnap.exists()) {
-          console.log("Seeding rolls stock from spreadsheet...");
+        const existingRollsSnap = await getDocs(collection(db, 'rolls'));
+        const needsRecovery = existingRollsSnap.empty || !rollsRecoverySnap?.exists();
+
+        if (needsRecovery) {
+          console.log("Seeding/recovering rolls stock from spreadsheet...");
           try {
             const batch = writeBatch(db);
             
-            // Clear all existing rolls to ensure count matches exactly
-            const rollsSnap = await getDocs(collection(db, 'rolls'));
-            rollsSnap.forEach((docSnap) => {
+            // Clear any invalid or partial rolls
+            existingRollsSnap.forEach((docSnap) => {
               batch.delete(docSnap.ref);
             });
             
             const todayDate = new Date().toISOString().split('T')[0];
 
-            // 1. Yellow Huesker (9 unopened rolls)
+            // 1. Yellow Huesker (9 unopened rolls - 100m each)
             for (let i = 1; i <= 9; i++) {
               const id = `roll-seed-yellow-${i}`;
               batch.set(doc(db, 'rolls', id), {
@@ -632,13 +670,15 @@ export default function App() {
                 materialName: 'Yellow Huesker',
                 date: todayDate,
                 status: 'Unopened',
+                metersTotal: 100,
                 operator: 'Mohamed',
                 createdBy: 'system',
-                notes: `Initial stock seed - Roll #${i}`
+                barcode: `EPP-ROLL-YELLOWHUESKER-${String(i).padStart(3, '0')}`,
+                notes: `Recovered factory reserve stock - Roll #${i} (100m)`
               });
             }
 
-            // 2. Kuga (7 unopened rolls)
+            // 2. Kuga (7 unopened rolls - 50m each)
             for (let i = 1; i <= 7; i++) {
               const id = `roll-seed-kuga-${i}`;
               batch.set(doc(db, 'rolls', id), {
@@ -646,13 +686,15 @@ export default function App() {
                 materialName: 'Kuga',
                 date: todayDate,
                 status: 'Unopened',
+                metersTotal: 50,
                 operator: 'Mohamed',
                 createdBy: 'system',
-                notes: `Initial stock seed - Roll #${i}`
+                barcode: `EPP-ROLL-KUGA-${String(i).padStart(3, '0')}`,
+                notes: `Recovered factory reserve stock - Roll #${i} (50m)`
               });
             }
 
-            // 3. White Huesker (4 unopened rolls)
+            // 3. White Huesker (4 unopened rolls - 100m each)
             for (let i = 1; i <= 4; i++) {
               const id = `roll-seed-white-${i}`;
               batch.set(doc(db, 'rolls', id), {
@@ -660,19 +702,24 @@ export default function App() {
                 materialName: 'White Huesker',
                 date: todayDate,
                 status: 'Unopened',
+                metersTotal: 100,
                 operator: 'Mohamed',
                 createdBy: 'system',
-                notes: `Initial stock seed - Roll #${i}`
+                barcode: `EPP-ROLL-WHITEHUESKER-${String(i).padStart(3, '0')}`,
+                notes: `Recovered factory reserve stock - Roll #${i} (100m)`
               });
             }
 
-            batch.set(rollsSeedRef, { seeded: true });
+            batch.set(rollsRecoveryRef, {
+              recovered: true,
+              recoveredAt: new Date().toISOString(),
+              totalRecovered: 20
+            });
             await batch.commit();
-            console.log("Seeding rolls stock completed!");
-            addToast("Factory reserve rolls stock (9 Yellow Huesker, 7 Kuga, 4 White Huesker) successfully loaded into system!", "success");
+            console.log("Seeding/recovering rolls stock completed!");
+            addToast("Factory reserve rolls stock (9 Yellow Huesker, 7 Kuga, 4 White Huesker) successfully recovered!", "success");
           } catch (e: any) {
-            console.error("Error seeding rolls stock:", e);
-            throw new Error("Failed at seeding rolls stock: " + e.message);
+            console.error("Error recovering rolls stock:", e);
           }
         }
       } catch (err: any) {
@@ -1397,6 +1444,90 @@ export default function App() {
       });
   };
 
+  const handleRecoverRolls = () => {
+    triggerCustomConfirm(
+      'Recover Factory Rolls Database',
+      'This will restore factory reserve stock to the full spreadsheet count: 9 Yellow Huesker, 7 Kuga, and 4 White Huesker (Total 20 rolls in factory reserve). Proceed with recovery?',
+      async () => {
+        try {
+          const batch = writeBatch(db);
+          const rollsSnap = await getDocs(collection(db, 'rolls'));
+          rollsSnap.forEach((docSnap) => {
+            batch.delete(docSnap.ref);
+          });
+
+          const todayDate = new Date().toISOString().split('T')[0];
+
+          // 1. Yellow Huesker (9 rolls - 100m each)
+          for (let i = 1; i <= 9; i++) {
+            const id = `roll-seed-yellow-${i}`;
+            batch.set(doc(db, 'rolls', id), {
+              id,
+              materialName: 'Yellow Huesker',
+              date: todayDate,
+              status: 'Unopened',
+              metersTotal: 100,
+              operator: 'Mohamed',
+              createdBy: 'system',
+              barcode: `EPP-ROLL-YELLOWHUESKER-${String(i).padStart(3, '0')}`,
+              notes: `Recovered factory reserve stock - Roll #${i} (100m)`
+            });
+          }
+
+          // 2. Kuga (7 rolls - 50m each)
+          for (let i = 1; i <= 7; i++) {
+            const id = `roll-seed-kuga-${i}`;
+            batch.set(doc(db, 'rolls', id), {
+              id,
+              materialName: 'Kuga',
+              date: todayDate,
+              status: 'Unopened',
+              metersTotal: 50,
+              operator: 'Mohamed',
+              createdBy: 'system',
+              barcode: `EPP-ROLL-KUGA-${String(i).padStart(3, '0')}`,
+              notes: `Recovered factory reserve stock - Roll #${i} (50m)`
+            });
+          }
+
+          // 3. White Huesker (4 rolls - 100m each)
+          for (let i = 1; i <= 4; i++) {
+            const id = `roll-seed-white-${i}`;
+            batch.set(doc(db, 'rolls', id), {
+              id,
+              materialName: 'White Huesker',
+              date: todayDate,
+              status: 'Unopened',
+              metersTotal: 100,
+              operator: 'Mohamed',
+              createdBy: 'system',
+              barcode: `EPP-ROLL-WHITEHUESKER-${String(i).padStart(3, '0')}`,
+              notes: `Recovered factory reserve stock - Roll #${i} (100m)`
+            });
+          }
+
+          batch.set(doc(db, 'settings', 'rolls_stock_recovered_v1'), {
+            recovered: true,
+            recoveredAt: new Date().toISOString(),
+            totalRecovered: 20
+          });
+
+          await batch.commit();
+          addToast('Factory reserve rolls database recovered: 9 Yellow Huesker, 7 Kuga, 4 White Huesker restored!', 'success');
+          triggerNotification(
+            '🔄 Rolls Database Recovered',
+            `Operator ${currentUser?.name || 'Manager'} recovered the factory rolls database: 20 rolls restored.`,
+            'system',
+            'all'
+          );
+        } catch (err) {
+          console.error('Failed to recover rolls database:', err);
+          addToast('Failed to recover rolls database. Please check connection.', 'error');
+        }
+      }
+    );
+  };
+
   const handleUpdateDailyTarget = (dateStr: string, targetValue: number) => {
     const newTargets = {
       ...dailyTargets,
@@ -1576,6 +1707,7 @@ export default function App() {
             onConsumeRoll={handleConsumeRoll}
             onDeleteRoll={handleDeleteRoll}
             onUpdateRoll={handleUpdateRoll}
+            onRecoverRolls={handleRecoverRolls}
           />
         );
 

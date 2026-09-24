@@ -187,7 +187,6 @@ export default function AnalyticsCharts({ entries, plans, deliveries = [] }: Cha
                 <BarChart3 className="text-emerald-600" size={18} />
                 Daily Production vs Plans over the Week
               </h3>
-              <p className="text-xs text-slate-500">Compare scheduled target quantity against physical output entries</p>
             </div>
 
             {/* Week control navigator widget */}
@@ -324,7 +323,6 @@ export default function AnalyticsCharts({ entries, plans, deliveries = [] }: Cha
                 <Layers className="text-emerald-600" size={18} />
                 Live Stock by Airbag Model
               </h3>
-              <p className="text-xs text-slate-500">Net physical stockpile in distribution warehouse</p>
             </div>
           </div>
           

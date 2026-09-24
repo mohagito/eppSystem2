@@ -80,22 +80,60 @@ export interface ToastMessage {
   type: 'success' | 'error' | 'info';
 }
 
+export * from './types/materialTypes';
+
 export type RollMaterial = 'White Huesker' | 'Yellow Huesker' | 'Delcotex India' | 'Kuga';
+
+export interface RollMaterialCostConfig {
+  material: RollMaterial;
+  referenceName: string;
+  widthM?: number;
+  lengthM: number;
+  priceUnit: '€/m²' | '€/ml';
+  unitPrice: number;
+  areaM2?: number;
+  costPerRoll: number;
+}
 
 export interface RollEntry {
   id: string;
-  materialName: RollMaterial;
-  date: string; // YYYY-MM-DD
+  materialName: string;
+  date?: string; // YYYY-MM-DD
   openedAt?: string; // ISO string timestamps (optional for unopened)
   barcode?: string; // generated QR/barcode string or blank for unopened stock
-  operator: string; // profile/worker name
+  operator?: string; // profile/worker name
   createdBy: string; // profile user id
-  status: 'Unopened' | 'Active' | 'Consumed';
+  status: any;
   notes?: string;
   initialWeightKg?: number; // optional tracking parameter (e.g., standard roll weights)
   metersTotal?: number; // optional length
   consumedMeters?: number; // tracker for cutting traceability
   closedAt?: string; // ISO timestamp when roll is fully consumed
   closedBy?: string; // name of operator who closed it
+
+  // Enhanced Industrial Physical Roll fields
+  rollNumber?: string;
+  materialId?: string;
+  materialCode?: string;
+  supplierId?: string;
+  supplierName?: string;
+  batchNumber?: string;
+  lotNumber?: string;
+  receptionDate?: string;
+  originalLength?: number;
+  remainingLength?: number;
+  width?: number;
+  pricingType?: 'PER_LINEAR_METER' | 'PER_SQUARE_METER';
+  originalUnitPrice?: number;
+  originalArea?: number;
+  originalValue?: number;
+  remainingArea?: number;
+  remainingValue?: number;
+  locationId?: string;
+  locationName?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  updatedBy?: string;
 }
+
 

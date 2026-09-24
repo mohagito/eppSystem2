@@ -110,25 +110,101 @@
     },
     "RollEntry": {
       "title": "RollEntry",
-      "description": "Traceability record of fabric rolls opened and used by operators",
+      "description": "Traceability record of physical laser material rolls in stock and production",
       "type": "object",
       "properties": {
         "id": { "type": "string" },
-        "materialName": { "type": "string", "enum": ["White Huesker", "Yellow Huesker", "Delcotex India", "Kuga"] },
-        "date": { "type": "string" },
-        "openedAt": { "type": "string" },
-        "barcode": { "type": "string" },
-        "operator": { "type": "string" },
+        "rollNumber": { "type": "string" },
+        "materialId": { "type": "string" },
+        "materialCode": { "type": "string" },
+        "materialName": { "type": "string" },
+        "supplierName": { "type": "string" },
+        "batchNumber": { "type": "string" },
+        "lotNumber": { "type": "string" },
+        "receptionDate": { "type": "string" },
+        "originalLength": { "type": "number" },
+        "remainingLength": { "type": "number" },
+        "width": { "type": "number" },
+        "pricingType": { "type": "string", "enum": ["PER_LINEAR_METER", "PER_SQUARE_METER"] },
+        "originalUnitPrice": { "type": "number" },
+        "originalArea": { "type": "number" },
+        "originalValue": { "type": "number" },
+        "remainingArea": { "type": "number" },
+        "remainingValue": { "type": "number" },
+        "locationName": { "type": "string" },
+        "status": { "type": "string", "enum": ["IN_STOCK", "IN_USE", "PARTIALLY_USED", "EMPTY", "WASTE", "TRANSFERRED", "BLOCKED", "Unopened", "Active", "Consumed"] },
+        "createdAt": { "type": "string" },
         "createdBy": { "type": "string" },
-        "status": { "type": "string", "enum": ["Unopened", "Active", "Consumed"] },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" },
         "notes": { "type": "string" },
-        "initialWeightKg": { "type": "number" },
-        "metersTotal": { "type": "number" },
-        "consumedMeters": { "type": "number" },
-        "closedAt": { "type": "string" },
-        "closedBy": { "type": "string" }
+        "barcode": { "type": "string" },
+        "date": { "type": "string" },
+        "operator": { "type": "string" }
       },
-      "required": ["id", "materialName", "date", "operator", "createdBy", "status"]
+      "required": ["id", "rollNumber", "materialName", "originalLength", "remainingLength", "status"]
+    },
+    "RollMovement": {
+      "title": "RollMovement",
+      "description": "Historical audit record of every receipt, laser consumption, waste, and transfer event",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "rollId": { "type": "string" },
+        "rollNumber": { "type": "string" },
+        "materialId": { "type": "string" },
+        "materialCode": { "type": "string" },
+        "materialName": { "type": "string" },
+        "type": { "type": "string", "enum": ["RECEIPT", "CONSUMPTION", "WASTE", "ADJUSTMENT", "RETURN", "TRANSFER"] },
+        "quantity": { "type": "number" },
+        "unit": { "type": "string", "enum": ["METER", "SQUARE_METER"] },
+        "dateTime": { "type": "string" },
+        "operatorName": { "type": "string" },
+        "machineName": { "type": "string" },
+        "jobReference": { "type": "string" },
+        "fromLocationName": { "type": "string" },
+        "toLocationName": { "type": "string" },
+        "reason": { "type": "string" },
+        "notes": { "type": "string" },
+        "unitPrice": { "type": "number" },
+        "calculatedCost": { "type": "number" },
+        "remainingLengthAfter": { "type": "number" },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" }
+      },
+      "required": ["id", "rollId", "rollNumber", "type", "quantity", "dateTime", "operatorName", "calculatedCost", "remainingLengthAfter"]
+    },
+    "MaterialMaster": {
+      "title": "MaterialMaster",
+      "description": "Master catalog of industrial airbag fabric specifications and pricing contracts",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "name": { "type": "string" },
+        "typeColor": { "type": "string" },
+        "supplierName": { "type": "string" },
+        "standardWidthM": { "type": "number" },
+        "referenceLengthM": { "type": "number" },
+        "pricingType": { "type": "string", "enum": ["PER_LINEAR_METER", "PER_SQUARE_METER"] },
+        "unitPrice": { "type": "number" },
+        "active": { "type": "boolean" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "code", "name", "pricingType", "unitPrice", "active"]
+    },
+    "LocationItem": {
+      "title": "LocationItem",
+      "description": "Industrial factory zones, warehouses, and laser cutting machines",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string" },
+        "code": { "type": "string" },
+        "type": { "type": "string", "enum": ["WAREHOUSE", "MACHINE", "QUARANTINE", "SCRAP"] },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "name", "code", "type", "active"]
     }
   },
   "firestore": {
@@ -151,6 +227,18 @@
     "rolls/{rollId}": {
       "schema": "RollEntry",
       "description": "Traceability collection for physical material rolls"
+    },
+    "roll_movements/{movementId}": {
+      "schema": "RollMovement",
+      "description": "Historical audit log of all roll transactions"
+    },
+    "materials/{materialId}": {
+      "schema": "MaterialMaster",
+      "description": "Master fabric definition catalog"
+    },
+    "locations/{locationId}": {
+      "schema": "LocationItem",
+      "description": "Master list of factory locations and machines"
     },
     "notifications/{notificationId}": {
       "schema": "DatabaseNotification",

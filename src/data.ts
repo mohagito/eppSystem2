@@ -1,4 +1,4 @@
-import { AirbagModel, StockEntry, ProductionPlan, UserProfile } from './types';
+import { AirbagModel, StockEntry, ProductionPlan, UserProfile, RollMaterial, RollMaterialCostConfig } from './types';
 
 export const AIRBAG_MODELS: AirbagModel[] = [
   'BCB',
@@ -224,3 +224,46 @@ export const INITIAL_PLANS: ProductionPlan[] = [
     status: 'Pending'
   }
 ];
+
+export const ROLL_MATERIAL_EVALUATION: Record<RollMaterial, RollMaterialCostConfig> = {
+  'Yellow Huesker': {
+    material: 'Yellow Huesker',
+    referenceName: 'Huesker 22 (amarillo)',
+    widthM: 1.75,
+    lengthM: 100,
+    priceUnit: '€/m²',
+    unitPrice: 21.10,
+    areaM2: 175,
+    costPerRoll: 3692.50
+  },
+  'White Huesker': {
+    material: 'White Huesker',
+    referenceName: 'Huesker 82 (blanco)',
+    widthM: 1.60,
+    lengthM: 100,
+    priceUnit: '€/m²',
+    unitPrice: 6.77,
+    areaM2: 160,
+    costPerRoll: 1083.20
+  },
+  'Delcotex India': {
+    material: 'Delcotex India',
+    referenceName: 'Delcotex India (malla)',
+    widthM: 1.80,
+    lengthM: 90, // Explicit correction from user: 90m instead of 100m
+    priceUnit: '€/ml',
+    unitPrice: 17.95,
+    areaM2: 162,
+    costPerRoll: 1615.50 // 90 m * 17.95 €/ml
+  },
+  'Kuga': {
+    material: 'Kuga',
+    referenceName: 'Sage / Kuga (textil)',
+    widthM: undefined,
+    lengthM: 50,
+    priceUnit: '€/ml',
+    unitPrice: 15.43,
+    areaM2: undefined,
+    costPerRoll: 771.50 // 50 m * 15.43 €/ml
+  }
+};

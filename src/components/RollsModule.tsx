@@ -18,7 +18,10 @@ import {
   Scissors,
   FileText,
   Search,
-  Pencil
+  Pencil,
+  RotateCcw,
+  Ruler,
+  Calculator
 } from 'lucide-react';
 import { RollEntry, RollMaterial, UserProfile } from '../types';
 import Swal from 'sweetalert2';
@@ -31,9 +34,68 @@ interface RollsModuleProps {
   onConsumeRoll: (id: string, consumedMeters: number, notes?: string) => void;
   onDeleteRoll: (id: string) => void;
   onUpdateRoll?: (id: string, updates: Partial<RollEntry>) => void;
+  onRecoverRolls?: () => void;
 }
 
 const MATERIAL_OPTIONS: RollMaterial[] = ['White Huesker', 'Yellow Huesker', 'Delcotex India', 'Kuga'];
+
+export interface MaterialPricingInfo {
+  unitPrice: number;
+  unit: '€/m²' | '€/ml';
+  rollPrice: number;
+  length: number;
+  width?: number;
+}
+
+export const MATERIAL_PRICING: Record<RollMaterial, MaterialPricingInfo> = {
+  'Yellow Huesker': {
+    width: 1.75,
+    length: 100,
+    unitPrice: 21.10,
+    unit: '€/m²',
+    rollPrice: 3692.50 // 1.75 * 100 * 21.10 = 3,692.50 €
+  },
+  'White Huesker': {
+    width: 1.60,
+    length: 100,
+    unitPrice: 6.77,
+    unit: '€/m²',
+    rollPrice: 1083.20 // 1.60 * 100 * 6.77 = 1,083.20 €
+  },
+  'Delcotex India': {
+    width: 1.80,
+    length: 100,
+    unitPrice: 17.95,
+    unit: '€/ml',
+    rollPrice: 1795.00 // 100 * 17.95 = 1,795.00 €
+  },
+  'Kuga': {
+    length: 50,
+    unitPrice: 15.43,
+    unit: '€/ml',
+    rollPrice: 771.50 // 50 * 15.43 = 771.50 €
+  }
+};
+
+export const calculateRollPrice = (material: RollMaterial, meters: number) => {
+  const pricing = MATERIAL_PRICING[material];
+  if (!pricing) return 0;
+  const m = (!meters || isNaN(meters) || meters <= 0) ? pricing.length : meters;
+  if (pricing.unit === '€/m²' && pricing.width) {
+    const area = pricing.width * m;
+    return area * pricing.unitPrice;
+  }
+  return m * pricing.unitPrice;
+};
+
+export const formatEuro = (value: number) => {
+  return new Intl.NumberFormat('es-ES', {
+    style: 'currency',
+    currency: 'EUR',
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2
+  }).format(value);
+};
 
 const getMaterialBrand = (material: RollMaterial) => {
   switch (material) {
@@ -96,7 +158,8 @@ export default function RollsModule({
   onOpenRoll,
   onConsumeRoll,
   onDeleteRoll,
-  onUpdateRoll
+  onUpdateRoll,
+  onRecoverRolls
 }: RollsModuleProps) {
   // Navigation inside the module
   const [subTab, setSubTab] = useState<'unopened' | 'active' | 'history'>('unopened');
@@ -105,9 +168,16 @@ export default function RollsModule({
   // Form States for Registering New Roll
   const [materialName, setMaterialName] = useState<RollMaterial>('White Huesker');
   const [initialStatus, setInitialStatus] = useState<'Unopened' | 'Active'>('Unopened');
+  const [metersTotal, setMetersTotal] = useState<number>(100);
   const [barcode, setBarcode] = useState<string>('');
   const [operator, setOperator] = useState<string>(currentUser.name);
   const [formOpen, setFormOpen] = useState<boolean>(false);
+
+  const handleMaterialChange = (newMaterial: RollMaterial) => {
+    setMaterialName(newMaterial);
+    const stdLength = MATERIAL_PRICING[newMaterial]?.length || 100;
+    setMetersTotal(stdLength);
+  };
 
   // Auto Generate Barcode
   const handleAutoGenerateBarcode = () => {
@@ -128,6 +198,19 @@ export default function RollsModule({
   const handleRegisterRoll = (e: React.FormEvent) => {
     e.preventDefault();
     
+    // Required meters validation
+    if (!metersTotal || isNaN(metersTotal) || metersTotal <= 0) {
+      Swal.fire({
+        title: 'Meters Required',
+        text: 'Please specify the roll length in meters (mitres). This is required to calculate the exact roll valuation.',
+        icon: 'warning',
+        background: '#0f172a',
+        color: '#cbd5e1',
+        confirmButtonColor: '#10b981'
+      });
+      return;
+    }
+
     if (initialStatus === 'Active' && !barcode.trim()) {
       Swal.fire({
         title: 'Missing Barcode',
@@ -148,11 +231,13 @@ export default function RollsModule({
       barcode: barcode.trim() || undefined,
       operator: operator.trim(),
       createdBy: currentUser.id,
-      status: initialStatus
+      status: initialStatus,
+      metersTotal: Number(metersTotal)
     });
 
     // Reset Form
     setBarcode('');
+    setMetersTotal(MATERIAL_PRICING[materialName]?.length || 100);
     setFormOpen(false);
 
     Swal.fire({
@@ -310,9 +395,19 @@ export default function RollsModule({
             </div>
           </div>
 
-          <div class="space-y-1.5">
-            <label class="text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono">Traceability Barcode / Serial No</label>
-            <input id="swal-edit-barcode" type="text" class="w-full bg-slate-900 border border-slate-700 text-white p-2.5 rounded-lg text-xs font-mono" value="${roll.barcode || ''}" placeholder="Pending opening..." />
+          <div class="grid grid-cols-2 gap-3">
+            <div class="space-y-1.5">
+              <label class="text-[10px] font-bold text-indigo-400 tracking-wider uppercase font-mono flex items-center justify-between">
+                <span>Roll Length (Mitres) *</span>
+                <span class="text-[9px] text-slate-400">meters</span>
+              </label>
+              <input id="swal-edit-meters" type="number" step="0.5" min="0.5" class="w-full bg-slate-900 border border-slate-700 text-white p-2.5 rounded-lg text-xs font-mono" value="${roll.metersTotal ?? (roll.materialName === 'Kuga' ? 50 : 100)}" />
+            </div>
+
+            <div class="space-y-1.5">
+              <label class="text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono">Traceability Barcode</label>
+              <input id="swal-edit-barcode" type="text" class="w-full bg-slate-900 border border-slate-700 text-white p-2.5 rounded-lg text-xs font-mono" value="${roll.barcode || ''}" placeholder="Pending opening..." />
+            </div>
           </div>
 
           <div class="grid grid-cols-2 gap-3">
@@ -329,7 +424,7 @@ export default function RollsModule({
 
           <div id="swal-edit-consumed-container" class="space-y-1.5 ${roll.status === 'Consumed' ? '' : 'hidden'}">
             <label class="text-[10px] font-bold text-slate-400 tracking-wider uppercase font-mono">Consumed Length (meters)</label>
-            <input id="swal-edit-consumed" type="number" class="w-full bg-slate-900 border border-slate-700 text-white p-2.5 rounded-lg text-xs font-mono" value="${roll.consumedMeters !== undefined ? roll.consumedMeters : 1000}" min="0" />
+            <input id="swal-edit-consumed" type="number" class="w-full bg-slate-900 border border-slate-700 text-white p-2.5 rounded-lg text-xs font-mono" value="${roll.consumedMeters !== undefined ? roll.consumedMeters : (roll.metersTotal ?? 100)}" min="0" />
           </div>
 
           <div class="space-y-1.5">
@@ -366,6 +461,7 @@ export default function RollsModule({
       preConfirm: () => {
         const materialSelect = document.getElementById('swal-edit-material') as HTMLSelectElement;
         const statusSelect = document.getElementById('swal-edit-status') as HTMLSelectElement;
+        const metersInput = document.getElementById('swal-edit-meters') as HTMLInputElement;
         const barcodeInput = document.getElementById('swal-edit-barcode') as HTMLInputElement;
         const operatorInput = document.getElementById('swal-edit-operator') as HTMLInputElement;
         const dateInput = document.getElementById('swal-edit-date') as HTMLInputElement;
@@ -374,6 +470,7 @@ export default function RollsModule({
 
         const materialVal = materialSelect.value as RollMaterial;
         const statusVal = statusSelect.value as 'Unopened' | 'Active' | 'Consumed';
+        const metersVal = parseFloat(metersInput?.value || '0') || (materialVal === 'Kuga' ? 50 : 100);
         const barcodeVal = barcodeInput.value.trim();
         const operatorVal = operatorInput.value.trim();
         const dateVal = dateInput.value;
@@ -393,6 +490,7 @@ export default function RollsModule({
         return {
           materialName: materialVal,
           status: statusVal,
+          metersTotal: metersVal,
           barcode: barcodeVal || undefined,
           operator: operatorVal,
           date: dateVal,
@@ -456,18 +554,40 @@ export default function RollsModule({
       return matchesTab && matchesSearch;
     });
 
-  // Calculate category stocks (Unopened, Active, Spent)
+  // Calculate category stocks (Unopened, Active, Spent, Meters, and Exact Evaluation)
   const categoryStats = MATERIAL_OPTIONS.map(material => {
-    const unopenedCount = rolls.filter(r => r.materialName === material && r.status === 'Unopened').length;
-    const activeCount = rolls.filter(r => r.materialName === material && r.status === 'Active').length;
-    const spentCount = rolls.filter(r => r.materialName === material && r.status === 'Consumed').length;
+    const materialRolls = rolls.filter(r => r.materialName === material);
+    const unopenedRolls = materialRolls.filter(r => r.status === 'Unopened');
+    const activeRolls = materialRolls.filter(r => r.status === 'Active');
+    const spentRolls = materialRolls.filter(r => r.status === 'Consumed');
+    const pricing = MATERIAL_PRICING[material];
+
+    // Total meters for unopened rolls in warehouse
+    const unopenedMeters = unopenedRolls.reduce((sum, r) => {
+      const m = (r.metersTotal && !isNaN(r.metersTotal) && r.metersTotal > 0) ? r.metersTotal : pricing.length;
+      return sum + m;
+    }, 0);
+
+    // Exact euro valuation based on roll length
+    const totalEvaluation = unopenedRolls.reduce((sum, r) => {
+      const m = (r.metersTotal && !isNaN(r.metersTotal) && r.metersTotal > 0) ? r.metersTotal : pricing.length;
+      return sum + calculateRollPrice(material, m);
+    }, 0);
+
     return {
       material,
-      unopened: unopenedCount,
-      active: activeCount,
-      spent: spentCount
+      unopened: unopenedRolls.length,
+      unopenedMeters,
+      active: activeRolls.length,
+      spent: spentRolls.length,
+      pricing,
+      totalEvaluation
     };
   });
+
+  const totalUnopenedCount = categoryStats.reduce((sum, s) => sum + s.unopened, 0);
+  const totalUnopenedMeters = categoryStats.reduce((sum, s) => sum + s.unopenedMeters, 0);
+  const totalValuation = categoryStats.reduce((sum, s) => sum + s.totalEvaluation, 0);
 
   return (
     <div className="space-y-6" id="rolls-traceability-module">
@@ -489,12 +609,26 @@ export default function RollsModule({
         </div>
 
         <div className="flex items-center gap-2.5">
+          {onRecoverRolls && (
+            <button
+              onClick={onRecoverRolls}
+              className="px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
+              title="Restore factory reserve baseline: 9 Yellow Huesker, 7 Kuga, 4 White Huesker"
+            >
+              <RotateCcw size={14} className="text-emerald-600" />
+              <span>Recover Rolls Database</span>
+            </button>
+          )}
           <button
             onClick={() => setFormOpen(!formOpen)}
-            className="px-4 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm flex items-center gap-2 cursor-pointer active:scale-95"
+            className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer active:scale-95 ${
+              formOpen
+                ? 'bg-slate-800 hover:bg-slate-900 text-white'
+                : 'bg-indigo-600 hover:bg-indigo-700 text-white shadow-indigo-200'
+            }`}
           >
-            <Plus size={15} />
-            {formOpen ? 'Hide Register Panel' : 'Register New Roll'}
+            <Plus size={15} className={`transition-transform duration-200 ${formOpen ? 'rotate-45' : ''}`} />
+            {formOpen ? 'Close Registration Panel' : 'Register New Roll'}
           </button>
         </div>
       </div>
@@ -513,14 +647,19 @@ export default function RollsModule({
               className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xs space-y-4"
               id="new-roll-form"
             >
-              <div className="flex items-center gap-2 pb-3 border-b border-slate-100">
-                <Scroll size={16} className="text-indigo-600" />
-                <h3 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">
-                  Register Material Roll
-                </h3>
+              <div className="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div className="flex items-center gap-2">
+                  <Scroll size={16} className="text-indigo-600" />
+                  <h3 className="text-xs font-extrabold text-slate-800 uppercase tracking-wider">
+                    Register Material Roll
+                  </h3>
+                </div>
+                <span className="text-[10px] font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2.5 py-0.5 rounded-full">
+                  Mitres required for accurate valuation
+                </span>
               </div>
 
-              <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 
                 {/* Material Dropdown */}
                 <div className="space-y-1.5">
@@ -530,8 +669,8 @@ export default function RollsModule({
                   </label>
                   <select
                     value={materialName}
-                    onChange={(e) => setMaterialName(e.target.value as RollMaterial)}
-                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold p-2.5 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                    onChange={(e) => handleMaterialChange(e.target.value as RollMaterial)}
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold p-2.5 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                   >
                     {MATERIAL_OPTIONS.map(opt => (
                       <option key={opt} value={opt}>{opt}</option>
@@ -548,11 +687,39 @@ export default function RollsModule({
                   <select
                     value={initialStatus}
                     onChange={(e) => setInitialStatus(e.target.value as 'Unopened' | 'Active')}
-                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold p-2.5 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+                    className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold p-2.5 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-indigo-500 cursor-pointer"
                   >
                     <option value="Unopened">📦 Unopened Stock (Reserve)</option>
                     <option value="Active">🧵 Active Production (Open Now)</option>
                   </select>
+                </div>
+
+                {/* Roll Length (Meters / Mitres) - REQUIRED */}
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-700 tracking-wider uppercase flex items-center justify-between">
+                    <span className="flex items-center gap-1.5 font-black text-indigo-700">
+                      <Ruler size={13} className="text-indigo-600" />
+                      Roll Mitres (m) <span className="text-rose-500">*</span>
+                    </span>
+                    <span className="text-[9px] text-slate-400 font-mono">
+                      Std: {MATERIAL_PRICING[materialName]?.length || 100}m
+                    </span>
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="0.5"
+                      min="0.5"
+                      required
+                      value={metersTotal || ''}
+                      onChange={(e) => setMetersTotal(parseFloat(e.target.value) || 0)}
+                      className="w-full bg-slate-50 border border-indigo-200 text-slate-900 text-xs font-mono font-black p-2.5 pr-8 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500"
+                      placeholder="e.g. 100"
+                    />
+                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs font-black text-slate-400 font-mono pointer-events-none">
+                      m
+                    </span>
+                  </div>
                 </div>
 
                 {/* Barcode Tracker input */}
@@ -567,7 +734,7 @@ export default function RollsModule({
                       onClick={handleAutoGenerateBarcode}
                       className="text-[9px] text-indigo-600 hover:text-indigo-700 font-extrabold uppercase tracking-wide cursor-pointer focus:outline-hidden"
                     >
-                      [ Auto Generate ]
+                      [ Auto ]
                     </button>
                   </label>
                   <input
@@ -575,7 +742,7 @@ export default function RollsModule({
                     value={barcode}
                     onChange={(e) => setBarcode(e.target.value)}
                     className="w-full bg-slate-50 border border-slate-200 text-slate-800 text-xs font-bold p-2.5 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-indigo-500 font-mono"
-                    placeholder={initialStatus === 'Unopened' ? "Leave blank or auto-generate" : "Type or click Auto Generate"}
+                    placeholder={initialStatus === 'Unopened' ? "Leave blank or auto-generate" : "Type or click Auto"}
                   />
                 </div>
 
@@ -583,7 +750,7 @@ export default function RollsModule({
                 <div className="space-y-1.5">
                   <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase flex items-center gap-1.5">
                     <User size={12} className="text-slate-400" />
-                    Registering Operator Name
+                    Registering Operator
                   </label>
                   <input
                     type="text"
@@ -593,6 +760,38 @@ export default function RollsModule({
                   />
                 </div>
 
+              </div>
+
+              {/* Clean Live Evaluation Calculation Card */}
+              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3.5 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="p-2 bg-indigo-100 text-indigo-700 rounded-lg shrink-0">
+                    <Calculator size={17} />
+                  </div>
+                  <div>
+                    <div className="text-xs font-bold text-slate-800 flex items-center gap-2 flex-wrap">
+                      <span>{materialName}</span>
+                      <span className="text-slate-300">•</span>
+                      <span className="font-mono text-indigo-700 font-black">{metersTotal || 0} mitres</span>
+                      {MATERIAL_PRICING[materialName]?.width && (
+                        <span className="text-slate-500 font-mono text-[11px]">
+                          ({(MATERIAL_PRICING[materialName].width! * (metersTotal || 0)).toFixed(1)} m² surface)
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-[10.5px] text-slate-500 mt-0.5">
+                      Pricing formula: <span className="font-mono font-bold text-slate-700">{MATERIAL_PRICING[materialName]?.unitPrice.toFixed(2)} {MATERIAL_PRICING[materialName]?.unit}</span>
+                      {MATERIAL_PRICING[materialName]?.width ? ` × ${MATERIAL_PRICING[materialName]?.width}m width` : ' (linear meters)'}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="flex items-center gap-2 self-start sm:self-center bg-white px-3.5 py-2 rounded-xl border border-indigo-100 shadow-2xs">
+                  <span className="text-[10px] font-bold text-slate-500 uppercase tracking-wider">Calculated Valuation:</span>
+                  <span className="text-sm font-black font-mono text-emerald-700">
+                    {formatEuro(calculateRollPrice(materialName, metersTotal))}
+                  </span>
+                </div>
               </div>
 
               <div className="flex justify-end gap-2 pt-2">
@@ -605,12 +804,12 @@ export default function RollsModule({
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold transition-all shadow-sm cursor-pointer"
+                  className="px-5 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-black transition-all shadow-sm cursor-pointer flex items-center gap-2 active:scale-95"
                 >
+                  <Check size={14} />
                   {initialStatus === 'Unopened' ? 'Confirm & Save to Stock' : 'Confirm & Open Roll'}
                 </button>
               </div>
-
             </form>
           </motion.div>
         )}
@@ -618,22 +817,56 @@ export default function RollsModule({
 
       {/* Factory Reserve & Material Stock Status (Spreadsheet Style) */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden" id="material-stock-status-table-card">
-        <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2">
+        <div className="p-5 border-b border-slate-100 bg-slate-50/50 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
           <div>
             <h2 className="text-xs font-black text-slate-800 uppercase tracking-wider flex items-center gap-2">
               <Layers size={14} className="text-indigo-600" />
               Factory Reserve Stock Status
             </h2>
+            <p className="text-[11px] text-slate-500 font-semibold mt-0.5 flex items-center gap-2 flex-wrap">
+              <span>Available factory warehouse stock: <span className="font-extrabold text-slate-800">{totalUnopenedCount} unopened rolls ({totalUnopenedMeters.toLocaleString()} m)</span></span>
+              <span className="text-slate-300">•</span>
+              <span>Total Evaluation: <span className="font-extrabold text-emerald-700 font-mono">{formatEuro(totalValuation)}</span></span>
+            </p>
           </div>
-          {searchQuery && (
-            <button
-              onClick={() => setSearchQuery('')}
-              className="text-[9px] font-extrabold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-lg transition-all self-start sm:self-center"
-            >
-              Clear Filter
-            </button>
-          )}
+          <div className="flex items-center gap-2 flex-wrap">
+            {onRecoverRolls && (
+              <button
+                type="button"
+                onClick={onRecoverRolls}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-2xs active:scale-95"
+                title="Recover factory reserve baseline database (9 Yellow Huesker, 7 Kuga, 4 White Huesker)"
+              >
+                <RotateCcw size={13} className="text-emerald-600" />
+                <span>Recover Database</span>
+              </button>
+            )}
+            {searchQuery && (
+              <button
+                onClick={() => setSearchQuery('')}
+                className="text-[9px] font-extrabold text-indigo-600 hover:text-indigo-800 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1 rounded-lg transition-all self-start sm:self-center cursor-pointer"
+              >
+                Clear Filter
+              </button>
+            )}
+          </div>
         </div>
+
+        {totalUnopenedCount === 0 && onRecoverRolls && (
+          <div className="mx-4 my-3 p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-amber-900 text-xs font-bold">
+              <AlertCircle size={18} className="text-amber-600 shrink-0" />
+              <span>Rolls database is currently at zero. Click Recover to restore factory spreadsheet stock (9 Yellow Huesker, 7 Kuga, 4 White Huesker).</span>
+            </div>
+            <button
+              onClick={onRecoverRolls}
+              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-extrabold shadow-xs transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+            >
+              <RotateCcw size={14} />
+              Restore Now
+            </button>
+          </div>
+        )}
 
         <div className="overflow-x-auto">
           <table className="w-full text-left border-collapse" id="material-stock-spreadsheet">
@@ -643,6 +876,7 @@ export default function RollsModule({
                 <th className="py-2.5 px-4 font-black">Brand / Client</th>
                 <th className="py-2.5 px-4 text-center font-black">Total Stock Status</th>
                 <th className="py-2.5 px-4 font-black">Notes / Alert</th>
+                <th className="py-2.5 px-4 text-right font-black">Total Evaluation (€)</th>
               </tr>
             </thead>
             <tbody className="divide-y divide-slate-100">
@@ -683,15 +917,22 @@ export default function RollsModule({
 
                       {/* Total Stock Status */}
                       <td className="py-3.5 px-4 text-center">
-                        <span className={`inline-flex items-center justify-center font-mono text-sm font-black w-8 h-8 rounded-full ${
-                          stat.unopened === 0 
-                            ? 'text-red-600 bg-red-50' 
-                            : stat.unopened <= 3 
-                            ? 'text-amber-600 bg-amber-50'
-                            : 'text-slate-800 bg-slate-100'
-                        }`}>
-                          {stat.unopened}
-                        </span>
+                        <div className="flex flex-col items-center gap-1">
+                          <span className={`inline-flex items-center justify-center font-mono text-xs font-black px-2.5 py-0.5 rounded-full shadow-2xs border ${
+                            stat.unopened === 0 
+                              ? 'text-rose-600 bg-rose-50 border-rose-200' 
+                              : stat.unopened <= 3 
+                              ? 'text-amber-700 bg-amber-50 border-amber-200'
+                              : 'text-slate-800 bg-slate-100 border-slate-200'
+                          }`}>
+                            {stat.unopened} {stat.unopened === 1 ? 'roll' : 'rolls'}
+                          </span>
+                          {stat.unopened > 0 && (
+                            <span className="font-mono text-[10px] font-bold text-indigo-700 bg-indigo-50/70 border border-indigo-100 px-2 py-0.5 rounded-md">
+                              {stat.unopenedMeters} m
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Notes / Alert */}
@@ -710,10 +951,41 @@ export default function RollsModule({
                           <span className="text-slate-400 font-medium italic text-[10px]">—</span>
                         )}
                       </td>
+
+                      {/* Total Evaluation (€) */}
+                      <td className="py-3.5 px-4 text-right">
+                        <div className="flex flex-col items-end">
+                          <span className={`text-xs font-mono font-black ${
+                            stat.unopened === 0 ? 'text-slate-400' : 'text-slate-900'
+                          }`}>
+                            {formatEuro(stat.totalEvaluation)}
+                          </span>
+                          <span className="text-[10px] text-slate-400 font-mono font-medium">
+                            {formatEuro(stat.pricing.rollPrice)} / roll (std)
+                          </span>
+                        </div>
+                      </td>
                     </tr>
                   );
                 })}
             </tbody>
+            <tfoot>
+              <tr className="bg-slate-50/90 border-t border-slate-200 text-xs font-extrabold text-slate-700">
+                <td colSpan={2} className="py-3 px-4 uppercase tracking-wider text-[10px] text-slate-500 font-black">
+                  Total Reserve Valuation
+                </td>
+                <td className="py-3 px-4 text-center font-mono font-black text-slate-800">
+                  <div>{totalUnopenedCount} rolls</div>
+                  <div className="text-[10px] text-indigo-700 font-bold">{totalUnopenedMeters.toLocaleString()} mitres</div>
+                </td>
+                <td className="py-3 px-4 text-[10px] text-slate-400 italic">
+                  {categoryStats.filter(s => s.unopened > 0).length} of 4 materials in stock
+                </td>
+                <td className="py-3 px-4 text-right font-mono font-black text-indigo-700 text-sm">
+                  {formatEuro(totalValuation)}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
       </div>
@@ -785,10 +1057,12 @@ export default function RollsModule({
               <p className="text-[11px] text-slate-400">Register rolls above to start fabric tracking.</p>
             </div>
           ) : (
-             <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse">
               <thead>
                 <tr className="border-b border-slate-100 text-[10px] font-bold text-slate-400 uppercase tracking-wider">
                   <th className="py-3 px-3">Fabric Material</th>
+                  <th className="py-3 px-3">Length (m)</th>
+                  <th className="py-3 px-3">Valuation (€)</th>
                   <th className="py-3 px-3">Barcode Serial No</th>
                   <th className="py-3 px-3">
                     {subTab === 'unopened' ? 'Date Added' : 'Opened On'}
@@ -805,7 +1079,11 @@ export default function RollsModule({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
-                {filteredRolls.map((roll) => (
+                {filteredRolls.map((roll) => {
+                  const rollMeters = roll.metersTotal ?? (roll.materialName === 'Kuga' ? 50 : 100);
+                  const rollValuation = calculateRollPrice(roll.materialName, rollMeters);
+
+                  return (
                   <tr key={roll.id} className="hover:bg-slate-50/50 transition-colors">
                     
                     {/* Material name */}
@@ -814,6 +1092,19 @@ export default function RollsModule({
                         <span className="w-2.5 h-2.5 rounded-full bg-indigo-500 shrink-0" />
                         <span className="font-bold text-slate-800">{roll.materialName}</span>
                       </div>
+                    </td>
+
+                    {/* Mitres / Length */}
+                    <td className="py-3 px-3 font-mono font-bold text-slate-800">
+                      <span className="inline-flex items-center gap-1 bg-slate-100/80 px-2 py-0.5 rounded-md text-xs">
+                        <Ruler size={11} className="text-indigo-600" />
+                        {rollMeters}m
+                      </span>
+                    </td>
+
+                    {/* Calculated Valuation */}
+                    <td className="py-3 px-3 font-mono font-black text-emerald-700 text-xs">
+                      {formatEuro(rollValuation)}
                     </td>
 
                     {/* Barcode */}
@@ -917,7 +1208,8 @@ export default function RollsModule({
                     </td>
 
                   </tr>
-                ))}
+                  );
+                })}
               </tbody>
             </table>
           )}
