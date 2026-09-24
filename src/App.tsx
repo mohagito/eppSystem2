@@ -21,7 +21,9 @@ import {
   AlertCircle,
   Truck,
   Download,
-  Scroll
+  Scroll,
+  ShieldCheck,
+  Lock
 } from 'lucide-react';
 import { UserProfile, StockEntry, ProductionPlan, ToastMessage, DeliveryEntry, RollEntry } from './types';
 import { MOCK_PROFILES, INITIAL_STOCK_ENTRIES, INITIAL_PLANS } from './data';
@@ -33,6 +35,8 @@ import StockManagement from './components/StockManagement';
 import PlanningModule from './components/PlanningModule';
 import DeliveryModule from './components/DeliveryModule';
 import RollsModule from './components/RollsModule';
+import SecurityVaultModal from './components/SecurityVaultModal';
+import { recordVaultSnapshot, restoreBaselineReserveRolls } from './utils/dataProtection';
 import { db, handleFirestoreError, OperationType } from './firebase';
 import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import NotificationCenter, { playNotificationSound } from './components/NotificationCenter';
@@ -84,6 +88,7 @@ export default function App() {
   });
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [quickNavOpen, setQuickNavOpen] = useState<boolean>(false);
+  const [securityVaultOpen, setSecurityVaultOpen] = useState<boolean>(false);
 
   // --- PWA MOBILE INSTALL ENGINE ---
   const checkIfStandalone = () => {
@@ -638,88 +643,16 @@ export default function App() {
           }
         }
 
-        // ONE-TIME SEEDING & AUTO-RECOVERY OF ROLLS DATA IF EMPTY OR UNINITIALIZED
-        const rollsRecoveryRef = doc(db, 'settings', 'rolls_stock_recovered_v1');
-        let rollsRecoverySnap;
-        try {
-          rollsRecoverySnap = await getDoc(rollsRecoveryRef);
-        } catch (e: any) {
-          console.error("Error reading rolls_stock_recovered_v1:", e);
-        }
-
+        // SAFE BASELINE INITIALIZATION: ONLY SEED IF DATABASE IS TOTALLY EMPTY (NEVER PURGE EXISTING ROLLS)
         const existingRollsSnap = await getDocs(collection(db, 'rolls'));
-        const needsRecovery = existingRollsSnap.empty || !rollsRecoverySnap?.exists();
-
-        if (needsRecovery) {
-          console.log("Seeding/recovering rolls stock from spreadsheet...");
+        if (existingRollsSnap.empty) {
+          console.log("Database rolls collection is empty. Safely seeding baseline factory reserve stock...");
           try {
-            const batch = writeBatch(db);
-            
-            // Clear any invalid or partial rolls
-            existingRollsSnap.forEach((docSnap) => {
-              batch.delete(docSnap.ref);
-            });
-            
-            const todayDate = new Date().toISOString().split('T')[0];
-
-            // 1. Yellow Huesker (9 unopened rolls - 100m each)
-            for (let i = 1; i <= 9; i++) {
-              const id = `roll-seed-yellow-${i}`;
-              batch.set(doc(db, 'rolls', id), {
-                id,
-                materialName: 'Yellow Huesker',
-                date: todayDate,
-                status: 'Unopened',
-                metersTotal: 100,
-                operator: 'Mohamed',
-                createdBy: 'system',
-                barcode: `EPP-ROLL-YELLOWHUESKER-${String(i).padStart(3, '0')}`,
-                notes: `Recovered factory reserve stock - Roll #${i} (100m)`
-              });
-            }
-
-            // 2. Kuga (7 unopened rolls - 50m each)
-            for (let i = 1; i <= 7; i++) {
-              const id = `roll-seed-kuga-${i}`;
-              batch.set(doc(db, 'rolls', id), {
-                id,
-                materialName: 'Kuga',
-                date: todayDate,
-                status: 'Unopened',
-                metersTotal: 50,
-                operator: 'Mohamed',
-                createdBy: 'system',
-                barcode: `EPP-ROLL-KUGA-${String(i).padStart(3, '0')}`,
-                notes: `Recovered factory reserve stock - Roll #${i} (50m)`
-              });
-            }
-
-            // 3. White Huesker (4 unopened rolls - 100m each)
-            for (let i = 1; i <= 4; i++) {
-              const id = `roll-seed-white-${i}`;
-              batch.set(doc(db, 'rolls', id), {
-                id,
-                materialName: 'White Huesker',
-                date: todayDate,
-                status: 'Unopened',
-                metersTotal: 100,
-                operator: 'Mohamed',
-                createdBy: 'system',
-                barcode: `EPP-ROLL-WHITEHUESKER-${String(i).padStart(3, '0')}`,
-                notes: `Recovered factory reserve stock - Roll #${i} (100m)`
-              });
-            }
-
-            batch.set(rollsRecoveryRef, {
-              recovered: true,
-              recoveredAt: new Date().toISOString(),
-              totalRecovered: 20
-            });
-            await batch.commit();
-            console.log("Seeding/recovering rolls stock completed!");
-            addToast("Factory reserve rolls stock (9 Yellow Huesker, 7 Kuga, 4 White Huesker) successfully recovered!", "success");
+            const count = await restoreBaselineReserveRolls(true);
+            console.log(`Seeding baseline rolls completed: ${count} rolls added.`);
+            addToast("Factory reserve rolls baseline (20 rolls) initialized safely!", "success");
           } catch (e: any) {
-            console.error("Error recovering rolls stock:", e);
+            console.error("Error seeding baseline rolls:", e);
           }
         }
       } catch (err: any) {
@@ -765,6 +698,21 @@ export default function App() {
       document.body.style.overflow = '';
     };
   }, [mobileMenuOpen]);
+
+  // --- REAL-TIME DATA PROTECTION AUTO-SNAPSHOT RECORDER ---
+  useEffect(() => {
+    if (dbLoading) return;
+    const totalCount = rolls.length + stockEntries.length + deliveries.length + plans.length;
+    if (totalCount > 0) {
+      const timer = setTimeout(() => {
+        recordVaultSnapshot(
+          { rolls, stockEntries, deliveries, plans, profiles, dailyTargets },
+          'auto_snapshot'
+        );
+      }, 1200);
+      return () => clearTimeout(timer);
+    }
+  }, [rolls, stockEntries, deliveries, plans, profiles, dailyTargets, dbLoading]);
 
   // --- TOAST DISPATCHERS ---
   const addToast = (message: string, type: 'success' | 'error' | 'info' = 'info') => {
@@ -1390,8 +1338,19 @@ export default function App() {
 
   const handleDeleteRoll = (id: string) => {
     if (!currentUser) return;
+    if (currentUser.role !== 'manager') {
+      addToast('Security Guard: Only Managers are authorized to delete material roll records.', 'error');
+      return;
+    }
     const roll = rolls.find((r) => r.id === id);
     if (!roll) return;
+
+    // Safety snapshot before deletion
+    recordVaultSnapshot(
+      { rolls, stockEntries, deliveries, plans, profiles, dailyTargets },
+      'safety_checkpoint',
+      `Checkpoint before deleting roll #${roll.barcode || roll.id}`
+    );
 
     triggerCustomConfirm(
       'Confirm Roll Record Removal',
@@ -1446,83 +1405,31 @@ export default function App() {
 
   const handleRecoverRolls = () => {
     triggerCustomConfirm(
-      'Recover Factory Rolls Database',
-      'This will restore factory reserve stock to the full spreadsheet count: 9 Yellow Huesker, 7 Kuga, and 4 White Huesker (Total 20 rolls in factory reserve). Proceed with recovery?',
+      'Restore Factory Rolls Baseline',
+      'This will check and restore factory baseline reserve stock (9 Yellow Huesker, 7 Kuga, 4 White Huesker) into the database. Any registered custom rolls will be preserved safely. Proceed?',
       async () => {
         try {
-          const batch = writeBatch(db);
-          const rollsSnap = await getDocs(collection(db, 'rolls'));
-          rollsSnap.forEach((docSnap) => {
-            batch.delete(docSnap.ref);
-          });
+          // Take safety snapshot first
+          recordVaultSnapshot(
+            { rolls, stockEntries, deliveries, plans, profiles, dailyTargets },
+            'safety_checkpoint',
+            'Checkpoint before Baseline Stock Recovery'
+          );
 
-          const todayDate = new Date().toISOString().split('T')[0];
-
-          // 1. Yellow Huesker (9 rolls - 100m each)
-          for (let i = 1; i <= 9; i++) {
-            const id = `roll-seed-yellow-${i}`;
-            batch.set(doc(db, 'rolls', id), {
-              id,
-              materialName: 'Yellow Huesker',
-              date: todayDate,
-              status: 'Unopened',
-              metersTotal: 100,
-              operator: 'Mohamed',
-              createdBy: 'system',
-              barcode: `EPP-ROLL-YELLOWHUESKER-${String(i).padStart(3, '0')}`,
-              notes: `Recovered factory reserve stock - Roll #${i} (100m)`
-            });
-          }
-
-          // 2. Kuga (7 rolls - 50m each)
-          for (let i = 1; i <= 7; i++) {
-            const id = `roll-seed-kuga-${i}`;
-            batch.set(doc(db, 'rolls', id), {
-              id,
-              materialName: 'Kuga',
-              date: todayDate,
-              status: 'Unopened',
-              metersTotal: 50,
-              operator: 'Mohamed',
-              createdBy: 'system',
-              barcode: `EPP-ROLL-KUGA-${String(i).padStart(3, '0')}`,
-              notes: `Recovered factory reserve stock - Roll #${i} (50m)`
-            });
-          }
-
-          // 3. White Huesker (4 rolls - 100m each)
-          for (let i = 1; i <= 4; i++) {
-            const id = `roll-seed-white-${i}`;
-            batch.set(doc(db, 'rolls', id), {
-              id,
-              materialName: 'White Huesker',
-              date: todayDate,
-              status: 'Unopened',
-              metersTotal: 100,
-              operator: 'Mohamed',
-              createdBy: 'system',
-              barcode: `EPP-ROLL-WHITEHUESKER-${String(i).padStart(3, '0')}`,
-              notes: `Recovered factory reserve stock - Roll #${i} (100m)`
-            });
-          }
-
-          batch.set(doc(db, 'settings', 'rolls_stock_recovered_v1'), {
-            recovered: true,
-            recoveredAt: new Date().toISOString(),
-            totalRecovered: 20
-          });
-
-          await batch.commit();
-          addToast('Factory reserve rolls database recovered: 9 Yellow Huesker, 7 Kuga, 4 White Huesker restored!', 'success');
+          const restoredCount = await restoreBaselineReserveRolls(true);
+          const msg = restoredCount > 0 
+            ? `Factory baseline recovered! ${restoredCount} rolls added to active reserve.` 
+            : 'All 20 baseline factory reserve rolls are already in the database.';
+          addToast(msg, 'success');
           triggerNotification(
-            '🔄 Rolls Database Recovered',
-            `Operator ${currentUser?.name || 'Manager'} recovered the factory rolls database: 20 rolls restored.`,
+            '🔄 Rolls Database Verified',
+            `Operator ${currentUser?.name || 'Manager'} verified and ensured baseline rolls in the factory database.`,
             'system',
             'all'
           );
-        } catch (err) {
-          console.error('Failed to recover rolls database:', err);
-          addToast('Failed to recover rolls database. Please check connection.', 'error');
+        } catch (err: any) {
+          console.error("Error in handleRecoverRolls:", err);
+          addToast('Failed to restore baseline rolls.', 'error');
         }
       }
     );
@@ -2293,6 +2200,24 @@ export default function App() {
 
               {/* Foreground / Background push subscription prompt card overlay */}
               <NotificationPermissionPrompt currentUser={currentUser} />
+
+              {/* Security Vault & Data Protection Modal (hidden from UI) */}
+              {securityVaultOpen && (
+                <SecurityVaultModal
+                  isOpen={securityVaultOpen}
+                  onClose={() => setSecurityVaultOpen(false)}
+                  currentUser={currentUser}
+                  rolls={rolls}
+                  stockEntries={stockEntries}
+                  deliveries={deliveries}
+                  plans={plans}
+                  profiles={profiles}
+                  dailyTargets={dailyTargets}
+                  onDataRestored={() => {
+                    addToast('Data successfully restored and verified from security vault!', 'success');
+                  }}
+                />
+              )}
             </main>
 
           </motion.div>
