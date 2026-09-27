@@ -23,9 +23,22 @@ import {
   Download,
   Scroll,
   ShieldCheck,
-  Lock
+  Lock,
+  CircleDollarSign
 } from 'lucide-react';
-import { UserProfile, StockEntry, ProductionPlan, ToastMessage, DeliveryEntry, RollEntry } from './types';
+import { 
+  UserProfile, 
+  StockEntry, 
+  ProductionPlan, 
+  ToastMessage, 
+  DeliveryEntry, 
+  RollEntry, 
+  FinishedPiecePrice, 
+  RollFinancialRecord,
+  ExpectedYieldConfig,
+  MachineType,
+  RollProductionRecord
+} from './types';
 import { MOCK_PROFILES, INITIAL_STOCK_ENTRIES, INITIAL_PLANS } from './data';
 import Swal from 'sweetalert2';
 import 'sweetalert2/dist/sweetalert2.min.css';
@@ -35,6 +48,7 @@ import StockManagement from './components/StockManagement';
 import PlanningModule from './components/PlanningModule';
 import DeliveryModule from './components/DeliveryModule';
 import RollsModule from './components/RollsModule';
+import FinancialEvaluation from './components/FinancialEvaluation';
 import SecurityVaultModal from './components/SecurityVaultModal';
 import { recordVaultSnapshot, restoreBaselineReserveRolls } from './utils/dataProtection';
 import { db, handleFirestoreError, OperationType } from './firebase';
@@ -42,6 +56,19 @@ import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, 
 import NotificationCenter, { playNotificationSound } from './components/NotificationCenter';
 import NotificationPermissionPrompt from './components/NotificationPermissionPrompt';
 import { onForegroundMessage } from './fcm';
+import FactoryClock from './components/FactoryClock';
+import { getMoroccoDateStr, getMoroccoTimeStr } from './utils/timeZone';
+import { 
+  DEFAULT_PIECE_PRICES,
+  DEFAULT_EXPECTED_YIELDS,
+  calculateRealRollCost,
+  calculateRollProductionMetrics,
+  referenceToAirbagModel,
+  getDefaultReferenceForMaterial,
+  getExpectedYieldForReference,
+  getPiecePriceForReference,
+  normalizeRollMaterial
+} from './utils/financialCalculations';
 
 export default function App() {
   // --- DATABASE AND LOCAL STORAGE PERSISTENCE ---
@@ -51,6 +78,9 @@ export default function App() {
   const [plans, setPlans] = useState<ProductionPlan[]>([]);
   const [deliveries, setDeliveries] = useState<DeliveryEntry[]>([]);
   const [rolls, setRolls] = useState<RollEntry[]>([]);
+  const [financialRecords, setFinancialRecords] = useState<RollFinancialRecord[]>([]);
+  const [piecePrices, setPiecePrices] = useState<FinishedPiecePrice[]>(DEFAULT_PIECE_PRICES);
+  const [expectedYields, setExpectedYields] = useState<ExpectedYieldConfig[]>(DEFAULT_EXPECTED_YIELDS);
 
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     try {
@@ -373,6 +403,8 @@ export default function App() {
     let unsubTargets: (() => void) | null = null;
     let unsubDeliveries: (() => void) | null = null;
     let unsubRolls: (() => void) | null = null;
+    let unsubExpectedYields: (() => void) | null = null;
+    let unsubPiecePrices: (() => void) | null = null;
 
     // Safety fallback: ensure UI is never stuck in blank/loading state even on slow connection
     const loadingTimeout = setTimeout(() => {
@@ -510,7 +542,7 @@ export default function App() {
             materialName,
             status,
             metersTotal,
-            date: raw.date || raw.receptionDate || new Date().toISOString().split('T')[0],
+            date: raw.date || raw.receptionDate || getMoroccoDateStr(),
             operator: raw.operator || raw.updatedBy || raw.createdBy || 'Mohamed',
             createdBy: raw.createdBy || 'system'
           } as RollEntry);
@@ -520,6 +552,46 @@ export default function App() {
         setRolls(list);
       }, (err) => {
         handleFirestoreError(err, OperationType.LIST, 'rolls');
+      });
+
+      // 7. Sync Expected Yields Configuration (Available for roll yield calculations)
+      unsubExpectedYields = onSnapshot(collection(db, 'expected_yields'), (snapshot) => {
+        if (!snapshot.empty) {
+          const list: ExpectedYieldConfig[] = [];
+          snapshot.forEach((docSnap) => {
+            list.push(docSnap.data() as ExpectedYieldConfig);
+          });
+          setExpectedYields(list);
+        } else {
+          // Initialize baseline expected yields in Firestore
+          DEFAULT_EXPECTED_YIELDS.forEach((y) => {
+            setDoc(doc(db, 'expected_yields', y.id), y).catch(() => {});
+          });
+          setExpectedYields(DEFAULT_EXPECTED_YIELDS);
+        }
+      }, (err) => {
+        console.warn('Expected yields subscription error:', err);
+      });
+
+      // 8. Sync Finished Piece Prices (Ensures operator and manager see identical synchronized data)
+      unsubPiecePrices = onSnapshot(collection(db, 'piece_prices'), (snapshot) => {
+        if (!snapshot.empty) {
+          const list: FinishedPiecePrice[] = [];
+          snapshot.forEach((docSnap) => {
+            list.push(docSnap.data() as FinishedPiecePrice);
+          });
+          setPiecePrices(list);
+        } else {
+          // Initialize baseline prices in Firestore
+          DEFAULT_PIECE_PRICES.forEach((price) => {
+            setDoc(doc(db, 'piece_prices', price.id), price).catch((err) => {
+              console.warn('Could not seed default piece price:', err);
+            });
+          });
+          setPiecePrices(DEFAULT_PIECE_PRICES);
+        }
+      }, (err) => {
+        console.warn('Piece prices subscription error:', err);
       });
     };
 
@@ -643,6 +715,48 @@ export default function App() {
           }
         }
 
+        // ONE-TIME RESET OF FINANCIAL EVALUATION PRODUCTION TO ZERO FOR CLEAN SLATE
+        const cleanFinRef = doc(db, 'settings', 'financial_zero_init_v2');
+        let cleanFinSnap;
+        try {
+          cleanFinSnap = await getDoc(cleanFinRef);
+        } catch (e: any) {
+          console.error("Error reading financial_zero_init_v2:", e);
+        }
+
+        if (!cleanFinSnap || !cleanFinSnap.exists()) {
+          console.log("Setting all financial evaluations and production metrics to zero...");
+          try {
+            const batch = writeBatch(db);
+
+            // Reset all rolls to Unopened with zero produced pieces
+            const rollsSnap = await getDocs(collection(db, 'rolls'));
+            rollsSnap.forEach((docSnap) => {
+              batch.update(docSnap.ref, {
+                status: 'Unopened',
+                producedPieces: 0,
+                remainingPieces: 0,
+                productionValue: 0,
+                grossProfit: 0,
+                profitPercent: 0,
+                productionRecords: []
+              });
+            });
+
+            // Clear any previously saved financial evaluation docs
+            const finSnap = await getDocs(collection(db, 'financial_evaluations'));
+            finSnap.forEach((docSnap) => {
+              batch.delete(docSnap.ref);
+            });
+
+            batch.set(cleanFinRef, { initializedAtZero: true, timestamp: new Date().toISOString() });
+            await batch.commit();
+            console.log("Reset to zero completed successfully!");
+          } catch (e: any) {
+            console.error("Error resetting financial data to zero:", e);
+          }
+        }
+
         // SAFE BASELINE INITIALIZATION: ONLY SEED IF DATABASE IS TOTALLY EMPTY (NEVER PURGE EXISTING ROLLS)
         const existingRollsSnap = await getDocs(collection(db, 'rolls'));
         if (existingRollsSnap.empty) {
@@ -673,8 +787,41 @@ export default function App() {
       if (unsubTargets) unsubTargets();
       if (unsubDeliveries) unsubDeliveries();
       if (unsubRolls) unsubRolls();
+      if (unsubExpectedYields) unsubExpectedYields();
+      if (unsubPiecePrices) unsubPiecePrices();
     };
   }, []);
+
+  // --- CONFIDENTIAL MANAGER-ONLY FINANCIAL SUBSCRIPTION ---
+  useEffect(() => {
+    // Strictly isolate confidential financial evaluation records to manager role
+    if (!currentUser || currentUser.role !== 'manager') {
+      setFinancialRecords([]);
+      return;
+    }
+
+    let unsubFinancial: (() => void) | null = null;
+
+    try {
+      // Sync Roll Financial Evaluations
+      unsubFinancial = onSnapshot(collection(db, 'financial_evaluations'), (snapshot) => {
+        const list: RollFinancialRecord[] = [];
+        snapshot.forEach((docSnap) => {
+          list.push(docSnap.data() as RollFinancialRecord);
+        });
+        list.sort((a, b) => (b.evaluatedAt || '').localeCompare(a.evaluatedAt || ''));
+        setFinancialRecords(list);
+      }, (err) => {
+        console.warn('Financial evaluations subscription error:', err);
+      });
+    } catch (err) {
+      console.warn('Manager financial listeners setup error:', err);
+    }
+
+    return () => {
+      if (unsubFinancial) unsubFinancial();
+    };
+  }, [currentUser?.role]);
 
   useEffect(() => {
     try {
@@ -1281,23 +1428,48 @@ export default function App() {
       });
   };
 
-  const handleOpenRoll = (id: string, barcode: string) => {
+  const handleOpenRoll = (
+    id: string, 
+    barcode: string, 
+    referenceId?: string, 
+    expectedPieces?: number, 
+    actualLength?: number
+  ) => {
     const roll = rolls.find((r) => r.id === id);
     if (!roll) return;
+
+    const mat = normalizeRollMaterial(roll.materialName);
+    const ref = referenceId || roll.referenceId || getDefaultReferenceForMaterial(mat);
+    const length = actualLength || roll.metersTotal || (roll.materialName === 'Kuga' ? 50 : 100);
+    const expPieces = expectedPieces || getExpectedYieldForReference(ref, expectedYields);
+
+    const costInfo = calculateRealRollCost({ ...roll, metersTotal: length });
+    const lockedPrice = getPiecePriceForReference(ref, piecePrices);
 
     const updates: Partial<RollEntry> = {
       status: 'Active',
       openedAt: new Date().toISOString(),
       operator: currentUser?.name || roll.operator,
-      barcode: barcode.trim()
+      barcode: barcode.trim(),
+      referenceId: ref,
+      expectedPieces: expPieces,
+      producedPieces: 0,
+      remainingPieces: expPieces,
+      metersTotal: length,
+      rollCost: costInfo.cost,
+      pricePerPiece: lockedPrice,
+      productionValue: 0,
+      grossProfit: -costInfo.cost,
+      profitPercent: -100,
+      productionRecords: []
     };
 
     updateDoc(doc(db, 'rolls', id), updates)
       .then(() => {
-        addToast(`Roll ${roll.materialName} (${barcode}) has been opened for production!`, 'success');
+        addToast(`Roll ${roll.materialName} (${barcode}) opened: ${expPieces} ${ref} pieces expected!`, 'success');
         triggerNotification(
           '🧵 Fabric Roll Opened',
-          `Roll ${roll.materialName} (Barcode: ${barcode}) is now ACTIVE and being consumed.`,
+          `Roll ${roll.materialName} (${barcode}) is now ACTIVE for ${ref}. Expected yield: ${expPieces} pcs.`,
           'system',
           'all'
         );
@@ -1306,6 +1478,181 @@ export default function App() {
         handleFirestoreError(err, OperationType.UPDATE, `rolls/${id}`);
         addToast('Failed to open material roll.', 'error');
       });
+  };
+
+  const handleRecordRollProduction = async (
+    rollId: string, 
+    quantity: number, 
+    machine?: MachineType | string, 
+    notes?: string,
+    referenceId?: string
+  ) => {
+    const roll = rolls.find((r) => r.id === rollId);
+    if (!roll) throw new Error('Roll not found');
+
+    const mat = normalizeRollMaterial(roll.materialName);
+    const ref = referenceId || roll.referenceId || getDefaultReferenceForMaterial(mat);
+    const expPieces = roll.expectedPieces || getExpectedYieldForReference(ref, expectedYields);
+    const costInfo = calculateRealRollCost(roll);
+    const rollCost = roll.rollCost !== undefined && roll.rollCost > 0 ? roll.rollCost : costInfo.cost;
+    const lockedPrice = roll.pricePerPiece !== undefined && roll.pricePerPiece > 0 ? roll.pricePerPiece : getPiecePriceForReference(ref, piecePrices);
+
+    const newRec: RollProductionRecord = {
+      id: `rec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      rollId: roll.id,
+      rollBarcode: roll.barcode || roll.id,
+      referenceId: ref,
+      quantity,
+      date: getMoroccoDateStr(),
+      time: getMoroccoTimeStr(),
+      operator: currentUser?.name || 'Operator',
+      machine: machine || 'Big Machine',
+      notes: notes || '',
+      createdAt: new Date().toISOString()
+    };
+
+    const existingRecords = roll.productionRecords || [];
+    const updatedRecords = [...existingRecords, newRec];
+    const newProduced = updatedRecords.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
+    const newRemaining = Math.max(0, expPieces - newProduced);
+
+    const newProductionValue = Math.round(newProduced * lockedPrice * 100) / 100;
+    const newGrossProfit = Math.round((newProductionValue - rollCost) * 100) / 100;
+    const newProfitPercent = rollCost > 0 ? Math.round((newGrossProfit / rollCost) * 10000) / 100 : 0;
+
+    const rollUpdates: Partial<RollEntry> = {
+      status: (roll.status === 'Consumed' || roll.status === 'FINISHED') ? roll.status : 'Active',
+      referenceId: ref,
+      expectedPieces: expPieces,
+      producedPieces: newProduced,
+      remainingPieces: newRemaining,
+      pricePerPiece: lockedPrice,
+      rollCost: rollCost,
+      productionValue: newProductionValue,
+      grossProfit: newGrossProfit,
+      profitPercent: newProfitPercent,
+      productionRecords: updatedRecords,
+      updatedAt: new Date().toISOString(),
+      updatedBy: currentUser?.name
+    };
+
+    await updateDoc(doc(db, 'rolls', rollId), rollUpdates);
+
+    // Automatically create a StockEntry so manufactured piece stock reflects this production!
+    const airbagModel = referenceToAirbagModel(ref);
+    const newStockEntry: StockEntry = {
+      id: `se-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      modelId: airbagModel,
+      workerName: currentUser?.name || 'Operator',
+      date: getMoroccoDateStr(),
+      quantity: quantity,
+      createdBy: currentUser?.id || 'system',
+      createdAt: new Date().toISOString(),
+      machine: (machine as MachineType) || 'Big Machine',
+      rollId: roll.id,
+      rollBarcode: roll.barcode || roll.id,
+      referenceId: ref,
+      type: 'production',
+      time: getMoroccoTimeStr(),
+      notes: `Batch from roll ${roll.barcode || roll.id}${notes ? ' - ' + notes : ''}`
+    };
+
+    await setDoc(doc(db, 'stock_entries', newStockEntry.id), newStockEntry);
+
+    // Also update/sync financial evaluations document
+    const evalRecord: RollFinancialRecord = {
+      id: `fe-${roll.id}`,
+      rollId: roll.id,
+      rollBarcode: roll.barcode || roll.id,
+      materialName: mat,
+      rollLength: roll.metersTotal || (roll.materialName === 'Kuga' ? 50 : 100),
+      rollCost: rollCost,
+      items: [{
+        reference: ref,
+        pieces: newProduced,
+        pricePerPiece: lockedPrice,
+        productionValue: newProductionValue
+      }],
+      totalPieces: newProduced,
+      totalProductionValue: newProductionValue,
+      grossProfit: newGrossProfit,
+      profitPercentage: newProfitPercent,
+      evaluatedAt: getMoroccoDateStr(),
+      evaluatedBy: currentUser?.name || 'Operator',
+      notes: `Auto-linked from Roll ${roll.barcode || roll.id}`
+    };
+    setDoc(doc(db, 'financial_evaluations', evalRecord.id), evalRecord).catch(() => {});
+
+    addToast(`+${quantity} ${ref} pieces produced & added to stock! Remaining: ${newRemaining}`, 'success');
+    triggerNotification(
+      '⚙️ Production Recorded',
+      `+${quantity} pcs of ${ref} produced from roll ${roll.barcode || roll.id}. Remaining: ${newRemaining} pcs.`,
+      'system',
+      'all'
+    );
+  };
+
+  const handleMarkRollFinished = async (
+    rollId: string, 
+    wasteMeters?: number, 
+    notes?: string
+  ) => {
+    const roll = rolls.find((r) => r.id === rollId);
+    if (!roll) throw new Error('Roll not found');
+
+    const metrics = calculateRollProductionMetrics(roll, expectedYields, piecePrices);
+    const waste = wasteMeters || 0;
+
+    const updates: Partial<RollEntry> = {
+      status: 'Consumed',
+      closedAt: new Date().toISOString(),
+      closedBy: currentUser?.name || 'Operator',
+      consumedMeters: Math.max(0, (roll.metersTotal || 100) - waste),
+      wastePieces: waste,
+      expectedPieces: metrics.expectedPieces,
+      producedPieces: metrics.producedPieces,
+      remainingPieces: metrics.remainingPieces,
+      rollCost: metrics.rollCost,
+      pricePerPiece: metrics.pricePerPiece,
+      productionValue: metrics.productionValue,
+      grossProfit: metrics.grossProfit,
+      profitPercent: metrics.profitPercent,
+      notes: notes ? (roll.notes ? `${roll.notes} | ${notes}` : notes) : roll.notes
+    };
+
+    await updateDoc(doc(db, 'rolls', rollId), updates);
+
+    // Sync financial evaluation
+    const evalRecord: RollFinancialRecord = {
+      id: `fe-${roll.id}`,
+      rollId: roll.id,
+      rollBarcode: roll.barcode || roll.id,
+      materialName: metrics.material,
+      rollLength: metrics.actualLength,
+      rollCost: metrics.rollCost,
+      items: [{
+        reference: metrics.referenceId,
+        pieces: metrics.producedPieces,
+        pricePerPiece: metrics.pricePerPiece,
+        productionValue: metrics.productionValue
+      }],
+      totalPieces: metrics.producedPieces,
+      totalProductionValue: metrics.productionValue,
+      grossProfit: metrics.grossProfit,
+      profitPercentage: metrics.profitPercent,
+      evaluatedAt: getMoroccoDateStr(),
+      evaluatedBy: currentUser?.name || 'Operator',
+      notes: `Finished roll: ${metrics.producedPieces} produced, profit: €${metrics.grossProfit.toFixed(2)} (${metrics.profitPercent}%)`
+    };
+    setDoc(doc(db, 'financial_evaluations', evalRecord.id), evalRecord).catch(() => {});
+
+    addToast(`Roll ${roll.barcode || roll.id} marked as FINISHED!`, 'success');
+    triggerNotification(
+      '✅ Roll Finished',
+      `Roll ${roll.materialName} (${roll.barcode || roll.id}) completed: ${metrics.producedPieces} pcs produced.`,
+      'system',
+      'all'
+    );
   };
 
   const handleConsumeRoll = (id: string, consumedMeters: number, notes?: string) => {
@@ -1447,6 +1794,47 @@ export default function App() {
       });
   };
 
+  // --- FINANCIAL EVALUATION HANDLERS (MANAGER ONLY) ---
+  const handleSaveFinancialRecord = async (record: RollFinancialRecord) => {
+    if (!currentUser || currentUser.role !== 'manager') {
+      throw new Error('Unauthorized');
+    }
+    await setDoc(doc(db, 'financial_evaluations', record.id), record);
+  };
+
+  const handleDeleteFinancialRecord = async (recordId: string) => {
+    if (!currentUser || currentUser.role !== 'manager') {
+      throw new Error('Unauthorized');
+    }
+    await deleteDoc(doc(db, 'financial_evaluations', recordId));
+  };
+
+  const handleUpdatePiecePrices = async (prices: FinishedPiecePrice[]) => {
+    if (!currentUser || currentUser.role !== 'manager') {
+      throw new Error('Unauthorized');
+    }
+    const batch = writeBatch(db);
+    prices.forEach((p) => {
+      batch.set(doc(db, 'piece_prices', p.id), p);
+    });
+    await batch.commit();
+    setPiecePrices(prices);
+    addToast('Piece prices updated successfully!', 'success');
+  };
+
+  const handleUpdateExpectedYields = async (yields: ExpectedYieldConfig[]) => {
+    if (!currentUser || currentUser.role !== 'manager') {
+      throw new Error('Unauthorized');
+    }
+    const batch = writeBatch(db);
+    yields.forEach((y) => {
+      batch.set(doc(db, 'expected_yields', y.id), y);
+    });
+    await batch.commit();
+    setExpectedYields(yields);
+    addToast('Expected yields updated successfully!', 'success');
+  };
+
   const handleClearStockEntries = () => {
     triggerCustomConfirm(
       'Purge Stock stockpile Ledger',
@@ -1567,6 +1955,7 @@ export default function App() {
             deliveries={deliveries}
             plans={plans}
             profiles={profiles}
+            rolls={rolls}
             onAddEntry={handleAddStockEntry}
             onDeleteEntry={handleDeleteStockEntry}
             onEditEntry={handleEditStockEntry}
@@ -1609,12 +1998,46 @@ export default function App() {
           <RollsModule
             currentUser={currentUser}
             rolls={rolls}
+            financialRecords={currentUser.role === 'manager' ? financialRecords : undefined}
+            piecePrices={currentUser.role === 'manager' ? piecePrices : undefined}
+            expectedYields={expectedYields}
             onAddRoll={handleAddRoll}
             onOpenRoll={handleOpenRoll}
+            onRecordProduction={handleRecordRollProduction}
+            onMarkFinished={handleMarkRollFinished}
             onConsumeRoll={handleConsumeRoll}
             onDeleteRoll={handleDeleteRoll}
             onUpdateRoll={handleUpdateRoll}
             onRecoverRolls={handleRecoverRolls}
+            onOpenRecordProduction={(rollId) => {
+              if (currentUser.role === 'manager') {
+                setActiveTab('financial');
+              }
+            }}
+          />
+        );
+
+      case 'financial':
+        if (currentUser.role !== 'manager') {
+          return (
+            <div className="p-8 text-center text-slate-500 font-bold">
+              Access Restricted. Financial evaluations are only accessible to Manager.
+            </div>
+          );
+        }
+        return (
+          <FinancialEvaluation
+            currentUser={currentUser}
+            rolls={rolls}
+            financialRecords={financialRecords}
+            piecePrices={piecePrices}
+            expectedYields={expectedYields}
+            onSaveFinancialRecord={handleSaveFinancialRecord}
+            onDeleteFinancialRecord={handleDeleteFinancialRecord}
+            onUpdatePiecePrices={handleUpdatePiecePrices}
+            onUpdateExpectedYields={handleUpdateExpectedYields}
+            onRecordProduction={handleRecordRollProduction}
+            onMarkFinished={handleMarkRollFinished}
           />
         );
 
@@ -1633,7 +2056,10 @@ export default function App() {
     { id: 'stock', label: 'Stock', icon: Database },
     { id: 'plans', label: 'Production Plan', icon: CalendarRange },
     { id: 'rolls', label: 'Material Rolls', icon: Scroll },
-    { id: 'delivery', label: 'Deliveries', icon: Truck }
+    { id: 'delivery', label: 'Deliveries', icon: Truck },
+    ...(currentUser?.role === 'manager'
+      ? [{ id: 'financial', label: 'Financial Evaluation', icon: CircleDollarSign }]
+      : [])
   ];
 
   return (
@@ -1935,13 +2361,14 @@ export default function App() {
 
             {/* HEADER ACCENTS FOR RESPONSIVE MOBILE VIEW */}
             <header className="md:hidden bg-slate-900 border-b border-slate-800 px-3 py-3 shrink-0 flex items-center justify-between" id="mobile-header">
-              <div className="flex items-center gap-1.5">
+              <div className="flex items-center gap-2">
                 <img 
                   src="https://www.eppnatur.es/media/yootheme/cache/1c/logo_eppnatur_3-1ce587ca.webp" 
                   alt="EPP Logo"
                   className="h-7 w-auto object-contain"
                   referrerPolicy="no-referrer"
                 />
+                <FactoryClock variant="mobile" />
               </div>
 
               {/* Quick Section Switcher Dropdown */}

@@ -26,6 +26,12 @@ import {
   Boxes,
   Package
 } from 'lucide-react';
+import { 
+  getMoroccoDateStr, 
+  getMoroccoTimeStr, 
+  formatMoroccoDate, 
+  formatMoroccoDateTime 
+} from '../utils/timeZone';
 
 interface DeliveryProps {
   currentUser: UserProfile;
@@ -45,11 +51,7 @@ export default function DeliveryModule({
   onDeleteDelivery
 }: DeliveryProps) {
   const getLocalDateStr = () => {
-    const d = new Date();
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
+    return getMoroccoDateStr();
   };
 
   const [selectedModel, setSelectedModel] = useState<AirbagModel>('BCB');
@@ -174,22 +176,19 @@ export default function DeliveryModule({
       return;
     }
 
-    // Automatically generate exact Date & Time on save
-    const now = new Date();
-    const dd = String(now.getDate()).padStart(2, '0');
-    const mm = String(now.getMonth() + 1).padStart(2, '0');
-    const yyyy = now.getFullYear();
-    const hh = String(now.getHours()).padStart(2, '0');
-    const min = String(now.getMinutes()).padStart(2, '0');
+    // Automatically generate exact Date & Time on save (Morocco GMT+0)
+    const dateToUse = deliveryDate || getMoroccoDateStr();
+    const [yyyy, mm, dd] = dateToUse.split('-');
+    const moroccoTime = getMoroccoTimeStr(new Date()); // e.g. 15:20
 
     onAddDelivery({
       modelId: selectedModel,
       model: selectedModel,
       workerName: finalWorkerName,
       loadedBy: finalWorkerName,
-      date: deliveryDate || getLocalDateStr(), // YYYY-MM-DD
-      deliveryDate: `${dd}/${mm}/${yyyy}`, // DD/MM/YYYY e.g., 11/06/2026
-      deliveryTime: `${hh}:${min}`, // e.g., 14:37
+      date: dateToUse, // YYYY-MM-DD
+      deliveryDate: `${dd}/${mm}/${yyyy}`, // DD/MM/YYYY e.g., 25/09/2026
+      deliveryTime: moroccoTime, // e.g., 15:20
       quantity: parsedQty,
       invoiceNumber: invoiceNumber.trim().toUpperCase(),
       createdBy: currentUser.name || currentUser.id // Gonzalo
@@ -261,12 +260,12 @@ export default function DeliveryModule({
       d.invoiceNumber || 'N/A',
       d.model || d.modelId,
       d.quantity,
-      d.deliveryDate || (d.date ? new Date(d.date).toLocaleDateString('en-GB') : 'N/A'),
+      d.deliveryDate || (d.date ? formatMoroccoDate(d.date) : 'N/A'),
       d.deliveryTime || '00:00',
       d.loadedBy || d.workerName || 'N/A',
       d.createdBy || 'N/A',
       d.id,
-      d.createdAt ? String(d.createdAt) : 'N/A'
+      d.createdAt ? formatMoroccoDateTime(d.createdAt, true) : 'N/A'
     ]);
 
     // 3. Assemble CSV string using CSV escaping guidelines
@@ -299,10 +298,7 @@ export default function DeliveryModule({
 
   const handleDownloadExcel = () => {
     const totalFilteredSum = filteredDeliveries.reduce((sum, d) => sum + d.quantity, 0);
-    const dateFormatted = new Date().toLocaleString('es-ES', {
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit'
-    });
+    const dateFormatted = formatMoroccoDateTime(new Date(), true);
 
     const excelRows = filteredDeliveries.map((d, index) => {
       const isEven = index % 2 === 0;
@@ -310,12 +306,12 @@ export default function DeliveryModule({
       const safeInvoice = d.invoiceNumber || 'N/A';
       const safeModel = d.model || d.modelId;
       const safeQty = d.quantity;
-      const safeDate = d.deliveryDate || (d.date ? new Date(d.date).toLocaleDateString('en-GB') : 'N/A');
+      const safeDate = d.deliveryDate || (d.date ? formatMoroccoDate(d.date) : 'N/A');
       const safeTime = d.deliveryTime || '00:00';
       const safeWorker = d.loadedBy || d.workerName || 'N/A';
       const safeCreator = d.createdBy || 'N/A';
       const safeId = d.id;
-      const safeCreatedAt = d.createdAt ? String(new Date(d.createdAt).toLocaleString('es-ES')) : 'N/A';
+      const safeCreatedAt = d.createdAt ? formatMoroccoDateTime(d.createdAt, true) : 'N/A';
 
       return `
         <tr ${bgStyle}>
@@ -973,7 +969,12 @@ export default function DeliveryModule({
                               -{d.quantity} pcs
                             </td>
                             <td className="p-4 text-xs font-mono text-slate-650 hidden sm:table-cell">
-                              {d.deliveryDate || new Date(d.date).toLocaleDateString('en-GB')} {d.deliveryTime || '00:00'}
+                              <div className="flex items-center gap-1.5">
+                                <span>{d.deliveryDate || formatMoroccoDate(d.date)}</span>
+                                <span className="text-emerald-700 font-bold bg-emerald-50 border border-emerald-100 px-1.5 py-0.2 rounded text-[10px]">
+                                  {d.deliveryTime || '00:00'}
+                                </span>
+                              </div>
                             </td>
                             <td className="p-4 hidden sm:table-cell">
                               <span className="text-xs font-bold text-slate-800">
@@ -1137,7 +1138,7 @@ export default function DeliveryModule({
                     <span>Date</span>
                   </div>
                   <span className="font-mono font-bold text-slate-800">
-                    {selectedDetails.deliveryDate || new Date(selectedDetails.date).toLocaleDateString('en-GB')}
+                    {selectedDetails.deliveryDate || formatMoroccoDate(selectedDetails.date)}
                   </span>
                 </div>
 
@@ -1158,7 +1159,7 @@ export default function DeliveryModule({
                     Firestore Traceability Timestamp
                   </div>
                   <div className="font-mono break-all leading-normal select-all text-slate-500">
-                    {selectedDetails.createdAt ? String(selectedDetails.createdAt) : 'Awaiting sync...'}
+                    {selectedDetails.createdAt ? formatMoroccoDateTime(selectedDetails.createdAt, true) : 'Awaiting sync...'}
                   </div>
                 </div>
 

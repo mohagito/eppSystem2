@@ -205,6 +205,60 @@
         "active": { "type": "boolean" }
       },
       "required": ["id", "name", "code", "type", "active"]
+    },
+    "ExpectedYieldConfig": {
+      "title": "ExpectedYieldConfig",
+      "description": "Expected finished pieces yield configuration per roll type and reference",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "reference": { "type": "string" },
+        "material": { "type": "string" },
+        "materialFamily": { "type": "string" },
+        "expectedPieces": { "type": "number" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["id", "reference", "material", "materialFamily", "expectedPieces"]
+    },
+    "FinishedPiecePrice": {
+      "title": "FinishedPiecePrice",
+      "description": "Configurable finished piece prices per material family",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "reference": { "type": "string" },
+        "material": { "type": "string" },
+        "materialFamily": { "type": "string" },
+        "pricePerPiece": { "type": "number" },
+        "isActive": { "type": "boolean" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["id", "reference", "material", "materialFamily", "pricePerPiece", "isActive"]
+    },
+    "RollFinancialRecord": {
+      "title": "RollFinancialRecord",
+      "description": "Financial evaluation and profitability calculation for a physical fabric roll",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "rollId": { "type": "string" },
+        "rollBarcode": { "type": "string" },
+        "materialName": { "type": "string" },
+        "rollLength": { "type": "number" },
+        "rollCost": { "type": "number" },
+        "items": { "type": "array" },
+        "totalPieces": { "type": "integer" },
+        "totalProductionValue": { "type": "number" },
+        "grossProfit": { "type": "number" },
+        "profitPercentage": { "type": "number" },
+        "evaluatedAt": { "type": "string" },
+        "evaluatedBy": { "type": "string" },
+        "notes": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "rollId", "rollBarcode", "materialName", "rollLength", "rollCost", "items", "totalPieces", "totalProductionValue", "grossProfit", "profitPercentage", "evaluatedAt", "evaluatedBy"]
     }
   },
   "firestore": {
@@ -247,6 +301,18 @@
     "settings/daily_targets": {
       "schema": "DailyTargets",
       "description": "Custom daily targets mapping"
+    },
+    "piece_prices/{priceId}": {
+      "schema": "FinishedPiecePrice",
+      "description": "Configurable finished piece price table for manager"
+    },
+    "financial_evaluations/{evalId}": {
+      "schema": "RollFinancialRecord",
+      "description": "Roll profitability calculations and production value records"
+    },
+    "expected_yields/{yieldId}": {
+      "schema": "ExpectedYieldConfig",
+      "description": "Configurable expected piece yield per roll reference"
     }
   }
 }

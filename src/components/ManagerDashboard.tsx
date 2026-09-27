@@ -29,6 +29,7 @@ import {
   getAchievementStatus,
   getAchievementColors
 } from '../utils/achievement';
+import { getMoroccoDateStr } from '../utils/timeZone';
 
 function getISOWeekDetails(dateStr: string) {
   const d = new Date(dateStr);
@@ -93,11 +94,7 @@ export default function ManagerDashboard({
   onResetDefaults
 }: ManagerProps) {
   const todayStr = useMemo(() => {
-    const d = new Date();
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
+    return getMoroccoDateStr();
   }, []);
 
   // --- WEEKLY BACKUP / AUDIT EXPORT TOOL STATE & MEMOS ---
@@ -105,9 +102,8 @@ export default function ManagerDashboard({
   const allSystemWeeks = useMemo(() => {
     const weeksMap: Record<string, { key: string; label: string }> = {};
 
-    // 1. Get current week
-    const today = new Date();
-    const todayStrVal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    // 1. Get current week (Morocco GMT+0)
+    const todayStrVal = getMoroccoDateStr();
     const curWeek = getISOWeekDetails(todayStrVal);
     weeksMap[curWeek.key] = { key: curWeek.key, label: `${curWeek.label} (Current)` };
 
@@ -144,9 +140,7 @@ export default function ManagerDashboard({
   }, [plans, entries, deliveries]);
 
   const [backupWeekKey, setBackupWeekKey] = useState<string>(() => {
-    const today = new Date();
-    const todayStrVal = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    return getISOWeekDetails(todayStrVal).key;
+    return getISOWeekDetails(getMoroccoDateStr()).key;
   });
 
   const backupWeekStats = useMemo(() => {

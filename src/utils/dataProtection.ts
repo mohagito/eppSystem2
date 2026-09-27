@@ -1,6 +1,7 @@
 import { RollEntry, StockEntry, DeliveryEntry, ProductionPlan, UserProfile } from '../types';
 import { db } from '../firebase';
 import { collection, doc, writeBatch, getDocs } from 'firebase/firestore';
+import { getMoroccoDateStr, getMoroccoTimeStr } from './timeZone';
 
 export interface DataVaultSnapshot {
   id: string;
@@ -176,8 +177,8 @@ export function exportFullDatabaseBackupJSON(data: {
   const jsonStr = JSON.stringify(exportPayload, null, 2);
   const blob = new Blob([jsonStr], { type: 'application/json' });
   const url = URL.createObjectURL(blob);
-  const dateStr = new Date().toISOString().split('T')[0];
-  const timeStr = new Date().toTimeString().split(' ')[0].replace(/:/g, '-');
+  const dateStr = getMoroccoDateStr();
+  const timeStr = getMoroccoTimeStr(new Date(), true).replace(/:/g, '-');
   const a = document.createElement('a');
   a.href = url;
   a.download = `EPP_FACTORY_SECURITY_BACKUP_${dateStr}_${timeStr}.json`;
@@ -230,7 +231,7 @@ export const FACTORY_RESERVE_BASELINE_ROLLS: Omit<RollEntry, 'date'>[] = [
  * Safely restores baseline factory rolls WITHOUT deleting any custom operator rolls
  */
 export async function restoreBaselineReserveRolls(preserveCustom: boolean = true): Promise<number> {
-  const todayDate = new Date().toISOString().split('T')[0];
+  const todayDate = getMoroccoDateStr();
   const rollsSnap = await getDocs(collection(db, 'rolls'));
   const existingIds = new Set(rollsSnap.docs.map(d => d.id));
 

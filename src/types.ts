@@ -25,6 +25,13 @@ export interface StockEntry {
   planId?: string;       // Optional: directly associated production plan ID
   type?: 'production' | 'packaging'; // production = manufactured pieces, packaging = packaged pieces
   
+  // Traceability to source physical roll
+  rollId?: string;
+  rollBarcode?: string;
+  referenceId?: string;
+  time?: string;
+  notes?: string;
+
   // Correction System Fields
   originalQuantity?: number;
   correctedQuantity?: number;
@@ -80,8 +87,6 @@ export interface ToastMessage {
   type: 'success' | 'error' | 'info';
 }
 
-export * from './types/materialTypes';
-
 export type RollMaterial = 'White Huesker' | 'Yellow Huesker' | 'Delcotex India' | 'Kuga';
 
 export interface RollMaterialCostConfig {
@@ -111,6 +116,19 @@ export interface RollEntry {
   closedAt?: string; // ISO timestamp when roll is fully consumed
   closedBy?: string; // name of operator who closed it
 
+  // Automatic Linkage: ROLL → EXPECTED PIECES → PRODUCTION → PIECE STOCK → FINANCIAL RESULT
+  referenceId?: string; // e.g. 'BCB-FRA', 'TETOUAN / XJX-MARR', 'CRAFTER', 'SK216'
+  expectedPieces?: number; // Expected finished pieces from this roll
+  producedPieces?: number; // Actual total produced pieces so far
+  remainingPieces?: number; // expectedPieces - producedPieces
+  wastePieces?: number; // Optional waste / defective pieces
+  pricePerPiece?: number; // Locked piece price for this roll
+  rollCost?: number; // Actual physical roll cost
+  productionValue?: number; // producedPieces * pricePerPiece
+  grossProfit?: number; // productionValue - rollCost
+  profitPercent?: number; // (grossProfit / rollCost) * 100
+  productionRecords?: RollProductionRecord[]; // Independent log of production batches
+
   // Enhanced Industrial Physical Roll fields
   rollNumber?: string;
   materialId?: string;
@@ -132,6 +150,73 @@ export interface RollEntry {
   locationId?: string;
   locationName?: string;
   createdAt?: string;
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+// ==========================================
+// FINANCIAL EVALUATION & PIECE PRICING TYPES
+// ==========================================
+
+export type MaterialFamily = 'HUESKER 22' | 'HUESKER 82' | 'INDIA / DELCOTEX' | 'KUGA';
+
+export interface FinishedPiecePrice {
+  id: string; // e.g. 'BCB-FRA', 'CRAFTER', etc.
+  reference: string; // Name of the finished piece reference
+  material: RollMaterial; // Target roll material: Yellow Huesker, White Huesker, Delcotex India, Kuga
+  materialFamily: MaterialFamily;
+  pricePerPiece: number; // In Euros, e.g. 0.5984
+  isActive: boolean; // false for CADDY (stopped)
+  updatedAt?: string;
+  updatedBy?: string;
+}
+
+export interface RollProductionItem {
+  reference: string;
+  pieces: number;
+  pricePerPiece: number; // Historical snapshot price per piece at calculation time
+  productionValue: number; // pieces * pricePerPiece
+}
+
+export interface RollFinancialRecord {
+  id: string; // Unique record ID (often matched with rollId or unique)
+  rollId: string;
+  rollBarcode: string;
+  rollNumber?: string;
+  materialName: RollMaterial;
+  rollLength: number; // Actual physical length in meters
+  rollCost: number; // Real physical roll cost
+  items: RollProductionItem[]; // Can hold multiple references produced from one roll
+  totalPieces: number;
+  totalProductionValue: number; // Sum of productionValue of all items
+  grossProfit: number; // totalProductionValue - rollCost
+  profitPercentage: number; // (grossProfit / rollCost) * 100
+  evaluatedAt: string; // YYYY-MM-DD or ISO timestamp
+  evaluatedBy: string; // Manager name or ID
+  notes?: string;
+  updatedAt?: string;
+}
+
+export interface RollProductionRecord {
+  id: string;
+  rollId: string;
+  rollBarcode: string;
+  referenceId: string;
+  quantity: number;
+  date: string; // YYYY-MM-DD
+  time: string; // HH:MM
+  operator: string;
+  machine?: MachineType | string;
+  notes?: string;
+  createdAt: string;
+}
+
+export interface ExpectedYieldConfig {
+  id: string; // referenceId
+  reference: string;
+  material: RollMaterial;
+  materialFamily: MaterialFamily;
+  expectedPieces: number;
   updatedAt?: string;
   updatedBy?: string;
 }

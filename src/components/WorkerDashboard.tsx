@@ -21,6 +21,7 @@ import {
   getAchievementStatus,
   getAchievementColors
 } from '../utils/achievement';
+import { getMoroccoDateStr, formatMoroccoDate, formatMoroccoDateTime } from '../utils/timeZone';
 
 interface WorkerProps {
   currentUser: UserProfile;
@@ -100,13 +101,7 @@ export default function WorkerDashboard({
 
   const filteredPlans = useMemo(() => {
     const list = filterType === 'my' ? myPlans : plans;
-    const todayStr = (() => {
-      const d = new Date();
-      const yyyy = d.getFullYear();
-      const mm = String(d.getMonth() + 1).padStart(2, '0');
-      const dd = String(d.getDate()).padStart(2, '0');
-      return `${yyyy}-${mm}-${dd}`;
-    })();
+    const todayStr = getMoroccoDateStr();
 
     return [...list].sort((a, b) => {
       const isTodayA = a.planDate === todayStr;
@@ -668,11 +663,7 @@ export default function WorkerDashboard({
                       {e.modelId}
                     </span>
                     <div className="text-[10px] text-slate-500 font-mono mt-1">
-                      Posted:{' '}
-                      {new Date(e.date).toLocaleDateString('en-US', {
-                        month: 'short',
-                        day: 'numeric'
-                      })}
+                      Posted: {e.createdAt ? formatMoroccoDateTime(e.createdAt) : formatMoroccoDate(e.date)}
                     </div>
                   </div>
                   <div className="text-right flex items-center gap-3">

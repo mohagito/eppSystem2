@@ -30,6 +30,7 @@ import {
   getAchievementStatus,
   getAchievementColors
 } from '../utils/achievement';
+import { getMoroccoDateStr } from '../utils/timeZone';
 
 interface PlanningProps {
   currentUser: UserProfile;
@@ -60,16 +61,13 @@ export default function PlanningModule({
   onBulkAddPlans,
   onBulkDeletePlans
 }: PlanningProps) {
-  const formatLocalDate = (d: Date) => {
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
+  const formatLocalDate = (d?: Date) => {
+    return getMoroccoDateStr(d);
   };
 
   // Plan Creator Form State
   const [selectedModel, setSelectedModel] = useState<AirbagModel>('BCB');
-  const [planDate, setPlanDate] = useState<string>(formatLocalDate(new Date()));
+  const [planDate, setPlanDate] = useState<string>(getMoroccoDateStr());
   const [machine, setMachine] = useState<MachineType>('Big Machine');
   const [shift, setShift] = useState<ShiftType>('Morning');
   const [qtyPlanned, setQtyPlanned] = useState<string>('');

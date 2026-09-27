@@ -28,6 +28,7 @@ import {
 import { db, handleFirestoreError, OperationType } from '../firebase';
 import { UserProfile } from '../types';
 import { motion, AnimatePresence } from 'motion/react';
+import { formatMoroccoDate, getMoroccoTimeStr, formatMoroccoDateTime } from '../utils/timeZone';
 
 // Define Notification Category type
 export type NotificationCategory = 'delivery' | 'stock' | 'target' | 'plan' | 'system';
@@ -331,8 +332,8 @@ export default function NotificationCenter({ currentUser, setActiveTab }: Notifi
     const diffHr = Math.floor(diffMin / 60);
     if (diffHr < 24) return `${diffHr}h ago`;
     
-    // Otherwise show short date and time
-    return d.toLocaleDateString(undefined, { month: 'short', day: 'numeric' }) + ' ' + d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
+    // Otherwise show Morocco date and 24-hour time
+    return `${formatMoroccoDate(d)} • ${getMoroccoTimeStr(d)}`;
   };
 
   const handleNotificationClick = async (notif: DatabaseNotification) => {
@@ -643,7 +644,7 @@ export default function NotificationCenter({ currentUser, setActiveTab }: Notifi
                               )}
                             </div>
                             <span className="text-[10px] text-slate-450 font-bold font-mono">
-                              {new Date(notif.createdAt).toLocaleDateString(undefined, { weekday: 'short', year: 'numeric', month: 'long', day: 'numeric' }) + ' ' + new Date(notif.createdAt).toLocaleTimeString()}
+                              {formatMoroccoDateTime(notif.createdAt, true)} <span className="text-emerald-500/80">GMT+0</span>
                             </span>
                           </div>
                           

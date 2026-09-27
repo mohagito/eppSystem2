@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import Swal from 'sweetalert2';
-import { UserProfile, StockEntry, AirbagModel, ProductionPlan, DeliveryEntry } from '../types';
+import { UserProfile, StockEntry, AirbagModel, ProductionPlan, DeliveryEntry, RollEntry } from '../types';
 import { AIRBAG_MODELS, MOCK_PROFILES, PACKAGING_SIZES } from '../data';
 import {
   PlusCircle,
@@ -22,8 +22,15 @@ import {
   Download,
   Undo,
   Boxes,
-  Package
+  Package,
+  Clock
 } from 'lucide-react';
+import { 
+  getMoroccoDateStr, 
+  getMoroccoTimeStr, 
+  formatMoroccoDate, 
+  formatMoroccoDateTime 
+} from '../utils/timeZone';
 
 interface StockProps {
   currentUser: UserProfile;
@@ -31,6 +38,7 @@ interface StockProps {
   deliveries?: DeliveryEntry[];
   plans?: ProductionPlan[];
   profiles?: UserProfile[];
+  rolls?: RollEntry[];
   onAddEntry: (entry: Omit<StockEntry, 'id' | 'createdAt'>) => void;
   onDeleteEntry?: (id: string) => void;
   onEditEntry?: (id: string, updatedEntry: Partial<StockEntry>) => void;
@@ -43,18 +51,15 @@ export default function StockManagement({
   deliveries = [],
   plans = [],
   profiles = [],
+  rolls = [],
   onAddEntry,
   onDeleteEntry,
   onEditEntry,
   onUndoEntry
 }: StockProps) {
-  // Input fields state
+  // Input fields state (Morocco GMT+0)
   const getLocalDateStr = () => {
-    const d = new Date();
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
+    return getMoroccoDateStr();
   };
 
   const [selectedModel, setSelectedModel] = useState<AirbagModel>('BCB');
@@ -458,6 +463,28 @@ export default function StockManagement({
     }, 0);
   }, [entries]);
 
+  // Traceability breakdown: which physical rolls supplied pieces for each model
+  const rollsByModel = useMemo(() => {
+    const map = {} as Record<AirbagModel, { rollBarcode: string; quantity: number }[]>;
+    AIRBAG_MODELS.forEach((m) => {
+      map[m] = [];
+    });
+    entries.forEach((e) => {
+      if (e.rollBarcode && e.quantity > 0) {
+        const list = map[e.modelId];
+        if (list) {
+          const found = list.find((item) => item.rollBarcode === e.rollBarcode);
+          if (found) {
+            found.quantity += e.quantity;
+          } else {
+            list.push({ rollBarcode: e.rollBarcode, quantity: e.quantity });
+          }
+        }
+      }
+    });
+    return map;
+  }, [entries]);
+
   const totalDelivered = useMemo(() => {
     return deliveries.reduce((sum, d) => sum + d.quantity, 0);
   }, [deliveries]);
@@ -526,7 +553,7 @@ export default function StockManagement({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `epp_stock_report_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `epp_stock_report_${getMoroccoDateStr()}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -535,10 +562,7 @@ export default function StockManagement({
   // Beautiful, fully styled Excel Report download function with company logo and branding colors
   const downloadExcel = () => {
     const totalQty = filteredEntries.reduce((sum, e) => sum + e.quantity, 0);
-    const dateFormatted = new Date().toLocaleString('es-ES', {
-      year: 'numeric', month: '2-digit', day: '2-digit',
-      hour: '2-digit', minute: '2-digit', second: '2-digit'
-    });
+    const dateFormatted = formatMoroccoDateTime(new Date(), true);
 
     const excelRows = filteredEntries.map((e, index) => {
       const isEven = index % 2 === 0;
@@ -550,7 +574,7 @@ export default function StockManagement({
       const safeQty = e.quantity;
       const safeMachine = e.machine || 'General';
       const safePlan = e.planId || 'N/A';
-      const safeCreatedAt = e.createdAt ? String(new Date(e.createdAt).toLocaleString('es-ES')) : 'N/A';
+      const safeCreatedAt = e.createdAt ? formatMoroccoDateTime(e.createdAt, true) : 'N/A';
 
       return `
         <tr ${bgStyle}>
@@ -744,7 +768,7 @@ export default function StockManagement({
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `epp_stock_report_${new Date().toISOString().split('T')[0]}.xls`);
+    link.setAttribute('download', `epp_stock_report_${getMoroccoDateStr()}.xls`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -865,6 +889,19 @@ export default function StockManagement({
                   <span className="text-[11px] text-orange-100 font-black uppercase tracking-widest font-sans" title="Total produced pieces (Packaged + Unpackaged)">Total</span>
                   <span className="text-base font-black font-mono text-white select-all">{totalProd}</span>
                 </div>
+
+                {/* Source Rolls Traceability (Section 10) */}
+                {rollsByModel[model]?.length > 0 && (
+                  <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[10px]">
+                    <span className="text-slate-400 font-bold uppercase tracking-wider">Source Rolls:</span>
+                    <span 
+                      className="font-mono font-bold text-indigo-700 bg-indigo-50 border border-indigo-100 px-2 py-0.5 rounded-md" 
+                      title={rollsByModel[model].map((r) => `${r.rollBarcode}: ${r.quantity} pcs`).join('\n')}
+                    >
+                      {rollsByModel[model].length} {rollsByModel[model].length === 1 ? 'roll' : 'rolls'} linked
+                    </span>
+                  </div>
+                )}
               </motion.div>
             );
           })}
@@ -1230,6 +1267,14 @@ export default function StockManagement({
                                       Linked Plan
                                     </span>
                                   )}
+                                  {e.rollBarcode && (
+                                    <span 
+                                      className="text-[9px] font-mono font-black uppercase bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-md px-2 py-0.5 tracking-normal" 
+                                      title={`Manufactured from physical roll: ${e.rollBarcode}`}
+                                    >
+                                      Roll: {e.rollBarcode}
+                                    </span>
+                                  )}
                                   {e.edited && (
                                     <button
                                       onClick={() => currentUser.role === 'manager' && toggleRowHistory(e.id)}
@@ -1266,15 +1311,14 @@ export default function StockManagement({
                                 </span>
                               </td>
                               <td className="p-4 text-xs font-mono text-slate-500 uppercase hidden sm:table-cell">
-                                <div title={`Recorded at: ${e.createdAt ? new Date(e.createdAt).toLocaleString() : 'N/A'}`}>
-                                  {new Date(e.date).toLocaleDateString('en-US', {
-                                    month: 'short',
-                                    day: '2-digit',
-                                    year: 'numeric',
-                                  })}
+                                <div title={`Recorded at: ${e.createdAt ? formatMoroccoDateTime(e.createdAt, true) : 'N/A'}`}>
+                                  <span className="font-semibold text-slate-700 block">
+                                    {formatMoroccoDate(e.date)}
+                                  </span>
                                   {e.createdAt && (
-                                    <span className="text-[10px] text-slate-400 block font-normal">
-                                      {new Date(e.createdAt).toLocaleTimeString('en-US', { hour: '2-digit', minute: '2-digit' })}
+                                    <span className="text-[10px] text-slate-400 flex items-center gap-1 font-normal font-mono">
+                                      <Clock size={10} className="text-emerald-500/70" />
+                                      {getMoroccoTimeStr(e.createdAt)}
                                     </span>
                                   )}
                                 </div>
@@ -1345,7 +1389,7 @@ export default function StockManagement({
                                         <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest leading-none mb-1">Edited At</p>
                                         <p className="font-mono text-slate-500 text-[11px] bg-slate-50 border border-slate-100 rounded-md px-2 py-1 inline-block mt-0.5 border-amber-100 bg-amber-50/20">
                                           {e.editedAt ? (
-                                            e.editedAt.toDate ? e.editedAt.toDate().toLocaleString() : new Date(e.editedAt).toLocaleString()
+                                            formatMoroccoDateTime(e.editedAt.toDate ? e.editedAt.toDate() : e.editedAt, true)
                                           ) : 'Pending sync'}
                                         </p>
                                       </div>
@@ -1394,7 +1438,7 @@ export default function StockManagement({
                                     </div>
                                     <div className="text-[10px] text-slate-450 border-t border-slate-100 pt-2 flex items-center gap-2">
                                       <span>Operator: <strong className="text-slate-700">{e.workerName}</strong></span>
-                                      <span>• Logged: <strong className="text-slate-700">{e.createdAt ? new Date(e.createdAt).toLocaleString() : new Date(e.date).toLocaleDateString()}</strong></span>
+                                      <span>• Logged: <strong className="text-slate-700">{e.createdAt ? formatMoroccoDateTime(e.createdAt, true) : formatMoroccoDate(e.date)}</strong></span>
                                     </div>
                                   </div>
                                 </td>

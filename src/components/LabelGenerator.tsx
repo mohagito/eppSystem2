@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { AIRBAG_MODELS } from '../data';
 import { UserProfile } from '../types';
+import { getMoroccoDateStr } from '../utils/timeZone';
 
 interface LabelGeneratorProps {
   currentUser: UserProfile;
@@ -24,11 +25,7 @@ export default function LabelGenerator({ currentUser }: LabelGeneratorProps) {
   const [selectedModel, setSelectedModel] = useState<string>('BCB');
   const [piecesQty, setPiecesQty] = useState<number>(1000);
   const [creationDate, setCreationDate] = useState<string>(() => {
-    const d = new Date();
-    const yyyy = d.getFullYear();
-    const mm = String(d.getMonth() + 1).padStart(2, '0');
-    const dd = String(d.getDate()).padStart(2, '0');
-    return `${yyyy}-${mm}-${dd}`;
+    return getMoroccoDateStr();
   });
   const [assignedOperator, setAssignedOperator] = useState<string>(currentUser?.name || 'Gonzalo');
   const [packagingType, setPackagingType] = useState<string>('CARDBOARD BOX');
