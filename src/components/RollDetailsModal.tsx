@@ -42,6 +42,7 @@ interface RollDetailsModalProps {
     referenceId?: string
   ) => Promise<void>;
   onMarkFinished?: (rollId: string, wasteMeters?: number, notes?: string) => Promise<void>;
+  onOpenCloseRoll?: (roll: RollEntry) => void;
 }
 
 export default function RollDetailsModal({
@@ -52,7 +53,8 @@ export default function RollDetailsModal({
   piecePrices,
   onClose,
   onRecordProduction,
-  onMarkFinished
+  onMarkFinished,
+  onOpenCloseRoll
 }: RollDetailsModalProps) {
   if (!isOpen || !roll) return null;
 
@@ -158,7 +160,7 @@ export default function RollDetailsModal({
                 </h3>
                 <span className={`text-[10px] font-black uppercase tracking-wider px-2 py-0.5 rounded-full ${
                   metrics.status === 'IN PRODUCTION' ? 'bg-amber-100 text-amber-900 border border-amber-200' :
-                  metrics.status === 'FINISHED' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
+                  metrics.status === 'CLOSED' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
                   'bg-emerald-100 text-emerald-900 border border-emerald-200'
                 }`}>
                   {metrics.status}
@@ -278,8 +280,8 @@ export default function RollDetailsModal({
             </div>
           )}
 
-          {/* Quick Actions (Record Production & Mark Finished) */}
-          {metrics.status !== 'FINISHED' && (
+          {/* Quick Actions (Record Production & Close Roll) */}
+          {metrics.status !== 'CLOSED' && (
             <div className="flex gap-2">
               <button
                 type="button"
@@ -296,13 +298,17 @@ export default function RollDetailsModal({
               <button
                 type="button"
                 onClick={() => {
-                  setShowFinishConfirm(!showFinishConfirm);
-                  setShowAddProduction(false);
+                  if (onOpenCloseRoll) {
+                    onOpenCloseRoll(roll);
+                  } else {
+                    setShowFinishConfirm(!showFinishConfirm);
+                    setShowAddProduction(false);
+                  }
                 }}
-                className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                className="py-2 px-3.5 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
               >
-                <CheckCircle2 size={14} className="text-slate-500" />
-                <span>Mark Finished</span>
+                <CheckCircle2 size={14} className="text-emerald-400" />
+                <span>Close Roll</span>
               </button>
             </div>
           )}

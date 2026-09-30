@@ -21,7 +21,9 @@ import {
   RollFinancialRecord, 
   ExpectedYieldConfig,
   RollMaterial,
-  MachineType 
+  MachineType,
+  StockEntry,
+  DeliveryEntry
 } from '../types';
 import { 
   DEFAULT_PIECE_PRICES,
@@ -34,9 +36,12 @@ import {
   formatProfitPercent,
   normalizeRollMaterial,
   getMaterialFamily,
-  normalizeRollStatus
+  normalizeRollStatus,
+  getMaterialRelatedReferences
 } from '../utils/financialCalculations';
 import RollDetailsModal from './RollDetailsModal';
+import RollReconciliationModal from './RollReconciliationModal';
+import CloseRollModal from './CloseRollModal';
 import Swal from 'sweetalert2';
 
 interface FinancialEvaluationProps {
@@ -45,6 +50,8 @@ interface FinancialEvaluationProps {
   financialRecords?: RollFinancialRecord[];
   piecePrices: FinishedPiecePrice[];
   expectedYields?: ExpectedYieldConfig[];
+  stockEntries?: StockEntry[];
+  deliveries?: DeliveryEntry[];
   onSaveFinancialRecord?: (record: RollFinancialRecord) => Promise<void>;
   onDeleteFinancialRecord?: (recordId: string) => Promise<void>;
   onUpdatePiecePrices: (prices: FinishedPiecePrice[]) => Promise<void>;
@@ -56,6 +63,7 @@ interface FinancialEvaluationProps {
     notes?: string
   ) => Promise<void>;
   onMarkFinished?: (rollId: string, wasteMeters?: number, notes?: string) => Promise<void>;
+  onCloseRoll?: (rollId: string, closingUnpackaged: Record<string, number>, notes?: string) => Promise<void>;
 }
 
 export default function FinancialEvaluation({
@@ -63,13 +71,17 @@ export default function FinancialEvaluation({
   rolls,
   piecePrices,
   expectedYields = DEFAULT_EXPECTED_YIELDS,
+  stockEntries = [],
+  deliveries = [],
   onUpdatePiecePrices,
   onUpdateExpectedYields,
   onRecordProduction,
-  onMarkFinished
+  onMarkFinished,
+  onCloseRoll
 }: FinancialEvaluationProps) {
-  // Inspecting specific roll modal
-  const [selectedRollForDetails, setSelectedRollForDetails] = useState<RollEntry | null>(null);
+  // Inspecting specific roll modal for detailed reconciliation
+  const [selectedRollForReconciliation, setSelectedRollForReconciliation] = useState<RollEntry | null>(null);
+  const [closingRoll, setClosingRoll] = useState<RollEntry | null>(null);
 
   // Configuration Modals
   const [priceConfigModalOpen, setPriceConfigModalOpen] = useState<boolean>(false);
@@ -151,9 +163,9 @@ export default function FinancialEvaluation({
     let totalRollCost = 0;
     let totalProductionValue = 0;
 
-    // Only aggregate over rolls that have actually been opened / started (IN PRODUCTION or FINISHED)
+    // Only aggregate over rolls that have actually been opened / started (IN PRODUCTION or CLOSED)
     const activeOrFinishedRolls = rollRowsWithMetrics.filter(
-      (r) => r.status === 'IN PRODUCTION' || r.status === 'FINISHED'
+      (r) => r.status === 'IN PRODUCTION' || r.status === 'CLOSED'
     );
 
     activeOrFinishedRolls.forEach((r) => {
@@ -410,7 +422,7 @@ export default function FinancialEvaluation({
           >
             <option value="all">All Statuses</option>
             <option value="IN PRODUCTION">IN PRODUCTION</option>
-            <option value="FINISHED">FINISHED</option>
+            <option value="CLOSED">CLOSED</option>
             <option value="NEW">NEW</option>
           </select>
         </div>
@@ -432,7 +444,7 @@ export default function FinancialEvaluation({
         )}
       </div>
 
-      {/* Clean Table: Roll | Material | Reference | Expected | Produced | Roll Cost | Production Value | Profit */}
+      {/* Clean Table: Roll | Material | References | Pieces | Roll Cost | Production Value | Profit | Status */}
       <div className="bg-white border border-slate-200 rounded-2xl shadow-xs overflow-hidden" id="financial-evaluation-table">
         <div className="overflow-x-auto">
           {filteredRollRows.length === 0 ? (
@@ -449,40 +461,30 @@ export default function FinancialEvaluation({
                 <tr className="bg-slate-50/80 border-b border-slate-200 text-[10px] font-black text-slate-500 uppercase tracking-wider">
                   <th className="py-3 px-4">Roll</th>
                   <th className="py-3 px-4">Material</th>
-                  <th className="py-3 px-4">Reference</th>
-                  <th className="py-3 px-4 text-center">Expected</th>
-                  <th className="py-3 px-4 text-center">Produced</th>
+                  <th className="py-3 px-4">References</th>
+                  <th className="py-3 px-4 text-center">Pieces</th>
                   <th className="py-3 px-4 text-right">Roll Cost</th>
                   <th className="py-3 px-4 text-right">Production Value</th>
                   <th className="py-3 px-4 text-right">Profit</th>
-                  <th className="py-3 px-4 text-center">View</th>
+                  <th className="py-3 px-4 text-center">Status</th>
+                  <th className="py-3 px-4 text-center">Reconciliation</th>
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
                 {filteredRollRows.map((item) => {
                   const isPositive = item.grossProfit >= 0;
                   const family = getMaterialFamily(item.material);
+                  const relatedRefs = getMaterialRelatedReferences(item.material);
 
                   return (
                     <tr 
                       key={item.roll.id} 
-                      onClick={() => setSelectedRollForDetails(item.roll)}
+                      onClick={() => setSelectedRollForReconciliation(item.roll)}
                       className="hover:bg-slate-50/80 transition-colors cursor-pointer"
                     >
                       {/* Roll */}
-                      <td className="py-3.5 px-4">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-slate-900 text-xs">
-                            {item.roll.barcode || item.roll.id}
-                          </span>
-                          <span className={`text-[9px] font-black uppercase px-2 py-0.5 rounded-full ${
-                            item.status === 'IN PRODUCTION' ? 'bg-amber-100 text-amber-900 border border-amber-200' :
-                            item.status === 'FINISHED' ? 'bg-slate-100 text-slate-600 border border-slate-200' :
-                            'bg-emerald-100 text-emerald-900 border border-emerald-200'
-                          }`}>
-                            {item.status}
-                          </span>
-                        </div>
+                      <td className="py-3.5 px-4 font-mono font-bold text-slate-900 text-xs">
+                        {item.roll.barcode || item.roll.id}
                       </td>
 
                       {/* Material */}
@@ -490,19 +492,21 @@ export default function FinancialEvaluation({
                         {family}
                       </td>
 
-                      {/* Reference */}
+                      {/* References */}
                       <td className="py-3.5 px-4">
-                        <span className="font-black text-indigo-700">
-                          {item.referenceId}
-                        </span>
+                        <div className="flex flex-wrap gap-1">
+                          {relatedRefs.map((ref) => (
+                            <span 
+                              key={ref} 
+                              className="text-[10px] font-bold font-mono px-2 py-0.5 rounded-md bg-slate-100 text-slate-700 border border-slate-200/60"
+                            >
+                              {ref}
+                            </span>
+                          ))}
+                        </div>
                       </td>
 
-                      {/* Expected */}
-                      <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-600">
-                        {item.expectedPieces.toLocaleString()} pcs
-                      </td>
-
-                      {/* Produced */}
+                      {/* Pieces */}
                       <td className="py-3.5 px-4 text-center font-mono font-black text-indigo-800">
                         {item.producedPieces.toLocaleString()} pcs
                       </td>
@@ -533,14 +537,26 @@ export default function FinancialEvaluation({
                         </div>
                       </td>
 
-                      {/* View Action */}
+                      {/* Status */}
+                      <td className="py-3.5 px-4 text-center">
+                        <span className={`text-[9px] font-black uppercase px-2.5 py-0.5 rounded-full border ${
+                          item.status === 'IN PRODUCTION' ? 'bg-amber-100 text-amber-900 border-amber-200' :
+                          item.status === 'CLOSED' ? 'bg-slate-100 text-slate-700 border-slate-300' :
+                          'bg-emerald-100 text-emerald-900 border-emerald-200'
+                        }`}>
+                          {item.status}
+                        </span>
+                      </td>
+
+                      {/* View Reconciliation Action */}
                       <td className="py-3.5 px-4 text-center" onClick={(e) => e.stopPropagation()}>
                         <button
-                          onClick={() => setSelectedRollForDetails(item.roll)}
-                          className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer"
-                          title="Open Roll Details"
+                          onClick={() => setSelectedRollForReconciliation(item.roll)}
+                          className="px-2.5 py-1 text-xs font-bold text-indigo-700 hover:text-indigo-900 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors cursor-pointer inline-flex items-center gap-1"
+                          title="Open detailed reconciliation"
                         >
-                          <Eye size={15} />
+                          <Eye size={13} />
+                          <span>Inspect</span>
                         </button>
                       </td>
                     </tr>
@@ -549,7 +565,7 @@ export default function FinancialEvaluation({
               </tbody>
               <tfoot>
                 <tr className="bg-slate-50/90 border-t border-slate-200 text-xs font-black text-slate-700">
-                  <td colSpan={5} className="py-3 px-4 uppercase tracking-wider text-[10px] text-slate-500">
+                  <td colSpan={4} className="py-3 px-4 uppercase tracking-wider text-[10px] text-slate-500">
                     Total Active Production ({summaryKPIs.activeRollsCount} rolls started)
                   </td>
                   <td className="py-3 px-4 text-right font-mono font-black text-slate-900">
@@ -561,7 +577,7 @@ export default function FinancialEvaluation({
                   <td className="py-3 px-4 text-right font-mono font-black text-emerald-700">
                     {formatEuroCurrency(summaryKPIs.grossProfit)}
                   </td>
-                  <td></td>
+                  <td colSpan={2}></td>
                 </tr>
               </tfoot>
             </table>
@@ -729,17 +745,35 @@ export default function FinancialEvaluation({
         </div>
       )}
 
-      {/* Simple, Clean Roll Details Modal */}
-      {selectedRollForDetails && (
-        <RollDetailsModal
-          roll={selectedRollForDetails}
-          isOpen={Boolean(selectedRollForDetails)}
-          currentUser={currentUser}
-          expectedYields={activeYieldsList}
+      {/* Detailed Roll Reconciliation Modal */}
+      {selectedRollForReconciliation && (
+        <RollReconciliationModal
+          roll={selectedRollForReconciliation}
+          isOpen={Boolean(selectedRollForReconciliation)}
           piecePrices={activePricesList}
-          onClose={() => setSelectedRollForDetails(null)}
-          onRecordProduction={onRecordProduction}
-          onMarkFinished={onMarkFinished}
+          expectedYields={activeYieldsList}
+          stockEntries={stockEntries}
+          deliveries={deliveries}
+          onClose={() => setSelectedRollForReconciliation(null)}
+          onOpenCloseRoll={(r) => {
+            setSelectedRollForReconciliation(null);
+            setClosingRoll(r);
+          }}
+        />
+      )}
+
+      {/* Operator & Manager Simple Close Roll Dialog (Asks for Remaining Unpackaged Pieces) */}
+      {closingRoll && (
+        <CloseRollModal
+          isOpen={Boolean(closingRoll)}
+          roll={closingRoll}
+          onClose={() => setClosingRoll(null)}
+          onConfirmClose={async (rollId, unpackaged, notes) => {
+            if (onCloseRoll) {
+              await onCloseRoll(rollId, unpackaged, notes);
+            }
+            setClosingRoll(null);
+          }}
         />
       )}
 

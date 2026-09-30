@@ -129,6 +129,12 @@ export interface RollEntry {
   profitPercent?: number; // (grossProfit / rollCost) * 100
   productionRecords?: RollProductionRecord[]; // Independent log of production batches
 
+  // Reconciliation & Stock Snapshots (ROLLS + FINISHED PIECE STOCK + PRODUCTION + UNPACKAGED PIECES + ROLL CLOSING)
+  openingStockSnapshot?: Record<string, number>; // Reference -> Opening stock quantity at roll activation
+  rollOpeningStock?: Record<string, number>; // Immutable snapshot of reference stock at roll open
+  closingUnpackaged?: Record<string, number>; // Reference -> Remaining unpackaged pieces entered at close
+  reconciliation?: RollReconciliationData; // Final reconciliation data calculated at roll close
+
   // Enhanced Industrial Physical Roll fields
   rollNumber?: string;
   materialId?: string;
@@ -178,6 +184,28 @@ export interface RollProductionItem {
   productionValue: number; // pieces * pricePerPiece
 }
 
+export interface RollReferenceReconciliation {
+  reference: string;
+  openingStock: number; // Snapshot of finished pieces stock when roll was opened
+  productionDuringRoll: number; // Pieces logged in production movements during this roll
+  closingUnpackaged: number; // Physical unpackaged pieces verified at roll closing
+  actualProduction: number; // Total actual pieces produced from this roll (productionDuringRoll + closingUnpackaged)
+  pricePerPiece: number; // Applicable price per piece (€)
+  productionValue: number; // actualProduction * pricePerPiece (€)
+  finalStock: number; // Current / final available piece stock
+}
+
+export interface RollReconciliationData {
+  references: RollReferenceReconciliation[];
+  totalActualPieces: number;
+  totalProductionValue: number;
+  rollCost: number;
+  grossProfit: number;
+  profitPercent: number;
+  closedAt: string;
+  closedBy: string;
+}
+
 export interface RollFinancialRecord {
   id: string; // Unique record ID (often matched with rollId or unique)
   rollId: string;
@@ -195,6 +223,13 @@ export interface RollFinancialRecord {
   evaluatedBy: string; // Manager name or ID
   notes?: string;
   updatedAt?: string;
+  
+  // Reconciled stock tracking
+  openingStockSnapshot?: Record<string, number>;
+  rollOpeningStock?: Record<string, number>;
+  closingUnpackaged?: Record<string, number>;
+  reconciliation?: RollReferenceReconciliation[];
+  status?: string;
 }
 
 export interface RollProductionRecord {

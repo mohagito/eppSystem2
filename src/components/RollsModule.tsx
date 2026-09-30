@@ -31,11 +31,15 @@ import {
   RollFinancialRecord, 
   FinishedPiecePrice, 
   ExpectedYieldConfig, 
-  MachineType 
+  MachineType,
+  StockEntry,
+  DeliveryEntry
 } from '../types';
 import Swal from 'sweetalert2';
 import { getMoroccoDateStr, formatMoroccoDate, formatMoroccoDateTime } from '../utils/timeZone';
 import RollDetailsModal from './RollDetailsModal';
+import CloseRollModal from './CloseRollModal';
+import RollReconciliationModal from './RollReconciliationModal';
 import { 
   calculateRealRollCost, 
   calculateRollProductionMetrics, 
@@ -47,7 +51,8 @@ import {
   formatEuroCurrency, 
   formatProfitPercent, 
   getDefaultReferenceForMaterial,
-  getMaterialFamily
+  getMaterialFamily,
+  getOpeningStockSnapshotForMaterial
 } from '../utils/financialCalculations';
 
 interface RollsModuleProps {
@@ -56,10 +61,20 @@ interface RollsModuleProps {
   financialRecords?: RollFinancialRecord[];
   piecePrices?: FinishedPiecePrice[];
   expectedYields?: ExpectedYieldConfig[];
+  stockEntries?: StockEntry[];
+  deliveries?: DeliveryEntry[];
   onAddRoll: (roll: Omit<RollEntry, 'id'>) => void;
-  onOpenRoll: (id: string, barcode: string, referenceId?: string, expectedPieces?: number, actualLength?: number) => void;
+  onOpenRoll: (
+    id: string, 
+    barcode: string, 
+    referenceId?: string, 
+    expectedPieces?: number, 
+    actualLength?: number,
+    openingSnapshot?: Record<string, number>
+  ) => void;
   onRecordProduction?: (rollId: string, quantity: number, machine?: MachineType | string, notes?: string, referenceId?: string) => Promise<void>;
   onMarkFinished?: (rollId: string, wasteMeters?: number, notes?: string) => Promise<void>;
+  onCloseRoll?: (rollId: string, closingUnpackaged: Record<string, number>, notes?: string) => Promise<void>;
   onConsumeRoll: (id: string, consumedMeters: number, notes?: string) => void;
   onDeleteRoll: (id: string) => void;
   onUpdateRoll?: (id: string, updates: Partial<RollEntry>) => void;
@@ -187,10 +202,13 @@ export default function RollsModule({
   financialRecords,
   piecePrices,
   expectedYields,
+  stockEntries = [],
+  deliveries = [],
   onAddRoll,
   onOpenRoll,
   onRecordProduction,
   onMarkFinished,
+  onCloseRoll,
   onConsumeRoll,
   onDeleteRoll,
   onUpdateRoll,
@@ -202,6 +220,8 @@ export default function RollsModule({
   const [subTab, setSubTab] = useState<'unopened' | 'active' | 'history'>('unopened');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [inspectedRoll, setInspectedRoll] = useState<RollEntry | null>(null);
+  const [closingRoll, setClosingRoll] = useState<RollEntry | null>(null);
+  const [reconciliationRoll, setReconciliationRoll] = useState<RollEntry | null>(null);
 
   // Form States for Registering New Roll
   const [materialName, setMaterialName] = useState<RollMaterial>('White Huesker');
@@ -1190,7 +1210,7 @@ export default function RollsModule({
               }`}
             >
               <History size={13} className={subTab === 'history' ? 'text-slate-600' : ''} />
-              FINISHED ({visibleRollsCount('Consumed')})
+              CLOSED ({visibleRollsCount('Consumed')})
             </button>
           </div>
 
@@ -1226,7 +1246,6 @@ export default function RollsModule({
                   <th className="py-3 px-3">Length (m)</th>
                   <th className="py-3 px-3">Barcode Serial No</th>
                   <th className="py-3 px-3">Status</th>
-                  <th className="py-3 px-3">Yield (Produced / Expected)</th>
                   {isManager && (
                     <>
                       <th className="py-3 px-3 text-right">Roll Cost</th>
@@ -1294,49 +1313,21 @@ export default function RollsModule({
                       )}
                     </td>
 
-                    {/* Canonical Status Badge (OPEN / IN PRODUCTION / FINISHED) */}
+                    {/* Canonical Status Badge (NEW / IN PRODUCTION / CLOSED) */}
                     <td className="py-3 px-3">
                       <span className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-[9.5px] font-black uppercase tracking-wider border ${
                         metrics.status === 'IN PRODUCTION'
                           ? 'bg-amber-50 text-amber-800 border-amber-200'
-                          : metrics.status === 'FINISHED'
+                          : metrics.status === 'CLOSED'
                           ? 'bg-slate-100 text-slate-600 border-slate-200'
                           : 'bg-emerald-50 text-emerald-800 border-emerald-200'
                       }`}>
                         <span className={`w-1.5 h-1.5 rounded-full ${
                           metrics.status === 'IN PRODUCTION' ? 'bg-amber-500' :
-                          metrics.status === 'FINISHED' ? 'bg-slate-400' : 'bg-emerald-500'
+                          metrics.status === 'CLOSED' ? 'bg-slate-400' : 'bg-emerald-500'
                         }`} />
                         {metrics.status}
                       </span>
-                    </td>
-
-                    {/* Yield Tracker (Produced / Expected & Remaining) */}
-                    <td className="py-3 px-3">
-                      {subTab === 'unopened' ? (
-                        <span className="text-[11px] font-mono text-slate-500 font-semibold">
-                          ~{metrics.expectedPieces} pcs expected
-                        </span>
-                      ) : (
-                        <div className="space-y-1 min-w-[130px]">
-                          <div className="flex justify-between items-center text-[10.5px] font-mono">
-                            <span className="font-black text-indigo-700">
-                              {metrics.producedPieces} <span className="text-slate-400 font-normal">/ {metrics.expectedPieces}</span>
-                            </span>
-                            <span className="text-slate-500 font-bold text-[10px]">
-                              {metrics.remainingPieces} rem
-                            </span>
-                          </div>
-                          <div className="w-full h-1.5 bg-slate-100 rounded-full overflow-hidden">
-                            <div 
-                              className="h-full bg-indigo-600 rounded-full transition-all duration-300"
-                              style={{ 
-                                width: `${metrics.expectedPieces > 0 ? Math.min(100, (metrics.producedPieces / metrics.expectedPieces) * 100) : 0}%` 
-                              }}
-                            />
-                          </div>
-                        </div>
-                      )}
                     </td>
 
                     {/* Confidential Financial Columns (Manager Only) */}
@@ -1402,7 +1393,7 @@ export default function RollsModule({
                           </button>
                         ) : null}
 
-                        {subTab === 'active' && metrics.status !== 'FINISHED' ? (
+                        {subTab === 'active' && metrics.status !== 'CLOSED' ? (
                           <>
                             <button
                               onClick={() => setInspectedRoll(roll)}
@@ -1412,19 +1403,25 @@ export default function RollsModule({
                               <Plus size={11} /> Record
                             </button>
                             <button
-                              onClick={() => triggerConsumeRollDialog(roll)}
-                              className="px-2 py-1 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg text-[10.5px] font-bold transition-all cursor-pointer"
-                              title="Mark roll finished"
+                              onClick={() => setClosingRoll(roll)}
+                              className="px-2.5 py-1 bg-slate-900 hover:bg-slate-800 text-white rounded-lg text-[10.5px] font-black transition-all cursor-pointer flex items-center gap-1 shadow-2xs active:scale-95"
+                              title="Close roll & reconcile remaining unpackaged pieces"
                             >
-                              Finish
+                              <CheckCircle2 size={11} className="text-emerald-400" /> Close Roll
                             </button>
                           </>
                         ) : null}
 
                         <button
-                          onClick={() => setInspectedRoll(roll)}
+                          onClick={() => {
+                            if (metrics.status === 'CLOSED' || subTab === 'history') {
+                              setReconciliationRoll(roll);
+                            } else {
+                              setInspectedRoll(roll);
+                            }
+                          }}
                           className="p-1.5 text-slate-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-all cursor-pointer"
-                          title="View roll details & production history"
+                          title="View roll details & reconciliation"
                         >
                           <Eye size={13} />
                         </button>
@@ -1459,7 +1456,7 @@ export default function RollsModule({
 
       </div>
 
-      {/* Roll Details Modal (including Section 6 Financial details for Manager) */}
+      {/* Roll Details Modal */}
       <RollDetailsModal
         roll={inspectedRoll}
         isOpen={Boolean(inspectedRoll)}
@@ -1469,7 +1466,43 @@ export default function RollsModule({
         onClose={() => setInspectedRoll(null)}
         onRecordProduction={onRecordProduction}
         onMarkFinished={onMarkFinished}
+        onOpenCloseRoll={(r) => {
+          setInspectedRoll(null);
+          setClosingRoll(r);
+        }}
       />
+
+      {/* Operator & Manager Simple Close Roll Dialog (Remaining Unpackaged Pieces) */}
+      {closingRoll && (
+        <CloseRollModal
+          isOpen={Boolean(closingRoll)}
+          roll={closingRoll}
+          onClose={() => setClosingRoll(null)}
+          onConfirmClose={async (rollId, unpackaged, notes) => {
+            if (onCloseRoll) {
+              await onCloseRoll(rollId, unpackaged, notes);
+            }
+            setClosingRoll(null);
+          }}
+        />
+      )}
+
+      {/* Roll Detailed Reconciliation Modal */}
+      {reconciliationRoll && (
+        <RollReconciliationModal
+          isOpen={Boolean(reconciliationRoll)}
+          roll={reconciliationRoll}
+          piecePrices={piecePrices}
+          expectedYields={expectedYields}
+          stockEntries={stockEntries}
+          deliveries={deliveries}
+          onClose={() => setReconciliationRoll(null)}
+          onOpenCloseRoll={(r) => {
+            setReconciliationRoll(null);
+            setClosingRoll(r);
+          }}
+        />
+      )}
 
     </div>
   );

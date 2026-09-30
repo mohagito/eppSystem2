@@ -67,7 +67,9 @@ import {
   getDefaultReferenceForMaterial,
   getExpectedYieldForReference,
   getPiecePriceForReference,
-  normalizeRollMaterial
+  normalizeRollMaterial,
+  getOpeningStockSnapshotForMaterial,
+  reconcileRollClosing
 } from './utils/financialCalculations';
 
 export default function App() {
@@ -1403,10 +1405,17 @@ export default function App() {
 
   // --- FASTER ROLLS MATERIAL TRACEABILITY ENGINE HANDLERS ---
   const handleAddRoll = (roll: Omit<RollEntry, 'id'>) => {
+    const isActive = roll.status === 'Active';
+    const openingSnapshot = isActive 
+      ? getOpeningStockSnapshotForMaterial(roll.materialName, stockEntries, deliveries)
+      : undefined;
+
     const newRoll: RollEntry = {
       ...roll,
       id: `roll-${Date.now()}`,
-      openedAt: roll.status === 'Active' ? new Date().toISOString() : undefined
+      openedAt: isActive ? new Date().toISOString() : undefined,
+      openingStockSnapshot: openingSnapshot,
+      rollOpeningStock: openingSnapshot
     };
 
     setDoc(doc(db, 'rolls', newRoll.id), newRoll)
@@ -1446,6 +1455,10 @@ export default function App() {
     const costInfo = calculateRealRollCost({ ...roll, metersTotal: length });
     const lockedPrice = getPiecePriceForReference(ref, piecePrices);
 
+    // Automatically snapshot current stock of all references related to this material (ROLL OPEN SNAPSHOT)
+    const openingSnapshot = roll.openingStockSnapshot || roll.rollOpeningStock || 
+      getOpeningStockSnapshotForMaterial(roll.materialName, stockEntries, deliveries);
+
     const updates: Partial<RollEntry> = {
       status: 'Active',
       openedAt: new Date().toISOString(),
@@ -1461,7 +1474,9 @@ export default function App() {
       productionValue: 0,
       grossProfit: -costInfo.cost,
       profitPercent: -100,
-      productionRecords: []
+      productionRecords: [],
+      openingStockSnapshot: openingSnapshot,
+      rollOpeningStock: openingSnapshot
     };
 
     updateDoc(doc(db, 'rolls', id), updates)
@@ -1650,6 +1665,66 @@ export default function App() {
     triggerNotification(
       '✅ Roll Finished',
       `Roll ${roll.materialName} (${roll.barcode || roll.id}) completed: ${metrics.producedPieces} pcs produced.`,
+      'system',
+      'all'
+    );
+  };
+
+  const handleCloseRoll = async (
+    rollId: string, 
+    closingUnpackaged: Record<string, number>, 
+    notes?: string
+  ) => {
+    const roll = rolls.find((r) => r.id === rollId);
+    if (!roll) throw new Error('Roll not found');
+
+    const {
+      closingEntriesToCreate,
+      totalActualPieces,
+      financialRecord,
+      updatedRoll
+    } = reconcileRollClosing(
+      roll,
+      closingUnpackaged,
+      stockEntries,
+      deliveries,
+      piecePrices,
+      currentUser?.name || 'Operator'
+    );
+
+    const batch = writeBatch(db);
+
+    // 1. NO WASTE: Add remaining unpackaged pieces directly to physical reference stock
+    closingEntriesToCreate.forEach((entry) => {
+      const newStockDoc = doc(collection(db, 'stock_entries'));
+      batch.set(newStockDoc, {
+        ...entry,
+        id: newStockDoc.id,
+        createdAt: new Date().toISOString()
+      });
+    });
+
+    // 2. Update roll with closing reconciliation
+    const rollDocRef = doc(db, 'rolls', rollId);
+    batch.update(rollDocRef, {
+      ...updatedRoll,
+      status: 'CLOSED',
+      notes: notes ? (roll.notes ? `${roll.notes} | ${notes}` : notes) : (updatedRoll.notes || roll.notes)
+    });
+
+    // 3. Save permanent financial record in financial_evaluations (Roll History)
+    const finDocRef = doc(db, 'financial_evaluations', financialRecord.id);
+    batch.set(finDocRef, {
+      ...financialRecord,
+      notes: notes ? (financialRecord.notes ? `${financialRecord.notes} | ${notes}` : notes) : financialRecord.notes
+    });
+
+    await batch.commit();
+
+    addToast(`Roll ${roll.barcode || roll.id} closed: ${totalActualPieces} pieces produced. Reconciled successfully!`, 'success');
+    triggerNotification(
+      '🏁 Roll Closed & Reconciled',
+      `Roll ${roll.materialName} (${roll.barcode || roll.id}) closed by ${currentUser?.name || 'Operator'}. Actual production: ${totalActualPieces} pcs.`,
       'system',
       'all'
     );
@@ -2001,10 +2076,13 @@ export default function App() {
             financialRecords={currentUser.role === 'manager' ? financialRecords : undefined}
             piecePrices={currentUser.role === 'manager' ? piecePrices : undefined}
             expectedYields={expectedYields}
+            stockEntries={stockEntries}
+            deliveries={deliveries}
             onAddRoll={handleAddRoll}
             onOpenRoll={handleOpenRoll}
             onRecordProduction={handleRecordRollProduction}
             onMarkFinished={handleMarkRollFinished}
+            onCloseRoll={handleCloseRoll}
             onConsumeRoll={handleConsumeRoll}
             onDeleteRoll={handleDeleteRoll}
             onUpdateRoll={handleUpdateRoll}
@@ -2032,12 +2110,15 @@ export default function App() {
             financialRecords={financialRecords}
             piecePrices={piecePrices}
             expectedYields={expectedYields}
+            stockEntries={stockEntries}
+            deliveries={deliveries}
             onSaveFinancialRecord={handleSaveFinancialRecord}
             onDeleteFinancialRecord={handleDeleteFinancialRecord}
             onUpdatePiecePrices={handleUpdatePiecePrices}
             onUpdateExpectedYields={handleUpdateExpectedYields}
             onRecordProduction={handleRecordRollProduction}
             onMarkFinished={handleMarkRollFinished}
+            onCloseRoll={handleCloseRoll}
           />
         );
 
