@@ -1268,7 +1268,7 @@ export default function RollsModule({
               </thead>
               <tbody className="divide-y divide-slate-100 text-xs">
                 {filteredRolls.map((roll) => {
-                  const metrics = calculateRollProductionMetrics(roll, expectedYields, piecePrices);
+                  const metrics = calculateRollProductionMetrics(roll, expectedYields, piecePrices, stockEntries);
 
                   return (
                   <tr key={roll.id} className="hover:bg-slate-50/50 transition-colors">

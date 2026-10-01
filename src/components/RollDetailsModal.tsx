@@ -16,7 +16,7 @@ import {
   Cpu,
   AlertCircle
 } from 'lucide-react';
-import { RollEntry, UserProfile, ExpectedYieldConfig, FinishedPiecePrice, MachineType } from '../types';
+import { RollEntry, UserProfile, ExpectedYieldConfig, FinishedPiecePrice, MachineType, StockEntry } from '../types';
 import { 
   calculateRollProductionMetrics, 
   formatEuroCurrency, 
@@ -33,6 +33,7 @@ interface RollDetailsModalProps {
   currentUser: UserProfile;
   expectedYields?: ExpectedYieldConfig[];
   piecePrices?: FinishedPiecePrice[];
+  stockEntries?: StockEntry[];
   onClose: () => void;
   onRecordProduction?: (
     rollId: string, 
@@ -51,6 +52,7 @@ export default function RollDetailsModal({
   currentUser,
   expectedYields,
   piecePrices,
+  stockEntries = [],
   onClose,
   onRecordProduction,
   onMarkFinished,
@@ -59,7 +61,7 @@ export default function RollDetailsModal({
   if (!isOpen || !roll) return null;
 
   const isManager = currentUser.role === 'manager';
-  const metrics = calculateRollProductionMetrics(roll, expectedYields, piecePrices);
+  const metrics = calculateRollProductionMetrics(roll, expectedYields, piecePrices, stockEntries);
   const normMat = normalizeRollMaterial(roll.materialName);
   const allowedRefs = MATERIAL_FAMILY_RELATIONSHIPS[normMat]?.activeReferences || [roll.referenceId || 'BCB-FRA'];
 
@@ -243,7 +245,7 @@ export default function RollDetailsModal({
           {isManager && (
             <div className="border border-slate-200 rounded-2xl p-4 bg-slate-50/50 space-y-2.5" id="roll-details-financial-section">
               <span className="text-[10px] font-black uppercase tracking-wider text-slate-500 block border-b border-slate-200/70 pb-1.5">
-                FINANCIAL RESULT
+                LIVE FINANCIAL EVALUATION
               </span>
 
               <div className="grid grid-cols-2 gap-3 text-xs font-mono">
@@ -269,13 +271,67 @@ export default function RollDetailsModal({
                 </div>
               </div>
 
+              {/* Reference Breakdown if multiple references (e.g. Delcotex India -> SK216 & VW217) */}
+              {metrics.piecesByReference && Object.keys(metrics.piecesByReference).length > 0 && (
+                <div className="pt-2 border-t border-slate-200/60 space-y-1 text-[11px] font-mono">
+                  <span className="text-[9.5px] font-bold text-slate-400 uppercase tracking-wider block font-sans">
+                    Production Attribution by Reference:
+                  </span>
+                  {Object.entries(metrics.piecesByReference).map(([ref, pcs]) => {
+                    const val = metrics.productionValueByReference?.[ref] ?? 0;
+                    return (
+                      <div key={ref} className="flex justify-between items-center text-slate-600 bg-white/70 px-2 py-1 rounded-md border border-slate-200/40">
+                        <span className="font-bold text-indigo-700">{ref}</span>
+                        <span>{pcs.toLocaleString()} pcs × €0.7500 = <strong className="text-slate-800">{formatEuroCurrency(val)}</strong></span>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+
               <div className="flex justify-between items-center pt-1.5 border-t border-slate-200/60 font-mono text-xs">
-                <span className="text-slate-500 font-sans font-bold">Profit %</span>
+                <span className="text-slate-500 font-sans font-bold">Profit % ((Gross Profit / Roll Cost) × 100)</span>
                 <span className={`font-black text-sm ${
                   metrics.grossProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'
                 }`}>
                   {formatProfitPercent(metrics.profitPercent)}
                 </span>
+              </div>
+            </div>
+          )}
+
+          {/* Historical Opening Stock Snapshot */}
+          {metrics.openingStockSnapshot && (
+            <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] font-black uppercase tracking-wider text-slate-500">
+                  Historical Opening Stock Snapshot
+                </span>
+                <span className="text-[10px] font-mono font-bold text-slate-500">
+                  Total: {(metrics.totalOpeningStock || 17786).toLocaleString()} pcs
+                </span>
+              </div>
+              <p className="text-[10px] text-slate-400 italic">
+                Captured snapshot at roll activation (29 Sep 2026, 10:39). Opening stock is preserved historical inventory, not production.
+              </p>
+              <div className="grid grid-cols-2 gap-2 text-xs font-mono">
+                {Object.entries(metrics.openingStockSnapshot).map(([ref, totalQty]) => {
+                  const details = metrics.openingStockDetails?.[ref];
+                  return (
+                    <div key={ref} className="bg-white p-2.5 rounded-xl border border-slate-200/70">
+                      <div className="flex justify-between items-center">
+                        <span className="font-bold text-indigo-700">{ref}</span>
+                        <span className="font-black text-slate-800">{totalQty.toLocaleString()} pcs</span>
+                      </div>
+                      {details && (
+                        <div className="text-[10px] text-slate-400 mt-1 flex justify-between">
+                          <span>Packaged: {details.packaged.toLocaleString()}</span>
+                          <span>Unpackaged: {details.unpackaged.toLocaleString()}</span>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             </div>
           )}

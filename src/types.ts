@@ -132,6 +132,11 @@ export interface RollEntry {
   // Reconciliation & Stock Snapshots (ROLLS + FINISHED PIECE STOCK + PRODUCTION + UNPACKAGED PIECES + ROLL CLOSING)
   openingStockSnapshot?: Record<string, number>; // Reference -> Opening stock quantity at roll activation
   rollOpeningStock?: Record<string, number>; // Immutable snapshot of reference stock at roll open
+  openingStockDetails?: Record<string, { packaged: number; unpackaged: number; total: number }>; // Detailed snapshot breakdown
+  totalOpeningStock?: number; // Total opening stock snapshot sum
+  relatedReferences?: string[]; // Multiple finished references linked to this roll (e.g. SK216, VW217)
+  piecesByReference?: Record<string, number>; // Live pieces produced by reference
+  productionValueByReference?: Record<string, number>; // Live production value by reference
   closingUnpackaged?: Record<string, number>; // Reference -> Remaining unpackaged pieces entered at close
   reconciliation?: RollReconciliationData; // Final reconciliation data calculated at roll close
 
@@ -227,6 +232,10 @@ export interface RollFinancialRecord {
   // Reconciled stock tracking
   openingStockSnapshot?: Record<string, number>;
   rollOpeningStock?: Record<string, number>;
+  openingStockDetails?: Record<string, { packaged: number; unpackaged: number; total: number }>;
+  totalOpeningStock?: number;
+  piecesByReference?: Record<string, number>;
+  productionValueByReference?: Record<string, number>;
   closingUnpackaged?: Record<string, number>;
   reconciliation?: RollReferenceReconciliation[];
   status?: string;

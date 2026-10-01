@@ -68,6 +68,11 @@ import {
   getExpectedYieldForReference,
   getPiecePriceForReference,
   normalizeRollMaterial,
+  normalizeRollStatus,
+  getMaterialForAirbagModel,
+  getMaterialRelatedReferences,
+  matchReference,
+  ROLL_43968015_OPENING_STOCK,
   getOpeningStockSnapshotForMaterial,
   reconcileRollClosing
 } from './utils/financialCalculations';
@@ -522,30 +527,69 @@ export default function App() {
             materialName = 'Delcotex India';
           }
 
+          const isRoll43968015 = raw.barcode === '43968015' || raw.id === '43968015' || docSnap.id === 'roll-1790235617489';
+          if (isRoll43968015) {
+            materialName = 'Delcotex India';
+          }
+
           let status = raw.status || 'Unopened';
           const upperStatus = String(status).toUpperCase();
-          if (upperStatus === 'IN_STOCK' || upperStatus === 'UNOPENED') {
+          if (isRoll43968015) {
+            status = upperStatus === 'CONSUMED' || upperStatus === 'CLOSED' ? 'Consumed' : 'Active';
+          } else if (upperStatus === 'IN_STOCK' || upperStatus === 'UNOPENED') {
             status = 'Unopened';
-          } else if (upperStatus === 'IN_USE' || upperStatus === 'PARTIALLY_USED' || upperStatus === 'ACTIVE') {
+          } else if (upperStatus === 'IN_USE' || upperStatus === 'PARTIALLY_USED' || upperStatus === 'ACTIVE' || upperStatus === 'IN PRODUCTION') {
             status = 'Active';
           } else if (upperStatus === 'EMPTY' || upperStatus === 'CONSUMED' || upperStatus === 'SPENT') {
             status = 'Consumed';
           }
 
-          const metersTotal = raw.metersTotal !== undefined && !isNaN(Number(raw.metersTotal))
-            ? Number(raw.metersTotal)
-            : (raw.originalLength !== undefined && !isNaN(Number(raw.originalLength))
-                ? Number(raw.originalLength)
-                : (materialName === 'Kuga' ? 50 : 100));
+          const metersTotal = isRoll43968015
+            ? 90
+            : (raw.metersTotal !== undefined && !isNaN(Number(raw.metersTotal))
+                ? Number(raw.metersTotal)
+                : (raw.originalLength !== undefined && !isNaN(Number(raw.originalLength))
+                    ? Number(raw.originalLength)
+                    : (materialName === 'Kuga' ? 50 : 100)));
+
+          const rollCost = isRoll43968015
+            ? 1615.50
+            : (raw.rollCost !== undefined ? Number(raw.rollCost) : undefined);
+
+          const openingSnapshot = isRoll43968015
+            ? (raw.openingStockSnapshot || raw.rollOpeningStock || ROLL_43968015_OPENING_STOCK.snapshot)
+            : (raw.openingStockSnapshot || raw.rollOpeningStock);
+
+          const openingDetails = isRoll43968015
+            ? (raw.openingStockDetails || {
+                SK216: { packaged: 11700, unpackaged: 197, total: 11897 },
+                VW217: { packaged: 5700, unpackaged: 189, total: 5889 },
+                totalOpeningStock: 17786
+              })
+            : raw.openingStockDetails;
 
           list.push({
             ...raw,
             id: raw.id || docSnap.id,
+            barcode: isRoll43968015 ? (raw.barcode || '43968015') : raw.barcode,
             materialName,
             status,
             metersTotal,
-            date: raw.date || raw.receptionDate || getMoroccoDateStr(),
-            operator: raw.operator || raw.updatedBy || raw.createdBy || 'Mohamed',
+            rollCost,
+            date: isRoll43968015 ? (raw.date || '2026-09-29') : (raw.date || raw.receptionDate || getMoroccoDateStr()),
+            openedAt: isRoll43968015 ? (raw.openedAt || '2026-09-29T10:39:00.000Z') : raw.openedAt,
+            operator: isRoll43968015 ? (raw.operator || 'Mouad') : (raw.operator || raw.updatedBy || raw.createdBy || 'Mohamed'),
+            referenceId: isRoll43968015 ? (raw.referenceId || 'SK216 / VW217') : raw.referenceId,
+            relatedReferences: isRoll43968015 ? ['SK216', 'VW217'] : raw.relatedReferences,
+            producedPieces: raw.producedPieces !== undefined ? Number(raw.producedPieces) : (isRoll43968015 ? 1500 : 0),
+            productionRecords: raw.productionRecords || [],
+            productionValue: raw.productionValue !== undefined ? Number(raw.productionValue) : (isRoll43968015 ? 1125 : 0),
+            grossProfit: raw.grossProfit !== undefined ? Number(raw.grossProfit) : (isRoll43968015 ? -490.50 : undefined),
+            profitPercent: raw.profitPercent !== undefined ? Number(raw.profitPercent) : (isRoll43968015 ? -30.36 : undefined),
+            openingStockSnapshot: openingSnapshot,
+            rollOpeningStock: openingSnapshot,
+            openingStockDetails: openingDetails,
+            totalOpeningStock: isRoll43968015 ? 17786 : raw.totalOpeningStock,
             createdBy: raw.createdBy || 'system'
           } as RollEntry);
         });
@@ -1071,6 +1115,20 @@ export default function App() {
         })
     ) as any;
 
+    // Automatically attribute production to active roll in production if matching material
+    const targetMat = getMaterialForAirbagModel(cleanedEntry.modelId);
+    const activeRoll = rolls.find((r) => {
+      const normStatus = normalizeRollStatus(r.status);
+      const normMat = normalizeRollMaterial(r.materialName);
+      return normStatus === 'IN PRODUCTION' && normMat === targetMat;
+    });
+
+    if (activeRoll) {
+      cleanedEntry.rollId = activeRoll.id;
+      cleanedEntry.rollBarcode = activeRoll.barcode || activeRoll.id;
+      cleanedEntry.referenceId = cleanedEntry.modelId;
+    }
+
     const newEntry: StockEntry = {
       ...cleanedEntry,
       id: `se-${Date.now()}-${Math.floor(Math.random() * 100000)}`,
@@ -1082,6 +1140,86 @@ export default function App() {
         const isCorrection = newEntry.edited === true || newEntry.quantity < 0;
         const formattedQty = newEntry.quantity >= 0 ? `+${newEntry.quantity}` : `${newEntry.quantity}`;
         
+        // If production was added and linked to an active roll in production, update roll production records & financials live
+        if (activeRoll && !isCorrection && (newEntry.type === 'production' || !newEntry.type)) {
+          const prodRec: RollProductionRecord = {
+            id: `rec-${newEntry.id}`,
+            rollId: activeRoll.id,
+            rollBarcode: activeRoll.barcode || activeRoll.id,
+            referenceId: cleanedEntry.modelId,
+            quantity: Number(cleanedEntry.quantity) || 0,
+            date: cleanedEntry.date || getMoroccoDateStr(),
+            time: getMoroccoTimeStr(),
+            operator: cleanedEntry.workerName || activeRoll.operator || 'Operator',
+            machine: cleanedEntry.machine || 'Big Machine',
+            notes: cleanedEntry.notes || `Stock movement for ${cleanedEntry.modelId}`,
+            createdAt: new Date().toISOString()
+          };
+
+          const existingRecs = activeRoll.productionRecords || [];
+          const updatedRecs = [...existingRecs.filter(r => r.id !== prodRec.id), prodRec];
+
+          let totalProduced = 0;
+          let totalVal = 0;
+          let skProduced = 0;
+          let vwProduced = 0;
+
+          updatedRecs.forEach((r) => {
+            const q = Number(r.quantity) || 0;
+            totalProduced += q;
+            const p = (activeRoll.barcode === '43968015' || activeRoll.id === '43968015')
+              ? 0.7500
+              : getPiecePriceForReference(r.referenceId, piecePrices);
+            totalVal += q * p;
+            if (matchReference(r.referenceId, 'SK216')) skProduced += q;
+            if (matchReference(r.referenceId, 'VW217')) vwProduced += q;
+          });
+
+          totalVal = Math.round(totalVal * 100) / 100;
+          const cost = (activeRoll.barcode === '43968015' || activeRoll.id === '43968015')
+            ? 1615.50
+            : (activeRoll.rollCost || calculateRealRollCost(activeRoll).cost);
+          const grossProfit = Math.round((totalVal - cost) * 100) / 100;
+          const profitPercent = cost > 0 ? Math.round((grossProfit / cost) * 10000) / 100 : 0;
+
+          updateDoc(doc(db, 'rolls', activeRoll.id), {
+            productionRecords: updatedRecs,
+            producedPieces: totalProduced,
+            remainingPieces: Math.max(0, (activeRoll.expectedPieces || 700) - totalProduced),
+            productionValue: totalVal,
+            grossProfit,
+            profitPercent,
+            updatedAt: new Date().toISOString(),
+            updatedBy: cleanedEntry.workerName || currentUser?.name || 'Operator'
+          }).catch(err => console.warn('Could not auto-attribute production to roll:', err));
+
+          const finRecord: RollFinancialRecord = {
+            id: `fe-${activeRoll.id}`,
+            rollId: activeRoll.id,
+            rollBarcode: activeRoll.barcode || activeRoll.id,
+            rollNumber: activeRoll.rollNumber || activeRoll.barcode || activeRoll.id,
+            materialName: normalizeRollMaterial(activeRoll.materialName),
+            rollLength: activeRoll.metersTotal || 90,
+            rollCost: cost,
+            items: [
+              { reference: 'SK216', pieces: skProduced, pricePerPiece: 0.75, productionValue: Math.round(skProduced * 0.75 * 100) / 100 },
+              { reference: 'VW217', pieces: vwProduced, pricePerPiece: 0.75, productionValue: Math.round(vwProduced * 0.75 * 100) / 100 }
+            ],
+            totalPieces: totalProduced,
+            totalProductionValue: totalVal,
+            grossProfit,
+            profitPercentage: profitPercent,
+            evaluatedAt: getMoroccoDateStr(),
+            evaluatedBy: cleanedEntry.workerName || currentUser?.name || 'Operator',
+            notes: `Live evaluation: ${totalProduced} pcs produced from roll ${activeRoll.barcode || activeRoll.id}`,
+            openingStockSnapshot: activeRoll.openingStockSnapshot || { SK216: 11897, VW217: 5889 },
+            rollOpeningStock: activeRoll.rollOpeningStock || { SK216: 11897, VW217: 5889 },
+            status: 'IN PRODUCTION',
+            updatedAt: new Date().toISOString()
+          };
+          setDoc(doc(db, 'financial_evaluations', finRecord.id), finRecord, { merge: true }).catch(() => {});
+        }
+
         if (isCorrection) {
           addToast(`Stored stock adjustments: ${formattedQty} units of ${newEntry.modelId} corrected successfully!`, 'success');
           triggerNotification(
@@ -1125,6 +1263,74 @@ export default function App() {
         deleteDoc(doc(db, 'stock_entries', id))
           .then(() => {
             addToast(`Successfully undone and removed ${entry.quantity} units of ${entry.modelId}.`, 'success');
+
+            // Roll subtraction logic if entry was linked to a roll
+            if (entry.rollId || entry.rollBarcode) {
+              const roll = rolls.find(r => r.id === entry.rollId || r.barcode === entry.rollBarcode);
+              if (roll) {
+                const updatedRecs = (roll.productionRecords || []).filter(
+                  r => r.id !== `rec-${entry.id}` && r.id !== entry.id
+                );
+                let totalProduced = 0;
+                let totalVal = 0;
+                let skProduced = 0;
+                let vwProduced = 0;
+
+                updatedRecs.forEach((r) => {
+                  const q = Number(r.quantity) || 0;
+                  totalProduced += q;
+                  const p = (roll.barcode === '43968015' || roll.id === '43968015')
+                    ? 0.7500
+                    : getPiecePriceForReference(r.referenceId, piecePrices);
+                  totalVal += q * p;
+                  if (matchReference(r.referenceId, 'SK216')) skProduced += q;
+                  if (matchReference(r.referenceId, 'VW217')) vwProduced += q;
+                });
+
+                totalVal = Math.round(totalVal * 100) / 100;
+                const cost = (roll.barcode === '43968015' || roll.id === '43968015')
+                  ? 1615.50
+                  : (roll.rollCost || calculateRealRollCost(roll).cost);
+                const grossProfit = Math.round((totalVal - cost) * 100) / 100;
+                const profitPercent = cost > 0 ? Math.round((grossProfit / cost) * 10000) / 100 : 0;
+
+                updateDoc(doc(db, 'rolls', roll.id), {
+                  productionRecords: updatedRecs,
+                  producedPieces: totalProduced,
+                  remainingPieces: Math.max(0, (roll.expectedPieces || 700) - totalProduced),
+                  productionValue: totalVal,
+                  grossProfit,
+                  profitPercent,
+                  updatedAt: new Date().toISOString()
+                }).catch(err => console.warn('Could not update roll on undo:', err));
+
+                const finRecord: RollFinancialRecord = {
+                  id: `fe-${roll.id}`,
+                  rollId: roll.id,
+                  rollBarcode: roll.barcode || roll.id,
+                  rollNumber: roll.rollNumber || roll.barcode || roll.id,
+                  materialName: normalizeRollMaterial(roll.materialName),
+                  rollLength: roll.metersTotal || 90,
+                  rollCost: cost,
+                  items: [
+                    { reference: 'SK216', pieces: skProduced, pricePerPiece: 0.75, productionValue: Math.round(skProduced * 0.75 * 100) / 100 },
+                    { reference: 'VW217', pieces: vwProduced, pricePerPiece: 0.75, productionValue: Math.round(vwProduced * 0.75 * 100) / 100 }
+                  ],
+                  totalPieces: totalProduced,
+                  totalProductionValue: totalVal,
+                  grossProfit,
+                  profitPercentage: profitPercent,
+                  evaluatedAt: getMoroccoDateStr(),
+                  evaluatedBy: currentUser?.name || 'Operator',
+                  notes: `Live evaluation: ${totalProduced} pcs produced from roll ${roll.barcode || roll.id}`,
+                  openingStockSnapshot: roll.openingStockSnapshot || { SK216: 11897, VW217: 5889 },
+                  rollOpeningStock: roll.rollOpeningStock || { SK216: 11897, VW217: 5889 },
+                  status: 'IN PRODUCTION',
+                  updatedAt: new Date().toISOString()
+                };
+                setDoc(doc(db, 'financial_evaluations', finRecord.id), finRecord, { merge: true }).catch(() => {});
+              }
+            }
 
             // Subtraction logic for the plan progress
             if (entry.planId) {
@@ -1507,10 +1713,11 @@ export default function App() {
 
     const mat = normalizeRollMaterial(roll.materialName);
     const ref = referenceId || roll.referenceId || getDefaultReferenceForMaterial(mat);
-    const expPieces = roll.expectedPieces || getExpectedYieldForReference(ref, expectedYields);
+    const isRoll43968015 = roll.barcode === '43968015' || roll.id === '43968015' || roll.id === 'roll-1790235617489';
     const costInfo = calculateRealRollCost(roll);
-    const rollCost = roll.rollCost !== undefined && roll.rollCost > 0 ? roll.rollCost : costInfo.cost;
-    const lockedPrice = roll.pricePerPiece !== undefined && roll.pricePerPiece > 0 ? roll.pricePerPiece : getPiecePriceForReference(ref, piecePrices);
+    const rollCost = isRoll43968015 ? 1615.50 : (roll.rollCost !== undefined && roll.rollCost > 0 ? roll.rollCost : costInfo.cost);
+    const lockedPrice = (isRoll43968015 || mat === 'Delcotex India') ? 0.7500 : (roll.pricePerPiece !== undefined && roll.pricePerPiece > 0 ? roll.pricePerPiece : getPiecePriceForReference(ref, piecePrices));
+    const effectiveExpPieces = roll.expectedPieces || (isRoll43968015 ? 700 : getExpectedYieldForReference(ref, expectedYields));
 
     const newRec: RollProductionRecord = {
       id: `rec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -1528,20 +1735,35 @@ export default function App() {
 
     const existingRecords = roll.productionRecords || [];
     const updatedRecords = [...existingRecords, newRec];
-    const newProduced = updatedRecords.reduce((sum, r) => sum + (Number(r.quantity) || 0), 0);
-    const newRemaining = Math.max(0, expPieces - newProduced);
 
-    const newProductionValue = Math.round(newProduced * lockedPrice * 100) / 100;
+    let skProduced = 0;
+    let vwProduced = 0;
+    let newProduced = 0;
+    let newProductionValue = 0;
+
+    updatedRecords.forEach((r) => {
+      const q = Number(r.quantity) || 0;
+      newProduced += q;
+      const p = (isRoll43968015 || mat === 'Delcotex India')
+        ? 0.7500
+        : getPiecePriceForReference(r.referenceId || ref, piecePrices);
+      newProductionValue += q * p;
+      if (matchReference(r.referenceId, 'SK216')) skProduced += q;
+      if (matchReference(r.referenceId, 'VW217')) vwProduced += q;
+    });
+
+    newProductionValue = Math.round(newProductionValue * 100) / 100;
+    const newRemaining = Math.max(0, effectiveExpPieces - newProduced);
     const newGrossProfit = Math.round((newProductionValue - rollCost) * 100) / 100;
     const newProfitPercent = rollCost > 0 ? Math.round((newGrossProfit / rollCost) * 10000) / 100 : 0;
 
     const rollUpdates: Partial<RollEntry> = {
       status: (roll.status === 'Consumed' || roll.status === 'FINISHED') ? roll.status : 'Active',
-      referenceId: ref,
-      expectedPieces: expPieces,
+      referenceId: isRoll43968015 ? 'SK216 / VW217' : ref,
+      expectedPieces: effectiveExpPieces,
       producedPieces: newProduced,
       remainingPieces: newRemaining,
-      pricePerPiece: lockedPrice,
+      pricePerPiece: (isRoll43968015 || mat === 'Delcotex India') ? 0.7500 : lockedPrice,
       rollCost: rollCost,
       productionValue: newProductionValue,
       grossProfit: newGrossProfit,
@@ -1580,9 +1802,12 @@ export default function App() {
       rollId: roll.id,
       rollBarcode: roll.barcode || roll.id,
       materialName: mat,
-      rollLength: roll.metersTotal || (roll.materialName === 'Kuga' ? 50 : 100),
+      rollLength: isRoll43968015 ? 90 : (roll.metersTotal || (roll.materialName === 'Kuga' ? 50 : 100)),
       rollCost: rollCost,
-      items: [{
+      items: (isRoll43968015 || mat === 'Delcotex India') ? [
+        { reference: 'SK216', pieces: skProduced, pricePerPiece: 0.75, productionValue: Math.round(skProduced * 0.75 * 100) / 100 },
+        { reference: 'VW217', pieces: vwProduced, pricePerPiece: 0.75, productionValue: Math.round(vwProduced * 0.75 * 100) / 100 }
+      ] : [{
         reference: ref,
         pieces: newProduced,
         pricePerPiece: lockedPrice,
@@ -1594,7 +1819,10 @@ export default function App() {
       profitPercentage: newProfitPercent,
       evaluatedAt: getMoroccoDateStr(),
       evaluatedBy: currentUser?.name || 'Operator',
-      notes: `Auto-linked from Roll ${roll.barcode || roll.id}`
+      notes: `Live evaluation: ${newProduced} pcs produced from roll ${roll.barcode || roll.id}`,
+      openingStockSnapshot: roll.openingStockSnapshot || (isRoll43968015 ? ROLL_43968015_OPENING_STOCK.snapshot : undefined),
+      rollOpeningStock: roll.rollOpeningStock || (isRoll43968015 ? ROLL_43968015_OPENING_STOCK.snapshot : undefined),
+      status: 'IN PRODUCTION'
     };
     setDoc(doc(db, 'financial_evaluations', evalRecord.id), evalRecord).catch(() => {});
 

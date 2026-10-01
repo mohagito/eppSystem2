@@ -117,13 +117,13 @@ export default function FinancialEvaluation({
   // ROLL → EXPECTED PIECES → PRODUCTION → PIECE STOCK → ROLL COMPLETION → FINANCIAL RESULT
   const rollRowsWithMetrics = useMemo(() => {
     return rolls.map((roll) => {
-      const metrics = calculateRollProductionMetrics(roll, activeYieldsList, activePricesList);
+      const metrics = calculateRollProductionMetrics(roll, activeYieldsList, activePricesList, stockEntries);
       return {
         roll,
         ...metrics
       };
     });
-  }, [rolls, activeYieldsList, activePricesList]);
+  }, [rolls, activeYieldsList, activePricesList, stockEntries]);
 
   // Filtered rows for the list/table
   const filteredRollRows = useMemo(() => {
