@@ -50,6 +50,7 @@ import {
   getPiecePriceForReference, 
   formatEuroCurrency, 
   formatProfitPercent, 
+  formatEfficiencyPercent,
   getDefaultReferenceForMaterial,
   getMaterialFamily,
   getOpeningStockSnapshotForMaterial
@@ -1285,9 +1286,19 @@ export default function RollsModule({
                           <span className="font-bold text-slate-800">{roll.materialName}</span>
                         </div>
                         {roll.referenceId ? (
-                          <span className="text-[10px] font-extrabold text-indigo-700 font-mono mt-0.5 ml-3.5 inline-block">
-                            {roll.referenceId}
-                          </span>
+                          <div className="flex items-center gap-1.5 mt-0.5 ml-3.5">
+                            <span className="text-[10px] font-extrabold text-indigo-700 font-mono inline-block">
+                              {roll.referenceId}
+                            </span>
+                            {metrics.expectedPieces > 0 && (
+                              <span 
+                                className="text-[9.5px] font-mono font-bold text-slate-500" 
+                                title={`Material Efficiency % = Produced (${metrics.producedPieces}) ÷ Expected (${metrics.expectedPieces}) × 100`}
+                              >
+                                • Eff: {formatEfficiencyPercent(metrics.materialEfficiency)}
+                              </span>
+                            )}
+                          </div>
                         ) : (
                           <span className="text-[9.5px] text-slate-400 italic mt-0.5 ml-3.5 inline-block">
                             {subTab === 'unopened' ? `Yield: ~${metrics.expectedPieces} pcs` : 'Standard'}

@@ -21,6 +21,7 @@ import {
   calculateRollProductionMetrics, 
   formatEuroCurrency, 
   formatProfitPercent,
+  formatEfficiencyPercent,
   normalizeRollMaterial,
   MATERIAL_FAMILY_RELATIONSHIPS
 } from '../utils/financialCalculations';
@@ -219,23 +220,24 @@ export default function RollDetailsModal({
             </div>
           </div>
 
-          {/* Progress Bar */}
+          {/* Material Efficiency Calculation (Produced PCS ÷ Expected PCS × 100) */}
           <div className="space-y-1">
-            <div className="flex justify-between text-[11px] font-bold text-slate-500">
-              <span>Production Progress</span>
-              <span className="font-mono text-indigo-600">
-                {metrics.expectedPieces > 0 
-                  ? `${Math.min(100, Math.round((metrics.producedPieces / metrics.expectedPieces) * 100))}%`
-                  : '0%'}
+            <div className="flex justify-between items-center text-[11px] font-bold text-slate-600">
+              <span className="flex items-center gap-1">
+                <span>Material Efficiency</span>
+                <span className="text-[10px] text-slate-400 font-normal">
+                  ({metrics.producedPieces.toLocaleString()} ÷ {metrics.expectedPieces.toLocaleString()} × 100)
+                </span>
+              </span>
+              <span className="font-mono font-black text-indigo-700 text-xs">
+                {formatEfficiencyPercent(metrics.materialEfficiency)}
               </span>
             </div>
             <div className="w-full h-2.5 bg-slate-100 rounded-full overflow-hidden">
               <div 
                 className="h-full bg-indigo-600 transition-all duration-300"
                 style={{ 
-                  width: `${metrics.expectedPieces > 0 
-                    ? Math.min(100, (metrics.producedPieces / metrics.expectedPieces) * 100) 
-                    : 0}%` 
+                  width: `${Math.min(100, Math.max(0, metrics.materialEfficiency || 0))}%` 
                 }}
               />
             </div>

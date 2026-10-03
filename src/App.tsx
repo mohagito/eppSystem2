@@ -581,11 +581,17 @@ export default function App() {
             operator: isRoll43968015 ? (raw.operator || 'Mouad') : (raw.operator || raw.updatedBy || raw.createdBy || 'Mohamed'),
             referenceId: isRoll43968015 ? (raw.referenceId || 'SK216 / VW217') : raw.referenceId,
             relatedReferences: isRoll43968015 ? ['SK216', 'VW217'] : raw.relatedReferences,
+            expectedPieces: isRoll43968015
+              ? (raw.expectedPieces !== undefined && Number(raw.expectedPieces) > 0 ? Number(raw.expectedPieces) : 3857)
+              : (raw.expectedPieces !== undefined ? Number(raw.expectedPieces) : undefined),
             producedPieces: raw.producedPieces !== undefined ? Number(raw.producedPieces) : (isRoll43968015 ? 1500 : 0),
             productionRecords: raw.productionRecords || [],
             productionValue: raw.productionValue !== undefined ? Number(raw.productionValue) : (isRoll43968015 ? 1125 : 0),
             grossProfit: raw.grossProfit !== undefined ? Number(raw.grossProfit) : (isRoll43968015 ? -490.50 : undefined),
             profitPercent: raw.profitPercent !== undefined ? Number(raw.profitPercent) : (isRoll43968015 ? -30.36 : undefined),
+            materialEfficiency: raw.materialEfficiency !== undefined
+              ? Number(raw.materialEfficiency)
+              : (isRoll43968015 ? Math.round((1500 / 3857) * 10000) / 100 : undefined),
             openingStockSnapshot: openingSnapshot,
             rollOpeningStock: openingSnapshot,
             openingStockDetails: openingDetails,
@@ -758,48 +764,6 @@ export default function App() {
           } catch (e: any) {
             console.error("Error cleaning up worker profiles:", e);
             throw new Error("Failed at cleaning up worker profiles: " + e.message);
-          }
-        }
-
-        // ONE-TIME RESET OF FINANCIAL EVALUATION PRODUCTION TO ZERO FOR CLEAN SLATE
-        const cleanFinRef = doc(db, 'settings', 'financial_zero_init_v2');
-        let cleanFinSnap;
-        try {
-          cleanFinSnap = await getDoc(cleanFinRef);
-        } catch (e: any) {
-          console.error("Error reading financial_zero_init_v2:", e);
-        }
-
-        if (!cleanFinSnap || !cleanFinSnap.exists()) {
-          console.log("Setting all financial evaluations and production metrics to zero...");
-          try {
-            const batch = writeBatch(db);
-
-            // Reset all rolls to Unopened with zero produced pieces
-            const rollsSnap = await getDocs(collection(db, 'rolls'));
-            rollsSnap.forEach((docSnap) => {
-              batch.update(docSnap.ref, {
-                status: 'Unopened',
-                producedPieces: 0,
-                remainingPieces: 0,
-                productionValue: 0,
-                grossProfit: 0,
-                profitPercent: 0,
-                productionRecords: []
-              });
-            });
-
-            // Clear any previously saved financial evaluation docs
-            const finSnap = await getDocs(collection(db, 'financial_evaluations'));
-            finSnap.forEach((docSnap) => {
-              batch.delete(docSnap.ref);
-            });
-
-            batch.set(cleanFinRef, { initializedAtZero: true, timestamp: new Date().toISOString() });
-            await batch.commit();
-            console.log("Reset to zero completed successfully!");
-          } catch (e: any) {
-            console.error("Error resetting financial data to zero:", e);
           }
         }
 
@@ -1182,10 +1146,15 @@ export default function App() {
           const grossProfit = Math.round((totalVal - cost) * 100) / 100;
           const profitPercent = cost > 0 ? Math.round((grossProfit / cost) * 10000) / 100 : 0;
 
+          const activeExp = activeRoll.expectedPieces || ((activeRoll.barcode === '43968015' || activeRoll.id === '43968015' || activeRoll.materialName === 'Delcotex India') ? 3857 : 250);
+          const materialEfficiency = activeExp > 0 ? Math.round((totalProduced / activeExp) * 10000) / 100 : 0;
+
           updateDoc(doc(db, 'rolls', activeRoll.id), {
             productionRecords: updatedRecs,
             producedPieces: totalProduced,
-            remainingPieces: Math.max(0, (activeRoll.expectedPieces || 700) - totalProduced),
+            expectedPieces: activeExp,
+            remainingPieces: Math.max(0, activeExp - totalProduced),
+            materialEfficiency,
             productionValue: totalVal,
             grossProfit,
             profitPercent,
@@ -1209,6 +1178,7 @@ export default function App() {
             totalProductionValue: totalVal,
             grossProfit,
             profitPercentage: profitPercent,
+            materialEfficiency,
             evaluatedAt: getMoroccoDateStr(),
             evaluatedBy: cleanedEntry.workerName || currentUser?.name || 'Operator',
             notes: `Live evaluation: ${totalProduced} pcs produced from roll ${activeRoll.barcode || activeRoll.id}`,
@@ -1717,7 +1687,7 @@ export default function App() {
     const costInfo = calculateRealRollCost(roll);
     const rollCost = isRoll43968015 ? 1615.50 : (roll.rollCost !== undefined && roll.rollCost > 0 ? roll.rollCost : costInfo.cost);
     const lockedPrice = (isRoll43968015 || mat === 'Delcotex India') ? 0.7500 : (roll.pricePerPiece !== undefined && roll.pricePerPiece > 0 ? roll.pricePerPiece : getPiecePriceForReference(ref, piecePrices));
-    const effectiveExpPieces = roll.expectedPieces || (isRoll43968015 ? 700 : getExpectedYieldForReference(ref, expectedYields));
+    const effectiveExpPieces = roll.expectedPieces || ((isRoll43968015 || mat === 'Delcotex India') ? 3857 : getExpectedYieldForReference(ref, expectedYields));
 
     const newRec: RollProductionRecord = {
       id: `rec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -1756,6 +1726,7 @@ export default function App() {
     const newRemaining = Math.max(0, effectiveExpPieces - newProduced);
     const newGrossProfit = Math.round((newProductionValue - rollCost) * 100) / 100;
     const newProfitPercent = rollCost > 0 ? Math.round((newGrossProfit / rollCost) * 10000) / 100 : 0;
+    const materialEfficiency = effectiveExpPieces > 0 ? Math.round((newProduced / effectiveExpPieces) * 10000) / 100 : 0;
 
     const rollUpdates: Partial<RollEntry> = {
       status: (roll.status === 'Consumed' || roll.status === 'FINISHED') ? roll.status : 'Active',
@@ -1763,6 +1734,7 @@ export default function App() {
       expectedPieces: effectiveExpPieces,
       producedPieces: newProduced,
       remainingPieces: newRemaining,
+      materialEfficiency: materialEfficiency,
       pricePerPiece: (isRoll43968015 || mat === 'Delcotex India') ? 0.7500 : lockedPrice,
       rollCost: rollCost,
       productionValue: newProductionValue,
@@ -1817,6 +1789,7 @@ export default function App() {
       totalProductionValue: newProductionValue,
       grossProfit: newGrossProfit,
       profitPercentage: newProfitPercent,
+      materialEfficiency: materialEfficiency,
       evaluatedAt: getMoroccoDateStr(),
       evaluatedBy: currentUser?.name || 'Operator',
       notes: `Live evaluation: ${newProduced} pcs produced from roll ${roll.barcode || roll.id}`,

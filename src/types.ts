@@ -121,6 +121,7 @@ export interface RollEntry {
   expectedPieces?: number; // Expected finished pieces from this roll
   producedPieces?: number; // Actual total produced pieces so far
   remainingPieces?: number; // expectedPieces - producedPieces
+  materialEfficiency?: number; // Material Efficiency % = Produced PCS ÷ Expected PCS × 100
   wastePieces?: number; // Optional waste / defective pieces
   pricePerPiece?: number; // Locked piece price for this roll
   rollCost?: number; // Actual physical roll cost
@@ -207,6 +208,7 @@ export interface RollReconciliationData {
   rollCost: number;
   grossProfit: number;
   profitPercent: number;
+  materialEfficiency?: number; // Material Efficiency % = Produced PCS ÷ Expected PCS × 100
   closedAt: string;
   closedBy: string;
 }
@@ -224,6 +226,7 @@ export interface RollFinancialRecord {
   totalProductionValue: number; // Sum of productionValue of all items
   grossProfit: number; // totalProductionValue - rollCost
   profitPercentage: number; // (grossProfit / rollCost) * 100
+  materialEfficiency?: number; // (totalPieces / expectedPieces) * 100
   evaluatedAt: string; // YYYY-MM-DD or ISO timestamp
   evaluatedBy: string; // Manager name or ID
   notes?: string;

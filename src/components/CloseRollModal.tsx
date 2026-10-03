@@ -112,8 +112,13 @@ export default function CloseRollModal({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           
-          <div className="text-xs text-slate-700 font-bold uppercase tracking-wider">
-            Remaining unpackaged pieces:
+          <div>
+            <div className="text-xs text-slate-700 font-bold uppercase tracking-wider">
+              Remaining unpackaged pieces:
+            </div>
+            <p className="text-[11px] text-slate-500 font-normal mt-0.5">
+              Used strictly to calculate final roll yield & material efficiency. These are not added to finished packaged inventory.
+            </p>
           </div>
 
           {errorMsg && (

@@ -12,6 +12,7 @@ import {
   Clock,
   Settings2,
   Save,
+  Target,
   X
 } from 'lucide-react';
 import { 
@@ -34,6 +35,7 @@ import {
   formatEuroCurrency, 
   formatEuroPrice, 
   formatProfitPercent,
+  formatEfficiencyPercent,
   normalizeRollMaterial,
   getMaterialFamily,
   normalizeRollStatus,
@@ -158,10 +160,12 @@ export default function FinancialEvaluation({
     });
   }, [rollRowsWithMetrics, searchRoll, filterMaterial, filterReference, filterStatus]);
 
-  // 3 Primary KPI Summaries as requested: Total Roll Cost, Production Value, Gross Profit
+  // 4 Primary KPI Summaries: Total Roll Cost, Production Value, Gross Profit, Material Efficiency
   const summaryKPIs = useMemo(() => {
     let totalRollCost = 0;
     let totalProductionValue = 0;
+    let totalExpectedPieces = 0;
+    let totalProducedPieces = 0;
 
     // Only aggregate over rolls that have actually been opened / started (IN PRODUCTION or CLOSED)
     const activeOrFinishedRolls = rollRowsWithMetrics.filter(
@@ -171,6 +175,8 @@ export default function FinancialEvaluation({
     activeOrFinishedRolls.forEach((r) => {
       totalRollCost += r.rollCost;
       totalProductionValue += r.productionValue;
+      totalExpectedPieces += (r.expectedPieces || 0);
+      totalProducedPieces += (r.producedPieces || 0);
     });
 
     const grossProfit = Math.round((totalProductionValue - totalRollCost) * 100) / 100;
@@ -178,12 +184,19 @@ export default function FinancialEvaluation({
       ? Math.round((grossProfit / totalRollCost) * 10000) / 100
       : 0;
 
+    const averageEfficiency = totalExpectedPieces > 0
+      ? Math.round((totalProducedPieces / totalExpectedPieces) * 10000) / 100
+      : 0;
+
     return {
       activeRollsCount: activeOrFinishedRolls.length,
       totalRollCost,
       totalProductionValue,
       grossProfit,
-      profitPercentage
+      profitPercentage,
+      totalExpectedPieces,
+      totalProducedPieces,
+      averageEfficiency
     };
   }, [rollRowsWithMetrics]);
 
@@ -313,8 +326,8 @@ export default function FinancialEvaluation({
         </div>
       </div>
 
-      {/* 3 Clean KPI Cards: Total Roll Cost, Production Value, Gross Profit */}
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4" id="financial-kpi-summary">
+      {/* 4 Clean KPI Cards: Total Roll Cost, Production Value, Gross Profit, Material Efficiency */}
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4" id="financial-kpi-summary">
         
         {/* Total Roll Cost */}
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
@@ -364,6 +377,27 @@ export default function FinancialEvaluation({
             {summaryKPIs.activeRollsCount > 0
               ? 'Production Value − Total Roll Cost'
               : '€0.00 (Final profit calculated when roll finishes)'}
+          </p>
+        </div>
+
+        {/* Material Efficiency */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
+          <div className="flex items-center justify-between">
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Material Efficiency</p>
+            <span className="inline-flex items-center gap-1 text-[11px] font-mono font-black px-2 py-0.5 rounded-full bg-indigo-50 text-indigo-700 border border-indigo-200">
+              <Target size={11} />
+              {summaryKPIs.totalExpectedPieces > 0 
+                ? `${summaryKPIs.totalProducedPieces.toLocaleString()} / ${summaryKPIs.totalExpectedPieces.toLocaleString()} pcs` 
+                : '0 pcs'}
+            </span>
+          </div>
+          <p className="text-2xl font-black font-mono text-indigo-700 mt-1">
+            {formatEfficiencyPercent(summaryKPIs.averageEfficiency)}
+          </p>
+          <p className="text-[11px] text-slate-400 font-medium mt-1">
+            {summaryKPIs.activeRollsCount > 0
+              ? 'Produced PCS ÷ Expected PCS × 100'
+              : '0.00% (Starts calculating with production)'}
           </p>
         </div>
 
@@ -506,9 +540,21 @@ export default function FinancialEvaluation({
                         </div>
                       </td>
 
-                      {/* Pieces */}
-                      <td className="py-3.5 px-4 text-center font-mono font-black text-indigo-800">
-                        {item.producedPieces.toLocaleString()} pcs
+                      {/* Pieces & Material Efficiency */}
+                      <td className="py-3.5 px-4 text-center">
+                        <div className="flex flex-col items-center">
+                          <span className="font-mono font-black text-indigo-800">
+                            {item.producedPieces.toLocaleString()} pcs
+                          </span>
+                          {item.expectedPieces > 0 && (
+                            <span 
+                              className="text-[10px] font-mono font-bold text-slate-500 mt-0.5"
+                              title={`Material Efficiency: ${item.producedPieces.toLocaleString()} ÷ ${item.expectedPieces.toLocaleString()} × 100`}
+                            >
+                              Eff: {formatEfficiencyPercent(item.materialEfficiency)}
+                            </span>
+                          )}
+                        </div>
                       </td>
 
                       {/* Roll Cost */}

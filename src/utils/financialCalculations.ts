@@ -17,13 +17,13 @@ import { getMoroccoDateStr, getMoroccoTimeStr } from './timeZone';
 
 export const PACKAGING_SIZES: Record<AirbagModel, number> = {
   BCB: 250,
-  CRAFTER: 250,
-  CADDY: 250,
-  'KUGA LHD': 200,
-  'KUGA RHD': 200,
   TETOUAN: 250,
-  SK216: 250,
-  VW217: 250
+  CRAFTER: 360,
+  CADDY: 400,
+  'KUGA LHD': 150,
+  'KUGA RHD': 150,
+  SK216: 300,
+  VW217: 300
 };
 
 /**
@@ -147,14 +147,14 @@ export const DEFAULT_EXPECTED_YIELDS: ExpectedYieldConfig[] = [
     reference: 'SK216',
     material: 'Delcotex India',
     materialFamily: 'INDIA / DELCOTEX',
-    expectedPieces: 350
+    expectedPieces: 3857
   },
   {
     id: 'VW217',
     reference: 'VW217',
     material: 'Delcotex India',
     materialFamily: 'INDIA / DELCOTEX',
-    expectedPieces: 350
+    expectedPieces: 3857
   },
   {
     id: 'KUGA-LHD',
@@ -362,6 +362,15 @@ export function formatProfitPercent(percent: number): string {
 }
 
 /**
+ * Format Material Efficiency percentage (e.g. 90.75%)
+ * Formula: Produced PCS ÷ Expected PCS × 100
+ */
+export function formatEfficiencyPercent(percent: number): string {
+  if (isNaN(percent) || percent === undefined || percent === null) return '0.00%';
+  return `${percent.toFixed(2)}%`;
+}
+
+/**
  * Flexible reference matcher handling variations like "TETOUAN" vs "TETOUAN / XJX-MARR"
  */
 export function matchReference(ref1?: string, ref2?: string): boolean {
@@ -421,7 +430,7 @@ export function calculateCurrentModelStock(
   const pkgSize = PACKAGING_SIZES[model] || 250;
   
   const modelEntries = entries
-    .filter(e => e.modelId === model)
+    .filter(e => e.modelId === model && !(e.notes && e.notes.toLowerCase().includes('closing unpackaged')))
     .sort((a, b) => {
       const timeA = new Date(a.createdAt || a.date).getTime();
       const timeB = new Date(b.createdAt || b.date).getTime();
@@ -455,7 +464,8 @@ export function calculateCurrentModelStock(
     .reduce((sum, d) => sum + (Number(d.quantity) || 0), 0);
 
   const netPackaged = Math.max(0, currentPackaged - delivered);
-  const totalAvailableStock = netPackaged + currentUnpackaged;
+  // Factory counts only packaged pieces in finished available stock
+  const totalAvailableStock = netPackaged;
 
   return {
     packagedStock: netPackaged,
@@ -668,26 +678,13 @@ export function reconcileRollClosing(
     totalActualPieces += actualProduction;
     totalProductionValue += prodValue;
 
-    // 5. NO WASTE: Add remaining unpackaged pieces directly to physical reference stock
-    if (closeUnpackaged > 0) {
-      closingEntriesToCreate.push({
-        modelId: model,
-        workerName: closedBy,
-        date: getMoroccoDateStr(),
-        quantity: closeUnpackaged,
-        createdBy: roll.createdBy || 'system',
-        machine: (roll.operator ? 'Big Machine' : undefined) as any,
-        rollId: roll.id,
-        rollBarcode: roll.barcode || roll.id,
-        referenceId: ref,
-        type: 'production',
-        time: getMoroccoTimeStr(),
-        notes: `Closing unpackaged pieces from roll ${roll.barcode || roll.id}`
-      });
-    }
+    // 5. In factory inventory, only packaged pieces are counted.
+    // Remaining unpackaged rest pieces from a roll are used strictly for roll yield & material efficiency evaluation,
+    // and must NOT be added as stock entries to finished inventory.
+    // (closingEntriesToCreate remains empty)
 
-    // 6. Final available stock estimate
-    const finalStock = openStock + actualProduction;
+    // 6. Final available stock counts only finished packaged pieces
+    const finalStock = openStock + loggedFromRoll;
 
     reconciliations.push({
       reference: ref,
@@ -824,6 +821,7 @@ export function calculateRollProductionMetrics(
       expectedPieces: 0,
       producedPieces: 0,
       remainingPieces: 0,
+      materialEfficiency: 0,
       pricePerPiece: 0,
       productionValue: 0,
       grossProfit: 0,
@@ -852,14 +850,18 @@ export function calculateRollProductionMetrics(
       recValByRef[r.reference] = r.productionValue;
     });
 
+    const recExp = roll.expectedPieces || rec.totalActualPieces;
+    const recEff = recExp > 0 ? Math.round((rec.totalActualPieces / recExp) * 10000) / 100 : 0;
+
     return {
       material,
       referenceId: refId,
       actualLength,
       rollCost: rec.rollCost,
-      expectedPieces: roll.expectedPieces || rec.totalActualPieces,
+      expectedPieces: recExp,
       producedPieces: rec.totalActualPieces,
       remainingPieces: 0,
+      materialEfficiency: recEff,
       pricePerPiece: rec.references.length > 0 ? rec.references[0].pricePerPiece : getPiecePriceForReference(refId, customPrices),
       productionValue: rec.totalProductionValue,
       grossProfit: rec.grossProfit,
@@ -889,7 +891,7 @@ export function calculateRollProductionMetrics(
 
   const expectedPieces = roll.expectedPieces !== undefined && roll.expectedPieces > 0
     ? roll.expectedPieces
-    : (isRoll43968015 ? 700 : getExpectedYieldForReference(referenceId, customYields));
+    : ((isRoll43968015 || material === 'Delcotex India') ? 3857 : getExpectedYieldForReference(referenceId, customYields));
 
   // Multi-reference production breakdown dictionary
   const piecesByReference: Record<string, number> = {};
@@ -927,13 +929,20 @@ export function calculateRollProductionMetrics(
         (roll.barcode && entry.rollBarcode === roll.barcode) ||
         (isRoll43968015 && (entry.rollBarcode === '43968015' || entry.rollId === 'roll-1790235617489'));
 
+      // If the stock entry explicitly belongs to another roll, NEVER attribute it to this roll
+      const belongsToAnotherRoll = Boolean(
+        (entry.rollId && entry.rollId !== roll.id && (!isRoll43968015 || entry.rollId !== 'roll-1790235617489')) ||
+        (entry.rollBarcode && roll.barcode && entry.rollBarcode !== roll.barcode && (!isRoll43968015 || entry.rollBarcode !== '43968015')) ||
+        (entry.notes && entry.notes.toLowerCase().includes('closing unpackaged') && (!entry.rollBarcode || (roll.barcode && entry.rollBarcode !== roll.barcode)))
+      );
+
       const isRefMatch = relatedRefs.some((rf) => matchReference(rf, entry.modelId) || matchReference(rf, entry.referenceId));
       
       let isRollMatch = isDirectlyTagged;
-      if (!isRollMatch && isRefMatch && status === 'IN PRODUCTION') {
+      if (!isRollMatch && !belongsToAnotherRoll && isRefMatch && status === 'IN PRODUCTION') {
         const entryTime = new Date(entry.createdAt || entry.date).getTime();
-        // If entry was created after roll opened (with 1-min tolerance)
-        if (rollOpenTimestamp > 0 && entryTime >= (rollOpenTimestamp - 60000)) {
+        // Entry must have been created strictly on or after this roll was opened
+        if (rollOpenTimestamp > 0 && entryTime >= rollOpenTimestamp) {
           isRollMatch = true;
         }
       }
@@ -993,6 +1002,12 @@ export function calculateRollProductionMetrics(
     ? Math.round((grossProfit / rollCost) * 10000) / 100
     : 0;
 
+  // Formula: Material Efficiency % = Produced PCS ÷ Expected PCS × 100
+  // Example: 90m India roll, Expected = 3,857, Produced = 3,500 -> 3,500 / 3,857 * 100 = 90.75%
+  const materialEfficiency = expectedPieces > 0
+    ? Math.round((totalActualPieces / expectedPieces) * 10000) / 100
+    : 0;
+
   const defaultPiecePrice = isRoll43968015 ? 0.7500 : getPiecePriceForReference(relatedRefs[0] || 'SK216', customPrices);
 
   return {
@@ -1003,6 +1018,7 @@ export function calculateRollProductionMetrics(
     expectedPieces,
     producedPieces: totalActualPieces,
     remainingPieces,
+    materialEfficiency,
     pricePerPiece: roll.pricePerPiece !== undefined && roll.pricePerPiece > 0 ? roll.pricePerPiece : defaultPiecePrice,
     productionValue: totalProductionValue,
     grossProfit,

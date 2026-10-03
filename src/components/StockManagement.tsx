@@ -361,13 +361,14 @@ export default function StockManagement({
       unpackaged[m] = 0;
     });
 
-    // Group entries by model
+    // Group entries by model (excluding any roll closing unpackaged rest entries)
     const entriesByModel = {} as Record<AirbagModel, StockEntry[]>;
     AIRBAG_MODELS.forEach((m) => {
       entriesByModel[m] = [];
     });
 
     entries.forEach((e) => {
+      if (e.notes && e.notes.toLowerCase().includes('closing unpackaged')) return;
       if (entriesByModel[e.modelId] !== undefined) {
         entriesByModel[e.modelId].push(e);
       }
@@ -454,8 +455,9 @@ export default function StockManagement({
 
   // Totals for header
   const totalProduced = useMemo(() => {
-    // Only count original production and legacy untyped entries
+    // Only count original production and legacy untyped entries, excluding roll rest
     return entries.reduce((sum, e) => {
+      if (e.notes && e.notes.toLowerCase().includes('closing unpackaged')) return sum;
       if (e.type === 'production' || e.type === undefined) {
         return sum + e.quantity;
       }
@@ -802,7 +804,7 @@ export default function StockManagement({
           {AIRBAG_MODELS.map((model) => {
             const packagedStock = packagedStockSums[model] || 0;
             const unpackagedQty = unpackagedQtySums[model] || 0;
-            const totalProd = packagedStock + unpackagedQty;
+            const totalProd = packagedStock; // Inventory counts only packaged pieces
             const isCaddy = model === 'CADDY';
 
             return (
@@ -862,32 +864,34 @@ export default function StockManagement({
                       </div>
                     </div>
 
-                    {/* Unpackaged Quantity Row */}
-                    <div className="flex items-center justify-between py-3 px-5 rounded-full bg-amber-50/40 border border-amber-100/80 hover:bg-amber-50/60 transition-all">
-                      <div className="flex items-center gap-2.5">
-                        <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
-                        <span className="text-[11px] text-slate-500 font-extrabold uppercase tracking-wider font-sans" title="Produced pieces awaiting packaging">Unpackaged</span>
+                    {/* Unpackaged Quantity Row (Only shown if non-zero) */}
+                    {unpackagedQty > 0 && (
+                      <div className="flex items-center justify-between py-3 px-5 rounded-full bg-amber-50/40 border border-amber-100/80 hover:bg-amber-50/60 transition-all">
+                        <div className="flex items-center gap-2.5">
+                          <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
+                          <span className="text-[11px] text-slate-500 font-extrabold uppercase tracking-wider font-sans" title="Produced pieces awaiting packaging">Unpackaged</span>
+                        </div>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-sm font-black font-mono text-amber-600 select-all">{unpackagedQty}</span>
+                          {currentUser.role === 'manager' && (
+                            <button
+                              onClick={() => handleStartGeneralStockCorrection(model, unpackagedQty, 'production')}
+                              className="text-slate-400 hover:text-amber-600 hover:bg-amber-100/50 p-1 rounded-full transition-colors cursor-pointer"
+                              title={`Correct unpackaged quantity for ${model}`}
+                            >
+                              <Pencil size={11} />
+                            </button>
+                          )}
+                        </div>
                       </div>
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-black font-mono text-amber-600 select-all">{unpackagedQty}</span>
-                        {currentUser.role === 'manager' && (
-                          <button
-                            onClick={() => handleStartGeneralStockCorrection(model, unpackagedQty, 'production')}
-                            className="text-slate-400 hover:text-amber-600 hover:bg-amber-100/50 p-1 rounded-full transition-colors cursor-pointer"
-                            title={`Correct unpackaged quantity for ${model}`}
-                          >
-                            <Pencil size={11} />
-                          </button>
-                        )}
-                      </div>
-                    </div>
+                    )}
                   </div>
                 </div>
 
-                {/* Total Produced Row */}
+                {/* Total Counted Stock (We count only packaged pieces in warehouse stock) */}
                 <div className="flex items-center justify-between py-3 px-5 mt-5 rounded-full bg-[#ea580c] border border-[#ea580c] shadow-xs hover:bg-[#d97706] transition-all">
-                  <span className="text-[11px] text-orange-100 font-black uppercase tracking-widest font-sans" title="Total produced pieces (Packaged + Unpackaged)">Total</span>
-                  <span className="text-base font-black font-mono text-white select-all">{totalProd}</span>
+                  <span className="text-[11px] text-orange-100 font-black uppercase tracking-widest font-sans" title="Counted finished stock (Packaged pieces ready for shipment)">Total</span>
+                  <span className="text-base font-black font-mono text-white select-all">{packagedStock}</span>
                 </div>
 
                 {/* Source Rolls Traceability (Section 10) */}

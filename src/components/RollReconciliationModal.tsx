@@ -26,6 +26,7 @@ import {
   formatEuroCurrency, 
   formatEuroPrice, 
   formatProfitPercent,
+  formatEfficiencyPercent,
   getMaterialFamily,
   normalizeRollMaterial,
   getMaterialRelatedReferences,
@@ -281,7 +282,7 @@ export default function RollReconciliationModal({
               </span>
             </div>
 
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
               
               <div>
                 <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
@@ -329,6 +330,18 @@ export default function RollReconciliationModal({
                   {formatProfitPercent(metrics.profitPercent)}
                 </span>
                 <span className="text-[10px] text-slate-400">(Profit / Cost)</span>
+              </div>
+
+              <div>
+                <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">
+                  Material Efficiency
+                </span>
+                <span className="text-lg font-black font-mono text-amber-400 mt-1 block">
+                  {formatEfficiencyPercent(metrics.materialEfficiency)}
+                </span>
+                <span className="text-[10px] text-slate-400 font-mono">
+                  {metrics.producedPieces} ÷ {metrics.expectedPieces}
+                </span>
               </div>
 
             </div>
