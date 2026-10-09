@@ -796,6 +796,8 @@ export default function FinancialEvaluation({
         <RollReconciliationModal
           roll={selectedRollForReconciliation}
           isOpen={Boolean(selectedRollForReconciliation)}
+          currentUser={currentUser}
+          isManager={true}
           piecePrices={activePricesList}
           expectedYields={activeYieldsList}
           stockEntries={stockEntries}

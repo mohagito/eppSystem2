@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { 
   RollEntry, 
+  UserProfile,
   FinishedPiecePrice, 
   ExpectedYieldConfig, 
   StockEntry, 
@@ -40,6 +41,8 @@ import { formatMoroccoDate, formatMoroccoDateTime } from '../utils/timeZone';
 interface RollReconciliationModalProps {
   isOpen: boolean;
   roll: RollEntry | null;
+  currentUser?: UserProfile;
+  isManager?: boolean;
   piecePrices?: FinishedPiecePrice[];
   expectedYields?: ExpectedYieldConfig[];
   stockEntries?: StockEntry[];
@@ -51,6 +54,8 @@ interface RollReconciliationModalProps {
 export default function RollReconciliationModal({
   isOpen,
   roll,
+  currentUser,
+  isManager: isManagerProp,
   piecePrices = [],
   expectedYields = [],
   stockEntries = [],
@@ -60,6 +65,7 @@ export default function RollReconciliationModal({
 }: RollReconciliationModalProps) {
   if (!isOpen || !roll) return null;
 
+  const isManager = isManagerProp ?? (currentUser?.role === 'manager');
   const normMat = normalizeRollMaterial(roll.materialName);
   const family = getMaterialFamily(normMat);
   const metrics = calculateRollProductionMetrics(roll, expectedYields, piecePrices, stockEntries);
@@ -214,13 +220,17 @@ export default function RollReconciliationModal({
                         {row.reference}
                       </span>
                     </div>
-                    <span className="text-xs font-mono font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
-                      Price: {formatEuroPrice(row.pricePerPiece)} / pc
-                    </span>
+                    {isManager && (
+                      <span className="text-xs font-mono font-bold text-slate-600 bg-slate-100 px-2 py-0.5 rounded-md">
+                        Price: {formatEuroPrice(row.pricePerPiece)} / pc
+                      </span>
+                    )}
                   </div>
 
                   {/* Metrics grid for this reference */}
-                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs">
+                  <div className={`grid gap-3 text-xs ${
+                    isManager ? 'grid-cols-2 sm:grid-cols-4' : 'grid-cols-1 sm:grid-cols-3'
+                  }`}>
                     
                     <div className="bg-slate-50 p-2.5 rounded-xl border border-slate-200/60">
                       <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
@@ -252,15 +262,17 @@ export default function RollReconciliationModal({
                       <span className="text-[9.5px] text-indigo-600 font-semibold">pcs from roll</span>
                     </div>
 
-                    <div className="bg-emerald-50/70 p-2.5 rounded-xl border border-emerald-100">
-                      <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
-                        Production Value
-                      </span>
-                      <span className="text-sm font-black font-mono text-emerald-700 mt-0.5 block">
-                        {formatEuroCurrency(row.productionValue)}
-                      </span>
-                      <span className="text-[9.5px] text-emerald-600 font-semibold">calculated</span>
-                    </div>
+                    {isManager && (
+                      <div className="bg-emerald-50/70 p-2.5 rounded-xl border border-emerald-100">
+                        <span className="text-[10px] font-bold text-emerald-800 uppercase tracking-wider block">
+                          Production Value
+                        </span>
+                        <span className="text-sm font-black font-mono text-emerald-700 mt-0.5 block">
+                          {formatEuroCurrency(row.productionValue)}
+                        </span>
+                        <span className="text-[9.5px] text-emerald-600 font-semibold">calculated</span>
+                      </div>
+                    )}
 
                   </div>
                 </div>
@@ -268,84 +280,150 @@ export default function RollReconciliationModal({
             </div>
           </div>
 
-          {/* Master Financial Result Card */}
-          <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm space-y-4">
-            <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
-              <span className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
-                <ShieldCheck size={14} className="text-indigo-400" />
-                Financial Performance Result
-              </span>
-              <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
-                isProfitable ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
-              }`}>
-                {isProfitable ? 'Profitable' : 'Deficit'}
-              </span>
-            </div>
-
-            <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
-              
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Actual Roll Cost
+          {/* Master Result Card: Confidential Financial for Manager, Pure Production Yield for Worker */}
+          {isManager ? (
+            <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm space-y-4" id="roll-reconciliation-financial-result">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <ShieldCheck size={14} className="text-indigo-400" />
+                  Financial Performance Result
                 </span>
-                <span className="text-lg font-black font-mono text-white mt-1 block">
-                  {formatEuroCurrency(metrics.rollCost)}
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono">
-                  {metrics.actualLength}m fabric
-                </span>
-              </div>
-
-              <div>
-                <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider block">
-                  Production Value
-                </span>
-                <span className="text-lg font-black font-mono text-indigo-400 mt-1 block">
-                  {formatEuroCurrency(metrics.productionValue)}
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono">
-                  {metrics.producedPieces} total pcs
-                </span>
-              </div>
-
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Gross Profit
-                </span>
-                <span className={`text-lg font-black font-mono mt-1 block ${
-                  isProfitable ? 'text-emerald-400' : 'text-rose-400'
+                <span className={`text-[10px] font-black uppercase px-2 py-0.5 rounded-full ${
+                  isProfitable ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-rose-500/20 text-rose-400 border border-rose-500/30'
                 }`}>
-                  {formatEuroCurrency(metrics.grossProfit)}
-                </span>
-                <span className="text-[10px] text-slate-400">Value − Cost</span>
-              </div>
-
-              <div>
-                <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
-                  Profit Margin
-                </span>
-                <span className={`text-lg font-black font-mono mt-1 block ${
-                  isProfitable ? 'text-emerald-400' : 'text-rose-400'
-                }`}>
-                  {formatProfitPercent(metrics.profitPercent)}
-                </span>
-                <span className="text-[10px] text-slate-400">(Profit / Cost)</span>
-              </div>
-
-              <div>
-                <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">
-                  Material Efficiency
-                </span>
-                <span className="text-lg font-black font-mono text-amber-400 mt-1 block">
-                  {formatEfficiencyPercent(metrics.materialEfficiency)}
-                </span>
-                <span className="text-[10px] text-slate-400 font-mono">
-                  {metrics.producedPieces} ÷ {metrics.expectedPieces}
+                  {isProfitable ? 'Profitable' : 'Deficit'}
                 </span>
               </div>
 
+              <div className="grid grid-cols-2 sm:grid-cols-5 gap-4">
+                
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Actual Roll Cost
+                  </span>
+                  <span className="text-lg font-black font-mono text-white mt-1 block">
+                    {formatEuroCurrency(metrics.rollCost)}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {metrics.actualLength}m fabric
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider block">
+                    Production Value
+                  </span>
+                  <span className="text-lg font-black font-mono text-indigo-400 mt-1 block">
+                    {formatEuroCurrency(metrics.productionValue)}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {metrics.producedPieces} total pcs
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Gross Profit
+                  </span>
+                  <span className={`text-lg font-black font-mono mt-1 block ${
+                    isProfitable ? 'text-emerald-400' : 'text-rose-400'
+                  }`}>
+                    {formatEuroCurrency(metrics.grossProfit)}
+                  </span>
+                  <span className="text-[10px] text-slate-400">Value − Cost</span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Profit Margin
+                  </span>
+                  <span className={`text-lg font-black font-mono mt-1 block ${
+                    isProfitable ? 'text-emerald-400' : 'text-rose-400'
+                  }`}>
+                    {formatProfitPercent(metrics.profitPercent)}
+                  </span>
+                  <span className="text-[10px] text-slate-400">(Profit / Cost)</span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">
+                    Material Efficiency
+                  </span>
+                  <span className="text-lg font-black font-mono text-amber-400 mt-1 block">
+                    {formatEfficiencyPercent(metrics.materialEfficiency)}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {metrics.producedPieces} ÷ {metrics.expectedPieces}
+                  </span>
+                </div>
+
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="bg-slate-900 text-white rounded-2xl p-5 shadow-sm space-y-4" id="roll-reconciliation-production-result">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-2.5">
+                <span className="text-xs font-black uppercase tracking-wider text-slate-300 flex items-center gap-1.5">
+                  <CheckCircle2 size={14} className="text-emerald-400" />
+                  Production & Yield Performance
+                </span>
+                <span className="text-[10px] font-black uppercase px-2 py-0.5 rounded-full bg-indigo-500/20 text-indigo-300 border border-indigo-500/30">
+                  {metrics.materialEfficiency >= 95 ? 'Optimal Efficiency' : 'Standard Production'}
+                </span>
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Fabric Consumed
+                  </span>
+                  <span className="text-lg font-black font-mono text-white mt-1 block">
+                    {metrics.actualLength} m
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Total roll length
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] font-bold text-slate-400 uppercase tracking-wider block">
+                    Expected Target
+                  </span>
+                  <span className="text-lg font-black font-mono text-slate-300 mt-1 block">
+                    {metrics.expectedPieces.toLocaleString()} pcs
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    Target yield
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] font-bold text-indigo-300 uppercase tracking-wider block">
+                    Actual Produced
+                  </span>
+                  <span className="text-lg font-black font-mono text-indigo-400 mt-1 block">
+                    {metrics.producedPieces.toLocaleString()} pcs
+                  </span>
+                  <span className="text-[10px] text-indigo-300/80">
+                    Total finished pieces
+                  </span>
+                </div>
+
+                <div>
+                  <span className="text-[10px] font-bold text-amber-300 uppercase tracking-wider block">
+                    Material Efficiency
+                  </span>
+                  <span className="text-lg font-black font-mono text-amber-400 mt-1 block">
+                    {formatEfficiencyPercent(metrics.materialEfficiency)}
+                  </span>
+                  <span className="text-[10px] text-slate-400 font-mono">
+                    {metrics.producedPieces} ÷ {metrics.expectedPieces}
+                  </span>
+                </div>
+
+              </div>
+            </div>
+          )}
 
           {/* Quick Action if roll is still In Production */}
           {isInProduction && onOpenCloseRoll && (
@@ -355,7 +433,10 @@ export default function RollReconciliationModal({
                   Roll is currently IN PRODUCTION
                 </span>
                 <span className="text-[11px] text-amber-700 block">
-                  When cutting is complete, close the roll to reconcile remaining unpackaged pieces and finalize the financial result.
+                  {isManager 
+                    ? 'When cutting is complete, close the roll to reconcile remaining unpackaged pieces and finalize the financial result.'
+                    : 'When cutting is complete, close the roll to reconcile remaining unpackaged pieces and calculate final material efficiency.'
+                  }
                 </span>
               </div>
               <button

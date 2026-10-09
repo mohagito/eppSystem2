@@ -1528,6 +1528,8 @@ export default function RollsModule({
         <RollReconciliationModal
           isOpen={Boolean(reconciliationRoll)}
           roll={reconciliationRoll}
+          currentUser={currentUser}
+          isManager={isManager}
           piecePrices={piecePrices}
           expectedYields={expectedYields}
           stockEntries={stockEntries}

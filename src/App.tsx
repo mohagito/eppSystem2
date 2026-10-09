@@ -76,6 +76,7 @@ import {
   getOpeningStockSnapshotForMaterial,
   reconcileRollClosing
 } from './utils/financialCalculations';
+import { syncDataProtectionVault } from './services/dataProtectionService';
 
 export default function App() {
   // --- DATABASE AND LOCAL STORAGE PERSISTENCE ---
@@ -844,6 +845,18 @@ export default function App() {
       console.warn('Storage sync failed:', e);
     }
   }, [currentUser]);
+
+  // 100% Silent Background Data Protection & Continuous Snapshot Redundancy
+  useEffect(() => {
+    if (rolls.length > 0 || stockEntries.length > 0) {
+      syncDataProtectionVault({
+        rolls,
+        stockEntries,
+        financialRecords,
+        deliveries
+      });
+    }
+  }, [rolls, stockEntries, financialRecords, deliveries]);
 
   useEffect(() => {
     if (mobileMenuOpen) {
