@@ -659,27 +659,34 @@ export default function RollsModule({
   };
 
   // Helper for computing counts of visible rolls under each status
-  const visibleRollsCount = (status: 'Unopened' | 'Active' | 'Consumed') => {
+  const visibleRollsCount = (targetStatus: 'Unopened' | 'Active' | 'Consumed') => {
     return rolls.filter(r => {
+      const canonical = normalizeRollStatus(r.status);
+      const isTarget = 
+        targetStatus === 'Unopened' ? canonical === 'NEW' :
+        targetStatus === 'Active' ? canonical === 'IN PRODUCTION' :
+        canonical === 'CLOSED';
+
       if (currentUser.role === 'worker') {
-        if (r.status === 'Unopened') {
-          return r.status === status;
+        if (targetStatus === 'Unopened') {
+          return isTarget;
         }
         return (
-          r.status === status &&
+          isTarget &&
           ((r.operator || '').toLowerCase().trim() === currentUser.name.toLowerCase().trim() ||
             r.createdBy === currentUser.id)
         );
       }
-      return r.status === status;
+      return isTarget;
     }).length;
   };
 
   // Filter rolls based on status and search query
   const filteredRolls = rolls
     .filter(r => {
+      const canonical = normalizeRollStatus(r.status);
       if (currentUser.role === 'worker') {
-        if (r.status === 'Unopened') {
+        if (canonical === 'NEW') {
           return true;
         }
         return (
@@ -690,13 +697,14 @@ export default function RollsModule({
       return true;
     })
     .filter(r => {
+      const canonical = normalizeRollStatus(r.status);
       let matchesTab = false;
       if (subTab === 'unopened') {
-        matchesTab = r.status === 'Unopened';
+        matchesTab = canonical === 'NEW';
       } else if (subTab === 'active') {
-        matchesTab = r.status === 'Active';
+        matchesTab = canonical === 'IN PRODUCTION';
       } else {
-        matchesTab = r.status === 'Consumed';
+        matchesTab = canonical === 'CLOSED';
       }
       const matchesSearch = 
         r.materialName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -708,9 +716,9 @@ export default function RollsModule({
   // Calculate category stocks (Unopened, Active, Spent, Meters, and Exact Evaluation)
   const categoryStats = MATERIAL_OPTIONS.map(material => {
     const materialRolls = rolls.filter(r => r.materialName === material);
-    const unopenedRolls = materialRolls.filter(r => r.status === 'Unopened');
-    const activeRolls = materialRolls.filter(r => r.status === 'Active');
-    const spentRolls = materialRolls.filter(r => r.status === 'Consumed');
+    const unopenedRolls = materialRolls.filter(r => normalizeRollStatus(r.status) === 'NEW');
+    const activeRolls = materialRolls.filter(r => normalizeRollStatus(r.status) === 'IN PRODUCTION');
+    const spentRolls = materialRolls.filter(r => normalizeRollStatus(r.status) === 'CLOSED');
     const pricing = MATERIAL_PRICING[material];
 
     // Total meters for unopened rolls in warehouse
@@ -1285,25 +1293,42 @@ export default function RollsModule({
                           }`} />
                           <span className="font-bold text-slate-800">{roll.materialName}</span>
                         </div>
-                        {roll.referenceId ? (
-                          <div className="flex items-center gap-1.5 mt-0.5 ml-3.5">
-                            <span className="text-[10px] font-extrabold text-indigo-700 font-mono inline-block">
-                              {roll.referenceId}
-                            </span>
-                            {metrics.expectedPieces > 0 && (
-                              <span 
-                                className="text-[9.5px] font-mono font-bold text-slate-500" 
-                                title={`Material Efficiency % = Produced (${metrics.producedPieces}) ÷ Expected (${metrics.expectedPieces}) × 100`}
-                              >
-                                • Eff: {formatEfficiencyPercent(metrics.materialEfficiency)}
+                        {(() => {
+                          const displayRef = (() => {
+                            if (roll.reconciliation?.references && roll.reconciliation.references.length > 1) {
+                              return roll.reconciliation.references.map(r => r.reference).join(' / ');
+                            }
+                            if (roll.productionRecords && roll.productionRecords.length > 0) {
+                              const unique = Array.from(new Set(roll.productionRecords.map(r => r.referenceId).filter(Boolean)));
+                              if (unique.length > 1) return unique.join(' / ');
+                            }
+                            const mat = normalizeRollMaterial(roll.materialName);
+                            if (mat === 'Delcotex India') {
+                              return 'SK216 / VW217';
+                            }
+                            return roll.referenceId || metrics.referenceId;
+                          })();
+
+                          return displayRef ? (
+                            <div className="flex items-center gap-1.5 mt-0.5 ml-3.5">
+                              <span className="text-[10px] font-extrabold text-indigo-700 font-mono inline-block">
+                                {displayRef}
                               </span>
-                            )}
-                          </div>
-                        ) : (
-                          <span className="text-[9.5px] text-slate-400 italic mt-0.5 ml-3.5 inline-block">
-                            {subTab === 'unopened' ? `Yield: ~${metrics.expectedPieces} pcs` : 'Standard'}
-                          </span>
-                        )}
+                              {metrics.expectedPieces > 0 && (
+                                <span 
+                                  className="text-[9.5px] font-mono font-bold text-slate-500" 
+                                  title={`Material Efficiency % = Produced (${metrics.producedPieces}) ÷ Expected (${metrics.expectedPieces}) × 100`}
+                                >
+                                  • Eff: {formatEfficiencyPercent(metrics.materialEfficiency)}
+                                </span>
+                              )}
+                            </div>
+                          ) : (
+                            <span className="text-[9.5px] text-slate-400 italic mt-0.5 ml-3.5 inline-block">
+                              {subTab === 'unopened' ? `Yield: ~${metrics.expectedPieces} pcs` : 'Standard'}
+                            </span>
+                          );
+                        })()}
                       </div>
                     </td>
 
@@ -1362,7 +1387,7 @@ export default function RollsModule({
 
                     {/* Date opened / Date Added */}
                     <td className="py-3 px-3 font-semibold text-slate-500 font-mono">
-                      {roll.status === 'Unopened' 
+                      {normalizeRollStatus(roll.status) === 'NEW' 
                         ? formatMoroccoDate(roll.date) 
                         : roll.openedAt 
                         ? formatMoroccoDateTime(roll.openedAt) 

@@ -842,7 +842,10 @@ export function calculateRollProductionMetrics(
   // If roll already has complete closed reconciliation, use the verified reconciliation data
   if (roll.reconciliation) {
     const rec = roll.reconciliation;
-    const refId = roll.referenceId || (rec.references.length > 0 ? rec.references[0].reference : getDefaultReferenceForMaterial(material));
+    const recRefs = rec.references.map(r => r.reference);
+    const refId = (material === 'Delcotex India')
+      ? 'SK216 / VW217'
+      : (recRefs.length > 1 ? recRefs.join(' / ') : (roll.referenceId || recRefs[0] || getDefaultReferenceForMaterial(material)));
     const recPiecesByRef: Record<string, number> = {};
     const recValByRef: Record<string, number> = {};
     rec.references.forEach((r) => {
@@ -880,9 +883,9 @@ export function calculateRollProductionMetrics(
   }
 
   const relatedRefs = getMaterialRelatedReferences(material);
-  const referenceId = roll.referenceId || (
-    isRoll43968015 ? 'SK216 / VW217' : getDefaultReferenceForMaterial(material)
-  );
+  const referenceId = (material === 'Delcotex India' || isRoll43968015)
+    ? 'SK216 / VW217'
+    : (roll.referenceId || getDefaultReferenceForMaterial(material));
   
   // Real Roll Cost: For roll 43968015, exact cost is €1,615.50 (90m * €17.95/ml)
   const rollCost = isRoll43968015 

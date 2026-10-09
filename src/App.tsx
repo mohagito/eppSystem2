@@ -533,15 +533,13 @@ export default function App() {
           }
 
           let status = raw.status || 'Unopened';
-          const upperStatus = String(status).toUpperCase();
-          if (isRoll43968015) {
-            status = upperStatus === 'CONSUMED' || upperStatus === 'CLOSED' ? 'Consumed' : 'Active';
-          } else if (upperStatus === 'IN_STOCK' || upperStatus === 'UNOPENED') {
-            status = 'Unopened';
-          } else if (upperStatus === 'IN_USE' || upperStatus === 'PARTIALLY_USED' || upperStatus === 'ACTIVE' || upperStatus === 'IN PRODUCTION') {
-            status = 'Active';
-          } else if (upperStatus === 'EMPTY' || upperStatus === 'CONSUMED' || upperStatus === 'SPENT') {
+          const norm = normalizeRollStatus(status);
+          if (norm === 'CLOSED') {
             status = 'Consumed';
+          } else if (norm === 'IN PRODUCTION') {
+            status = 'Active';
+          } else {
+            status = 'Unopened';
           }
 
           const metersTotal = isRoll43968015
@@ -579,8 +577,10 @@ export default function App() {
             date: isRoll43968015 ? (raw.date || '2026-09-29') : (raw.date || raw.receptionDate || getMoroccoDateStr()),
             openedAt: isRoll43968015 ? (raw.openedAt || '2026-09-29T10:39:00.000Z') : raw.openedAt,
             operator: isRoll43968015 ? (raw.operator || 'Mouad') : (raw.operator || raw.updatedBy || raw.createdBy || 'Mohamed'),
-            referenceId: isRoll43968015 ? (raw.referenceId || 'SK216 / VW217') : raw.referenceId,
-            relatedReferences: isRoll43968015 ? ['SK216', 'VW217'] : raw.relatedReferences,
+            referenceId: (isRoll43968015 || materialName === 'Delcotex India') 
+              ? (raw.referenceId && raw.referenceId.includes('/') ? raw.referenceId : 'SK216 / VW217') 
+              : raw.referenceId,
+            relatedReferences: (isRoll43968015 || materialName === 'Delcotex India') ? ['SK216', 'VW217'] : raw.relatedReferences,
             expectedPieces: isRoll43968015
               ? (raw.expectedPieces !== undefined && Number(raw.expectedPieces) > 0 ? Number(raw.expectedPieces) : 3857)
               : (raw.expectedPieces !== undefined ? Number(raw.expectedPieces) : undefined),

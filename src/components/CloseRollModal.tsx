@@ -112,12 +112,13 @@ export default function CloseRollModal({
         {/* Form Body */}
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           
-          <div>
-            <div className="text-xs text-slate-700 font-bold uppercase tracking-wider">
-              Remaining unpackaged pieces:
+          <div className="bg-amber-50/70 border border-amber-200/80 rounded-2xl p-3.5 space-y-1">
+            <div className="text-xs text-amber-900 font-black uppercase tracking-wider flex items-center gap-1.5">
+              <Package size={14} className="text-amber-700" />
+              Remaining unpackaged pieces from THIS roll:
             </div>
-            <p className="text-[11px] text-slate-500 font-normal mt-0.5">
-              Used strictly to calculate final roll yield & material efficiency. These are not added to finished packaged inventory.
+            <p className="text-[11px] text-amber-800 leading-snug">
+              Enter <strong>only the new loose pieces cut from this roll</strong>. Do <strong>not</strong> re-add leftover unpackaged pieces from the previous roll (those are already credited to the old roll).
             </p>
           </div>
 
@@ -141,8 +142,8 @@ export default function CloseRollModal({
                     <span className="text-xs font-black text-slate-800 uppercase block truncate">
                       {ref}
                     </span>
-                    <span className="text-[10px] text-slate-400 font-medium block">
-                      Remaining unpackaged:
+                    <span className="text-[10px] text-slate-500 font-bold block">
+                      New loose pieces cut:
                     </span>
                   </div>
                 </div>
