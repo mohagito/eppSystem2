@@ -161,18 +161,19 @@ export default function FinancialEvaluation({
   }, [rollRowsWithMetrics, searchRoll, filterMaterial, filterReference, filterStatus]);
 
   // 4 Primary KPI Summaries: Total Roll Cost, Production Value, Gross Profit, Material Efficiency
+  // Dynamically aggregates strictly over the filtered rolls selection
   const summaryKPIs = useMemo(() => {
     let totalRollCost = 0;
     let totalProductionValue = 0;
     let totalExpectedPieces = 0;
     let totalProducedPieces = 0;
 
-    // Only aggregate over rolls that have actually been opened / started (IN PRODUCTION or CLOSED)
-    const activeOrFinishedRolls = rollRowsWithMetrics.filter(
-      (r) => r.status === 'IN PRODUCTION' || r.status === 'CLOSED'
-    );
+    // If filterStatus is 'all' and no other active filter, default to started rolls (IN PRODUCTION or CLOSED)
+    const targetRolls = (filterStatus === 'all' && filterMaterial === 'all' && filterReference === 'all' && !searchRoll)
+      ? filteredRollRows.filter((r) => r.status === 'IN PRODUCTION' || r.status === 'CLOSED')
+      : filteredRollRows;
 
-    activeOrFinishedRolls.forEach((r) => {
+    targetRolls.forEach((r) => {
       totalRollCost += r.rollCost;
       totalProductionValue += r.productionValue;
       totalExpectedPieces += (r.expectedPieces || 0);
@@ -189,7 +190,7 @@ export default function FinancialEvaluation({
       : 0;
 
     return {
-      activeRollsCount: activeOrFinishedRolls.length,
+      activeRollsCount: targetRolls.length,
       totalRollCost,
       totalProductionValue,
       grossProfit,
@@ -198,7 +199,7 @@ export default function FinancialEvaluation({
       totalProducedPieces,
       averageEfficiency
     };
-  }, [rollRowsWithMetrics]);
+  }, [filteredRollRows, filterStatus, filterMaterial, filterReference, searchRoll]);
 
   // Open Price Configuration Modal
   const openPriceConfig = () => {
@@ -331,34 +332,40 @@ export default function FinancialEvaluation({
         
         {/* Total Roll Cost */}
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Total Roll Cost</p>
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            {filterStatus !== 'all' ? `Total Roll Cost (${filterStatus})` : 'Total Roll Cost'}
+          </p>
           <p className="text-2xl font-black font-mono text-slate-900 mt-1">
             {formatEuroCurrency(summaryKPIs.totalRollCost)}
           </p>
           <p className="text-[11px] text-slate-400 font-medium mt-1">
             {summaryKPIs.activeRollsCount > 0 
-              ? `Real cost of ${summaryKPIs.activeRollsCount} active/finished rolls`
-              : '€0.00 (Starts calculating when rolls are opened)'}
+              ? `Real cost of ${summaryKPIs.activeRollsCount} ${filterStatus !== 'all' ? filterStatus.toLowerCase() : 'active/finished'} rolls`
+              : '€0.00 (No rolls in selection)'}
           </p>
         </div>
 
         {/* Production Value */}
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
-          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Production Value</p>
+          <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+            {filterStatus !== 'all' ? `Production Value (${filterStatus})` : 'Production Value'}
+          </p>
           <p className="text-2xl font-black font-mono text-indigo-700 mt-1">
             {formatEuroCurrency(summaryKPIs.totalProductionValue)}
           </p>
           <p className="text-[11px] text-slate-400 font-medium mt-1">
             {summaryKPIs.activeRollsCount > 0
-              ? 'Produced Pieces × Piece Price'
-              : '€0.00 (Starts calculating when pieces are produced)'}
+              ? `${summaryKPIs.totalProducedPieces.toLocaleString()} pcs produced in selection`
+              : '€0.00 (No rolls in selection)'}
           </p>
         </div>
 
         {/* Gross Profit */}
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
           <div className="flex items-center justify-between">
-            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">Gross Profit</p>
+            <p className="text-[11px] font-bold text-slate-400 uppercase tracking-wider">
+              {filterStatus !== 'all' ? `Gross Profit (${filterStatus})` : 'Gross Profit'}
+            </p>
             <span className={`inline-flex items-center gap-1 text-[11px] font-mono font-black px-2 py-0.5 rounded-full ${
               summaryKPIs.grossProfit >= 0 
                 ? 'bg-emerald-50 text-emerald-700 border border-emerald-200' 
@@ -376,7 +383,7 @@ export default function FinancialEvaluation({
           <p className="text-[11px] text-slate-400 font-medium mt-1">
             {summaryKPIs.activeRollsCount > 0
               ? 'Production Value − Total Roll Cost'
-              : '€0.00 (Final profit calculated when roll finishes)'}
+              : '€0.00 (No rolls in selection)'}
           </p>
         </div>
 
@@ -397,7 +404,7 @@ export default function FinancialEvaluation({
           <p className="text-[11px] text-slate-400 font-medium mt-1">
             {summaryKPIs.activeRollsCount > 0
               ? 'Produced PCS ÷ Expected PCS × 100'
-              : '0.00% (Starts calculating with production)'}
+              : '0.00% (No rolls in selection)'}
           </p>
         </div>
 
@@ -611,8 +618,12 @@ export default function FinancialEvaluation({
               </tbody>
               <tfoot>
                 <tr className="bg-slate-50/90 border-t border-slate-200 text-xs font-black text-slate-700">
-                  <td colSpan={4} className="py-3 px-4 uppercase tracking-wider text-[10px] text-slate-500">
-                    Total Active Production ({summaryKPIs.activeRollsCount} rolls started)
+                  <td colSpan={4} className="py-3 px-4 uppercase tracking-wider text-[10px] text-slate-500 font-extrabold">
+                    {filterStatus !== 'all' 
+                      ? `Total ${filterStatus} (${summaryKPIs.activeRollsCount} ${summaryKPIs.activeRollsCount === 1 ? 'roll' : 'rolls'})` 
+                      : (searchRoll || filterMaterial !== 'all' || filterReference !== 'all')
+                      ? `Total Filtered (${summaryKPIs.activeRollsCount} ${summaryKPIs.activeRollsCount === 1 ? 'roll' : 'rolls'})`
+                      : `Total Active Production (${summaryKPIs.activeRollsCount} rolls started)`}
                   </td>
                   <td className="py-3 px-4 text-right font-mono font-black text-slate-900">
                     {formatEuroCurrency(summaryKPIs.totalRollCost)}
@@ -620,8 +631,10 @@ export default function FinancialEvaluation({
                   <td className="py-3 px-4 text-right font-mono font-black text-indigo-700">
                     {formatEuroCurrency(summaryKPIs.totalProductionValue)}
                   </td>
-                  <td className="py-3 px-4 text-right font-mono font-black text-emerald-700">
-                    {formatEuroCurrency(summaryKPIs.grossProfit)}
+                  <td className="py-3 px-4 text-right font-mono font-black">
+                    <span className={summaryKPIs.grossProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}>
+                      {formatEuroCurrency(summaryKPIs.grossProfit)}
+                    </span>
                   </td>
                   <td colSpan={2}></td>
                 </tr>

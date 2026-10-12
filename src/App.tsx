@@ -24,7 +24,8 @@ import {
   Scroll,
   ShieldCheck,
   Lock,
-  CircleDollarSign
+  CircleDollarSign,
+  Coins
 } from 'lucide-react';
 import { 
   UserProfile, 
@@ -49,6 +50,7 @@ import PlanningModule from './components/PlanningModule';
 import DeliveryModule from './components/DeliveryModule';
 import RollsModule from './components/RollsModule';
 import FinancialEvaluation from './components/FinancialEvaluation';
+import ProfitDashboard from './components/ProfitDashboard';
 import SecurityVaultModal from './components/SecurityVaultModal';
 import { recordVaultSnapshot, restoreBaselineReserveRolls } from './utils/dataProtection';
 import { db, handleFirestoreError, OperationType } from './firebase';
@@ -582,9 +584,9 @@ export default function App() {
               ? (raw.referenceId && raw.referenceId.includes('/') ? raw.referenceId : 'SK216 / VW217') 
               : raw.referenceId,
             relatedReferences: (isRoll43968015 || materialName === 'Delcotex India') ? ['SK216', 'VW217'] : raw.relatedReferences,
-            expectedPieces: isRoll43968015
-              ? (raw.expectedPieces !== undefined && Number(raw.expectedPieces) > 0 ? Number(raw.expectedPieces) : 3857)
-              : (raw.expectedPieces !== undefined ? Number(raw.expectedPieces) : undefined),
+            expectedPieces: (isRoll43968015 || (materialName === 'Delcotex India' && (raw.metersTotal === 90 || !raw.metersTotal) && Number(raw.expectedPieces) === 4286))
+              ? 3857
+              : (raw.expectedPieces !== undefined && Number(raw.expectedPieces) > 0 ? Number(raw.expectedPieces) : undefined),
             producedPieces: raw.producedPieces !== undefined ? Number(raw.producedPieces) : (isRoll43968015 ? 1500 : 0),
             productionRecords: raw.productionRecords || [],
             productionValue: raw.productionValue !== undefined ? Number(raw.productionValue) : (isRoll43968015 ? 1125 : 0),
@@ -1700,7 +1702,9 @@ export default function App() {
     const costInfo = calculateRealRollCost(roll);
     const rollCost = isRoll43968015 ? 1615.50 : (roll.rollCost !== undefined && roll.rollCost > 0 ? roll.rollCost : costInfo.cost);
     const lockedPrice = (isRoll43968015 || mat === 'Delcotex India') ? 0.7500 : (roll.pricePerPiece !== undefined && roll.pricePerPiece > 0 ? roll.pricePerPiece : getPiecePriceForReference(ref, piecePrices));
-    const effectiveExpPieces = roll.expectedPieces || ((isRoll43968015 || mat === 'Delcotex India') ? 3857 : getExpectedYieldForReference(ref, expectedYields));
+    const effectiveExpPieces = (mat === 'Delcotex India' && (roll.metersTotal === 90 || !roll.metersTotal || roll.expectedPieces === 4286))
+      ? 3857
+      : (roll.expectedPieces || getExpectedYieldForReference(ref, expectedYields));
 
     const newRec: RollProductionRecord = {
       id: `rec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -2214,6 +2218,7 @@ export default function App() {
             deliveries={deliveries}
             plans={plans}
             dailyTargets={dailyTargets}
+            piecePrices={piecePrices}
             onNavigate={(tab) => setActiveTab(tab)}
             onUpdatePlanStatus={handleUpdatePlanStatus}
             onDeletePlan={handleDeleteProductionPlan}
@@ -2245,6 +2250,7 @@ export default function App() {
             plans={plans}
             profiles={profiles}
             rolls={rolls}
+            piecePrices={piecePrices}
             onAddEntry={handleAddStockEntry}
             onDeleteEntry={handleDeleteStockEntry}
             onEditEntry={handleEditStockEntry}
@@ -2336,6 +2342,27 @@ export default function App() {
           />
         );
 
+      case 'profit':
+        if (currentUser.role !== 'manager') {
+          return (
+            <div className="p-8 text-center text-slate-500 font-bold">
+              Access Restricted. Profit dashboard is only accessible to Manager.
+            </div>
+          );
+        }
+        return (
+          <ProfitDashboard
+            currentUser={currentUser}
+            rolls={rolls}
+            stockEntries={stockEntries}
+            deliveries={deliveries}
+            piecePrices={piecePrices}
+            expectedYields={expectedYields}
+            onNavigateToRolls={() => setActiveTab('rolls')}
+            onNavigateToFinancial={() => setActiveTab('financial')}
+          />
+        );
+
       default:
         return (
           <div className="p-8 text-center text-slate-400">
@@ -2353,7 +2380,10 @@ export default function App() {
     { id: 'rolls', label: 'Material Rolls', icon: Scroll },
     { id: 'delivery', label: 'Deliveries', icon: Truck },
     ...(currentUser?.role === 'manager'
-      ? [{ id: 'financial', label: 'Financial Evaluation', icon: CircleDollarSign }]
+      ? [
+          { id: 'financial', label: 'Financial Evaluation', icon: CircleDollarSign },
+          { id: 'profit', label: 'PROFIT DASHBOARD', icon: Coins }
+        ]
       : [])
   ];
 

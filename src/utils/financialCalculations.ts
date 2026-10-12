@@ -584,7 +584,12 @@ export function getExpectedYieldForReference(
 ): number {
   if (customYields && customYields.length > 0) {
     const found = customYields.find(y => matchReference(y.reference, ref) || y.id === ref);
-    if (found && found.expectedPieces > 0) return found.expectedPieces;
+    if (found && found.expectedPieces > 0) {
+      if ((matchReference(ref, 'SK216') || matchReference(ref, 'VW217')) && found.expectedPieces === 4286) {
+        return 3857;
+      }
+      return found.expectedPieces;
+    }
   }
   const defaultFound = DEFAULT_EXPECTED_YIELDS.find(y => matchReference(y.reference, ref) || y.id === ref);
   return defaultFound ? defaultFound.expectedPieces : 250;
@@ -853,7 +858,10 @@ export function calculateRollProductionMetrics(
       recValByRef[r.reference] = r.productionValue;
     });
 
-    const recExp = roll.expectedPieces || rec.totalActualPieces;
+    let recExp = roll.expectedPieces || rec.totalActualPieces;
+    if (material === 'Delcotex India' && (actualLength === 90 || roll.metersTotal === 90 || !roll.metersTotal) && recExp === 4286) {
+      recExp = 3857;
+    }
     const recEff = recExp > 0 ? Math.round((rec.totalActualPieces / recExp) * 10000) / 100 : 0;
 
     return {
@@ -892,9 +900,14 @@ export function calculateRollProductionMetrics(
     ? 1615.50 
     : (roll.rollCost !== undefined && roll.rollCost > 0 ? roll.rollCost : costInfo.cost);
 
-  const expectedPieces = roll.expectedPieces !== undefined && roll.expectedPieces > 0
+  let expectedPieces = roll.expectedPieces !== undefined && roll.expectedPieces > 0
     ? roll.expectedPieces
     : ((isRoll43968015 || material === 'Delcotex India') ? 3857 : getExpectedYieldForReference(referenceId, customYields));
+
+  // If Delcotex India roll is 90m (or unrecorded length) and has legacy 4286, expected is 3857
+  if (material === 'Delcotex India' && (actualLength === 90 || roll.metersTotal === 90 || !roll.metersTotal) && expectedPieces === 4286) {
+    expectedPieces = 3857;
+  }
 
   // Multi-reference production breakdown dictionary
   const piecesByReference: Record<string, number> = {};

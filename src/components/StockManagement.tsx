@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import Swal from 'sweetalert2';
-import { UserProfile, StockEntry, AirbagModel, ProductionPlan, DeliveryEntry, RollEntry } from '../types';
+import { UserProfile, StockEntry, AirbagModel, ProductionPlan, DeliveryEntry, RollEntry, FinishedPiecePrice } from '../types';
 import { AIRBAG_MODELS, MOCK_PROFILES, PACKAGING_SIZES } from '../data';
 import {
   PlusCircle,
@@ -31,6 +31,7 @@ import {
   formatMoroccoDate, 
   formatMoroccoDateTime 
 } from '../utils/timeZone';
+import { getPiecePriceForReference } from '../utils/financialCalculations';
 
 interface StockProps {
   currentUser: UserProfile;
@@ -39,6 +40,7 @@ interface StockProps {
   plans?: ProductionPlan[];
   profiles?: UserProfile[];
   rolls?: RollEntry[];
+  piecePrices?: FinishedPiecePrice[];
   onAddEntry: (entry: Omit<StockEntry, 'id' | 'createdAt'>) => void;
   onDeleteEntry?: (id: string) => void;
   onEditEntry?: (id: string, updatedEntry: Partial<StockEntry>) => void;
@@ -52,6 +54,7 @@ export default function StockManagement({
   plans = [],
   profiles = [],
   rolls = [],
+  piecePrices,
   onAddEntry,
   onDeleteEntry,
   onEditEntry,
@@ -501,6 +504,15 @@ export default function StockManagement({
     return AIRBAG_MODELS.reduce((sum, model) => sum + (unpackagedQtySums[model] || 0), 0);
   }, [unpackagedQtySums]);
 
+  // Manager Financial Evaluation of all current available stock
+  const totalStockValuation = useMemo(() => {
+    return AIRBAG_MODELS.reduce((sum, model) => {
+      const price = getPiecePriceForReference(model, piecePrices);
+      const pcs = (packagedStockSums[model] || 0) + (unpackagedQtySums[model] || 0);
+      return sum + Math.round(pcs * price * 100) / 100;
+    }, 0);
+  }, [packagedStockSums, unpackagedQtySums, piecePrices]);
+
   // Aggregate workers for helper filter dropdown
   const uniqueWorkersInHistory = useMemo(() => {
     if (currentUser.role === 'worker') {
@@ -798,6 +810,11 @@ export default function StockManagement({
             <span className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg font-mono font-bold shadow-3xs" title="Total packaged stock available for delivery">
               {totalNetAvailable} Packaged Stock Available
             </span>
+            {currentUser.role === 'manager' && (
+              <span className="text-[11px] text-emerald-800 bg-emerald-100/90 border border-emerald-300 px-2.5 py-1 rounded-lg font-mono font-black shadow-3xs" title="Total Financial Value of Available Warehouse Stock">
+                Total Stock Value: €{totalStockValuation.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            )}
           </div>
         </div>
         <div className="grid grid-cols-1 min-[450px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
@@ -806,6 +823,9 @@ export default function StockManagement({
             const unpackagedQty = unpackagedQtySums[model] || 0;
             const totalProd = packagedStock; // Inventory counts only packaged pieces
             const isCaddy = model === 'CADDY';
+            const pricePerPiece = getPiecePriceForReference(model, piecePrices);
+            const totalPieces = packagedStock + unpackagedQty;
+            const modelValuation = Math.round(totalPieces * pricePerPiece * 100) / 100;
 
             return (
               <motion.div
@@ -837,6 +857,15 @@ export default function StockManagement({
                         {isCaddy && (
                           <span className="text-[10px] font-black tracking-wider uppercase text-rose-500 leading-none mt-0.5">
                             STOPPED
+                          </span>
+                        )}
+                        {/* Manager Portal Financial Evaluation per Reference */}
+                        {currentUser.role === 'manager' && (
+                          <span 
+                            className="inline-flex items-center gap-1 text-[11px] font-black font-mono text-emerald-700 bg-emerald-50 border border-emerald-200/80 px-2 py-0.5 rounded-md mt-1 w-fit shadow-3xs"
+                            title={`${totalPieces.toLocaleString()} pcs × €${pricePerPiece.toFixed(4)}/pc = €${modelValuation.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`}
+                          >
+                            €{modelValuation.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
                           </span>
                         )}
                       </div>
@@ -891,7 +920,14 @@ export default function StockManagement({
                 {/* Total Counted Stock (We count only packaged pieces in warehouse stock) */}
                 <div className="flex items-center justify-between py-3 px-5 mt-5 rounded-full bg-[#ea580c] border border-[#ea580c] shadow-xs hover:bg-[#d97706] transition-all">
                   <span className="text-[11px] text-orange-100 font-black uppercase tracking-widest font-sans" title="Counted finished stock (Packaged pieces ready for shipment)">Total</span>
-                  <span className="text-base font-black font-mono text-white select-all">{packagedStock}</span>
+                  <div className="flex items-center gap-2">
+                    {currentUser.role === 'manager' && (
+                      <span className="text-xs font-black font-mono text-orange-200" title={`Financial valuation: €${modelValuation.toFixed(2)}`}>
+                        (€{modelValuation.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
+                      </span>
+                    )}
+                    <span className="text-base font-black font-mono text-white select-all">{packagedStock}</span>
+                  </div>
                 </div>
 
                 {/* Source Rolls Traceability (Section 10) */}

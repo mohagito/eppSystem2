@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { 
   Scroll, 
@@ -748,6 +748,31 @@ export default function RollsModule({
   const totalUnopenedMeters = categoryStats.reduce((sum, s) => sum + s.unopenedMeters, 0);
   const totalValuation = categoryStats.reduce((sum, s) => sum + s.totalEvaluation, 0);
 
+  // Totals calculated strictly for the filtered rolls tab & search
+  const filteredRollsTotals = useMemo(() => {
+    let meters = 0;
+    let rollCost = 0;
+    let prodValue = 0;
+    let grossProfit = 0;
+
+    filteredRolls.forEach((r) => {
+      const metrics = calculateRollProductionMetrics(r, expectedYields, piecePrices, stockEntries);
+      const m = (r.metersTotal && !isNaN(r.metersTotal) && r.metersTotal > 0) ? r.metersTotal : metrics.actualLength;
+      meters += m;
+      rollCost += metrics.rollCost || 0;
+      prodValue += metrics.productionValue || 0;
+      grossProfit += metrics.grossProfit || 0;
+    });
+
+    return {
+      count: filteredRolls.length,
+      meters,
+      rollCost,
+      prodValue,
+      grossProfit
+    };
+  }, [filteredRolls, expectedYields, piecePrices, stockEntries]);
+
   return (
     <div className="space-y-6" id="rolls-traceability-module">
       
@@ -1486,6 +1511,33 @@ export default function RollsModule({
                   );
                 })}
               </tbody>
+              <tfoot>
+                <tr className="bg-slate-50/90 border-t border-slate-200 text-xs font-black text-slate-800">
+                  <td className="py-3 px-3 uppercase tracking-wider text-[10px] text-slate-500 font-extrabold">
+                    Total ({filteredRollsTotals.count} {subTab === 'unopened' ? 'NEW' : subTab === 'active' ? 'IN PRODUCTION' : 'CLOSED'} {filteredRollsTotals.count === 1 ? 'roll' : 'rolls'})
+                  </td>
+                  <td className="py-3 px-3 font-mono font-black text-indigo-700">
+                    {filteredRollsTotals.meters.toLocaleString()}m
+                  </td>
+                  <td colSpan={2}></td>
+                  {isManager && (
+                    <>
+                      <td className="py-3 px-3 text-right font-mono font-black text-slate-900">
+                        {formatEuro(filteredRollsTotals.rollCost)}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono font-black text-indigo-700">
+                        {formatEuro(filteredRollsTotals.prodValue)}
+                      </td>
+                      <td className="py-3 px-3 text-right font-mono font-black">
+                        <span className={filteredRollsTotals.grossProfit >= 0 ? 'text-emerald-700' : 'text-rose-600'}>
+                          {formatEuro(filteredRollsTotals.grossProfit)}
+                        </span>
+                      </td>
+                    </>
+                  )}
+                  <td colSpan={subTab === 'history' ? 4 : 2}></td>
+                </tr>
+              </tfoot>
             </table>
           )}
         </div>

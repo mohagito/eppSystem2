@@ -1,7 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { motion } from 'motion/react';
 import * as XLSX from 'xlsx';
-import { UserProfile, StockEntry, ProductionPlan, DeliveryEntry } from '../types';
+import { UserProfile, StockEntry, ProductionPlan, DeliveryEntry, FinishedPiecePrice } from '../types';
 import { AIRBAG_MODELS } from '../data';
 import {
   TrendingUp,
@@ -30,6 +30,7 @@ import {
   getAchievementColors
 } from '../utils/achievement';
 import { getMoroccoDateStr } from '../utils/timeZone';
+import { getPiecePriceForReference } from '../utils/financialCalculations';
 
 function getISOWeekDetails(dateStr: string) {
   const d = new Date(dateStr);
@@ -70,6 +71,7 @@ interface ManagerProps {
   deliveries?: DeliveryEntry[];
   plans: ProductionPlan[];
   dailyTargets: Record<string, number>;
+  piecePrices?: FinishedPiecePrice[];
   onNavigate: (tab: string) => void;
   onUpdatePlanStatus?: (id: string, status: 'Pending' | 'Completed' | 'Delayed') => void;
   onDeletePlan?: (id: string) => void;
@@ -85,6 +87,7 @@ export default function ManagerDashboard({
   deliveries = [],
   plans,
   dailyTargets,
+  piecePrices,
   onNavigate,
   onUpdatePlanStatus,
   onDeletePlan,
@@ -377,6 +380,39 @@ export default function ManagerDashboard({
     return deliveries.reduce((sum, d) => sum + d.quantity, 0);
   }, [deliveries]);
 
+  // Financial Evaluation of available stock per model and in total
+  const modelStockValuationMap = useMemo(() => {
+    const map: Record<string, { pieces: number; value: number; price: number }> = {};
+    const prodByModel: Record<string, number> = {};
+    AIRBAG_MODELS.forEach((m) => { prodByModel[m] = 0; });
+    entries.forEach((e) => {
+      if (prodByModel[e.modelId] !== undefined) {
+        prodByModel[e.modelId] += e.quantity;
+      }
+    });
+
+    const delByModel: Record<string, number> = {};
+    AIRBAG_MODELS.forEach((m) => { delByModel[m] = 0; });
+    deliveries.forEach((d) => {
+      if (delByModel[d.modelId] !== undefined) {
+        delByModel[d.modelId] += d.quantity;
+      }
+    });
+
+    AIRBAG_MODELS.forEach((m) => {
+      const pieces = Math.max(0, (prodByModel[m] || 0) - (delByModel[m] || 0));
+      const price = getPiecePriceForReference(m, piecePrices);
+      const value = Math.round(pieces * price * 100) / 100;
+      map[m] = { pieces, value, price };
+    });
+
+    return map;
+  }, [entries, deliveries, piecePrices]);
+
+  const totalStockValue = useMemo(() => {
+    return Object.values(modelStockValuationMap).reduce((sum, v) => sum + v.value, 0);
+  }, [modelStockValuationMap]);
+
   // 2. Active Plans scheduled today
   const plansToday = useMemo(() => {
     return plans.filter((p) => p.planDate === todayStr);
@@ -515,7 +551,12 @@ export default function ManagerDashboard({
             <span className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg"><Layers size={14} /></span>
           </div>
           <div>
-            <div className="text-2xl md:text-3xl font-black font-mono text-slate-900 select-all">{totalStockpile - totalDelivered}</div>
+            <div className="flex items-baseline justify-between">
+              <div className="text-2xl md:text-3xl font-black font-mono text-slate-900 select-all">{totalStockpile - totalDelivered}</div>
+              <span className="text-xs font-black font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2 py-0.5 rounded-md" title="Total Financial Valuation of Available Stock">
+                €{totalStockValue.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              </span>
+            </div>
             <p className="text-[10px] md:text-xs text-slate-500 mt-1 pb-1 font-mono font-bold uppercase tracking-wide">
               {totalStockpile} Prod / {totalDelivered} Shipped
             </p>
@@ -683,9 +724,17 @@ export default function ManagerDashboard({
                   id={`model-bar-${model}`}
                 >
                   <div className="flex items-center justify-between">
-                    <span className="text-xs font-black font-mono bg-slate-100 border border-slate-200 text-slate-800 px-2.5 py-0.5 rounded-md">
-                      {model}
-                    </span>
+                    <div className="flex flex-col gap-0.5">
+                      <span className="text-xs font-black font-mono bg-slate-100 border border-slate-200 text-slate-800 px-2.5 py-0.5 rounded-md w-fit">
+                        {model}
+                      </span>
+                      <span 
+                        className="text-[10px] font-black font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-1.5 py-0.5 rounded w-fit mt-0.5 shadow-3xs"
+                        title={`${modelStockValuationMap[model]?.pieces.toLocaleString() || 0} pcs in stock × €${modelStockValuationMap[model]?.price.toFixed(4) || 0}/pc`}
+                      >
+                        €{(modelStockValuationMap[model]?.value || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                      </span>
+                    </div>
                     <span className={`px-2 py-0.5 rounded-full border text-[9px] font-black uppercase font-mono ${colors.bg} ${colors.text}`}>
                       {statusText}
                     </span>
