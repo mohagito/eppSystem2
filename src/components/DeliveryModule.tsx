@@ -1,6 +1,6 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
-import { UserProfile, StockEntry, DeliveryEntry, AirbagModel } from '../types';
+import { UserProfile, StockEntry, DeliveryEntry, AirbagModel, FinishedPiecePrice } from '../types';
 import { AIRBAG_MODELS, MOCK_PROFILES, PACKAGING_SIZES } from '../data';
 import {
   PlusCircle,
@@ -24,7 +24,8 @@ import {
   Download,
   FileSpreadsheet,
   Boxes,
-  Package
+  Package,
+  Coins
 } from 'lucide-react';
 import { 
   getMoroccoDateStr, 
@@ -32,12 +33,17 @@ import {
   formatMoroccoDate, 
   formatMoroccoDateTime 
 } from '../utils/timeZone';
+import { 
+  getPiecePriceForReference, 
+  formatEuroCurrency 
+} from '../utils/financialCalculations';
 
 interface DeliveryProps {
   currentUser: UserProfile;
   entries: StockEntry[];
   deliveries: DeliveryEntry[];
   profiles?: UserProfile[];
+  piecePrices?: FinishedPiecePrice[];
   onAddDelivery: (delivery: Omit<DeliveryEntry, 'id' | 'createdAt'>) => void;
   onDeleteDelivery?: (id: string) => void;
 }
@@ -47,6 +53,7 @@ export default function DeliveryModule({
   entries,
   deliveries,
   profiles = [],
+  piecePrices,
   onAddDelivery,
   onDeleteDelivery
 }: DeliveryProps) {
@@ -242,6 +249,7 @@ export default function DeliveryModule({
   }, [availableStock]);
 
   const handleDownloadCSV = () => {
+    const isManager = currentUser.role === 'manager';
     // 1. Define CSV headers
     const headers = [
       'Invoice Number',
@@ -250,23 +258,30 @@ export default function DeliveryModule({
       'Dispatch Date',
       'Dispatch Time',
       'Delivered By',
+      ...(isManager ? ['Price (€)', 'Unit Price (€)'] : []),
       'Created By',
       'System ID',
       'Firestore Timestamp'
     ];
 
     // 2. Map filteredDeliveries data
-    const rows = filteredDeliveries.map((d) => [
-      d.invoiceNumber || 'N/A',
-      d.model || d.modelId,
-      d.quantity,
-      d.deliveryDate || (d.date ? formatMoroccoDate(d.date) : 'N/A'),
-      d.deliveryTime || '00:00',
-      d.loadedBy || d.workerName || 'N/A',
-      d.createdBy || 'N/A',
-      d.id,
-      d.createdAt ? formatMoroccoDateTime(d.createdAt, true) : 'N/A'
-    ]);
+    const rows = filteredDeliveries.map((d) => {
+      const refModel = d.model || d.modelId;
+      const unitPrice = getPiecePriceForReference(refModel, piecePrices);
+      const totalPrice = (d.quantity * unitPrice).toFixed(2);
+      return [
+        d.invoiceNumber || 'N/A',
+        refModel,
+        d.quantity,
+        d.deliveryDate || (d.date ? formatMoroccoDate(d.date) : 'N/A'),
+        d.deliveryTime || '00:00',
+        d.loadedBy || d.workerName || 'N/A',
+        ...(isManager ? [totalPrice, unitPrice.toFixed(4)] : []),
+        d.createdBy || 'N/A',
+        d.id,
+        d.createdAt ? formatMoroccoDateTime(d.createdAt, true) : 'N/A'
+      ];
+    });
 
     // 3. Assemble CSV string using CSV escaping guidelines
     const escapeCSVCell = (val: any) => {
@@ -297,7 +312,12 @@ export default function DeliveryModule({
   };
 
   const handleDownloadExcel = () => {
+    const isManager = currentUser.role === 'manager';
     const totalFilteredSum = filteredDeliveries.reduce((sum, d) => sum + d.quantity, 0);
+    const totalFilteredValuation = filteredDeliveries.reduce((sum, d) => {
+      const unitPrice = getPiecePriceForReference(d.model || d.modelId, piecePrices);
+      return sum + (d.quantity * unitPrice);
+    }, 0);
     const dateFormatted = formatMoroccoDateTime(new Date(), true);
 
     const excelRows = filteredDeliveries.map((d, index) => {
@@ -312,6 +332,8 @@ export default function DeliveryModule({
       const safeCreator = d.createdBy || 'N/A';
       const safeId = d.id;
       const safeCreatedAt = d.createdAt ? formatMoroccoDateTime(d.createdAt, true) : 'N/A';
+      const unitPrice = getPiecePriceForReference(safeModel, piecePrices);
+      const totalPrice = d.quantity * unitPrice;
 
       return `
         <tr ${bgStyle}>
@@ -321,6 +343,9 @@ export default function DeliveryModule({
           <td class="text-center" style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: center;">${safeDate}</td>
           <td class="text-center" style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: center;">${safeTime}</td>
           <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">${safeWorker}</td>
+          ${isManager ? `
+            <td class="text-right number-col" style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: right; font-weight: bold; color: #047857; font-family: monospace;">€${totalPrice.toFixed(2)}</td>
+          ` : ''}
           <td style="padding: 8px 12px; border: 1px solid #cbd5e1;">${safeCreator}</td>
           <td style="padding: 8px 12px; border: 1px solid #cbd5e1; font-family: monospace; font-size: 10px; color: #64748b;">${safeId}</td>
           <td class="text-center" style="padding: 8px 12px; border: 1px solid #cbd5e1; text-align: center; font-size: 10px; color: #64748b;">${safeCreatedAt}</td>
@@ -481,6 +506,9 @@ export default function DeliveryModule({
               <th style="width: 120px; text-align: center; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">Dispatch Date</th>
               <th style="width: 90px; text-align: center; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">Time</th>
               <th style="width: 140px; text-align: left; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">Dispatched By</th>
+              ${isManager ? `
+                <th style="width: 120px; text-align: right; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">Price (€)</th>
+              ` : ''}
               <th style="width: 140px; text-align: left; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">Created By</th>
               <th style="width: 180px; text-align: left; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">System Ledger ID</th>
               <th style="width: 150px; text-align: center; background-color: #0f766e; color: #ffffff; font-weight: bold; font-size: 11px; text-transform: uppercase; padding: 8px 12px; border: 1px solid #0d9488;">System Timestamp</th>
@@ -490,13 +518,17 @@ export default function DeliveryModule({
             ${excelRows}
             
             <!-- Spacing Row -->
-            <tr style="height: 8px;"><td colspan="9" style="border:none;"></td></tr>
+            <tr style="height: 8px;"><td colspan="${isManager ? '10' : '9'}" style="border:none;"></td></tr>
 
             <!-- Grand Total Summary Row -->
             <tr class="total-row">
               <td colspan="2" style="font-weight: bold; text-align: left; background-color: #ccfbf1; border-top: 2px solid #0f766e; border-bottom: 2px solid #0f766e; padding: 8px 12px;">GRAND TOTAL DISPATCHED</td>
               <td class="text-right" style="font-weight: bold; color: #0f766e; background-color: #ccfbf1; border-top: 2px solid #0f766e; border-bottom: 2px solid #0f766e; padding: 8px 12px; text-align: right;">${totalFilteredSum} pcs</td>
-              <td colspan="6" style="border-left: none; background-color: #ccfbf1; border-top: 2px solid #0f766e; border-bottom: 2px solid #0f766e; padding: 8px 12px;"></td>
+              <td colspan="3" style="border-left: none; background-color: #ccfbf1; border-top: 2px solid #0f766e; border-bottom: 2px solid #0f766e; padding: 8px 12px;"></td>
+              ${isManager ? `
+                <td class="text-right" style="font-weight: bold; color: #047857; background-color: #ccfbf1; border-top: 2px solid #0f766e; border-bottom: 2px solid #0f766e; padding: 8px 12px; text-align: right; font-family: monospace;">€${totalFilteredValuation.toFixed(2)}</td>
+              ` : ''}
+              <td colspan="3" style="border-left: none; background-color: #ccfbf1; border-top: 2px solid #0f766e; border-bottom: 2px solid #0f766e; padding: 8px 12px;"></td>
             </tr>
           </tbody>
         </table>
@@ -932,6 +964,9 @@ export default function DeliveryModule({
                       <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase">Qty</th>
                       <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase hidden sm:table-cell">Date & Time</th>
                       <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase hidden sm:table-cell">Delivered By</th>
+                      {currentUser.role === 'manager' && (
+                        <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase text-right" id="th-delivery-price">Price</th>
+                      )}
                       <th className="p-4 text-2s font-bold text-slate-500 tracking-widest uppercase text-center w-28">Actions</th>
                     </tr>
                   </thead>
@@ -939,7 +974,7 @@ export default function DeliveryModule({
                     <AnimatePresence initial={false}>
                       {filteredDeliveries.length === 0 ? (
                         <tr>
-                          <td colSpan={6} className="p-8 text-center text-xs text-slate-550">
+                          <td colSpan={currentUser.role === 'manager' ? 7 : 6} className="p-8 text-center text-xs text-slate-550">
                             No shipments/deliveries registered in the ledger.
                           </td>
                         </tr>
@@ -981,6 +1016,23 @@ export default function DeliveryModule({
                                 {d.loadedBy || d.workerName}
                               </span>
                             </td>
+                            {currentUser.role === 'manager' && (() => {
+                              const refModel = d.model || d.modelId;
+                              const unitPrice = getPiecePriceForReference(refModel, piecePrices);
+                              const totalPrice = d.quantity * unitPrice;
+                              return (
+                                <td className="p-4 text-right">
+                                  <div className="flex flex-col items-end">
+                                    <span className="text-xs font-black font-mono text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
+                                      {formatEuroCurrency(totalPrice)}
+                                    </span>
+                                    <span className="text-[10px] font-mono text-slate-400 mt-0.5">
+                                      {formatEuroCurrency(unitPrice, 4)} / pc
+                                    </span>
+                                  </div>
+                                </td>
+                              );
+                            })()}
                             <td className="p-4 text-center" onClick={(e) => e.stopPropagation()}>
                               <div className="flex items-center justify-center gap-1.5">
                                 <button
@@ -1012,8 +1064,13 @@ export default function DeliveryModule({
               </div>
             </div>
 
-            <div className="flex justify-between items-center text-xs text-slate-450 px-1 font-mono">
+            <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2 text-xs text-slate-500 px-1 font-mono">
               <span>Showing {filteredDeliveries.length} of {deliveries.length} delivery records</span>
+              {currentUser.role === 'manager' && (
+                <span className="font-bold text-emerald-700 bg-emerald-50 border border-emerald-200 px-2.5 py-1 rounded-lg">
+                  Total Dispatched Value: {formatEuroCurrency(filteredDeliveries.reduce((sum, d) => sum + (d.quantity * getPiecePriceForReference(d.model || d.modelId, piecePrices)), 0))}
+                </span>
+              )}
               <span>Sorted by Dispatch Recency</span>
             </div>
           </div>
@@ -1108,6 +1165,29 @@ export default function DeliveryModule({
                     {selectedDetails.quantity} pcs
                   </span>
                 </div>
+
+                {/* 3b. Manager Price Valuation */}
+                {currentUser.role === 'manager' && (() => {
+                  const refModel = selectedDetails.model || selectedDetails.modelId;
+                  const unitPrice = getPiecePriceForReference(refModel, piecePrices);
+                  const totalPrice = selectedDetails.quantity * unitPrice;
+                  return (
+                    <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+                      <div className="flex items-center gap-2 text-slate-500 font-medium">
+                        <Coins size={14} className="text-emerald-600" />
+                        <span>Delivery Price</span>
+                      </div>
+                      <div className="text-right">
+                        <span className="font-mono font-black text-emerald-700 text-sm bg-emerald-50 px-2.5 py-1 rounded-lg border border-emerald-200">
+                          {formatEuroCurrency(totalPrice)}
+                        </span>
+                        <div className="text-[10px] text-slate-400 font-mono mt-0.5">
+                          {selectedDetails.quantity.toLocaleString()} pcs × {formatEuroCurrency(unitPrice, 4)} / pc
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })()}
 
                 {/* 4. Loaded By */}
                 <div className="flex items-center justify-between border-b border-slate-100 pb-3">

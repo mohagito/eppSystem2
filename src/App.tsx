@@ -2283,6 +2283,7 @@ export default function App() {
             entries={stockEntries}
             deliveries={deliveries}
             profiles={profiles}
+            piecePrices={piecePrices}
             onAddDelivery={handleAddDelivery}
             onDeleteDelivery={handleDeleteDelivery}
           />
