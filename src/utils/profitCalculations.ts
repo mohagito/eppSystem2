@@ -20,6 +20,7 @@ import {
   normalizeRollStatus,
   formatEuroCurrency 
 } from './financialCalculations';
+import { getMoroccoDateStr, formatMoroccoDate } from './timeZone';
 
 export interface WorkerCostConfig {
   workersCount: number;         // default: 3
@@ -514,11 +515,23 @@ export function calculatePeriodProfit(
     const dateCandidate = roll.openedAt || roll.date || roll.createdAt;
     if (!dateCandidate) return;
 
+    let inRange = false;
     const rollTime = new Date(dateCandidate).getTime();
-    if (isNaN(rollTime)) return;
+    if (!isNaN(rollTime) && rollTime >= startMs && rollTime <= endMs) {
+      inRange = true;
+    } else {
+      const candStr = typeof dateCandidate === 'string' ? dateCandidate.slice(0, 10) : '';
+      if (candStr && candStr.length === 10) {
+        const startStr = getMoroccoDateStr(startDate);
+        const endStr = getMoroccoDateStr(endDate);
+        if (startStr && endStr && candStr >= startStr && candStr <= endStr) {
+          inRange = true;
+        }
+      }
+    }
 
     // Check if roll falls within [startDate, endDate]
-    if (rollTime >= startMs && rollTime <= endMs) {
+    if (inRange) {
       const metrics = calculateRollProductionMetrics(roll, undefined, undefined, stockEntries);
       
       const gProfitEur = metrics.grossProfit;
@@ -591,4 +604,184 @@ export function calculatePeriodProfit(
     roiPercent,
     rolls: periodRolls
   };
+}
+
+/**
+ * Calculates profit for any custom dynamic date range (e.g. 02-Oct to 12-Oct or single day)
+ */
+export function calculateDynamicRangeProfit(
+  startDateStr: string,
+  endDateStr: string,
+  workingDays: number,
+  rolls: RollEntry[],
+  config: WorkerCostConfig,
+  workersCountOverride?: number,
+  stockEntries: any[] = []
+): PeriodProfitResult {
+  const [sY, sM, sD] = startDateStr.split('-').map(Number);
+  const [eY, eM, eD] = endDateStr.split('-').map(Number);
+  const startDate = new Date(sY, sM - 1, sD, 0, 0, 0, 0);
+  const endDate = new Date(eY, eM - 1, eD, 23, 59, 59, 999);
+
+  const effectiveConfig = workersCountOverride && workersCountOverride > 0
+    ? { ...config, workersCount: workersCountOverride }
+    : config;
+
+  const isSingleDay = startDateStr === endDateStr;
+  const periodId = isSingleDay ? `DAY-${startDateStr}` : `CUSTOM-${startDateStr}_${endDateStr}`;
+  const periodLabel = isSingleDay
+    ? formatMoroccoDate(startDate)
+    : `${formatMoroccoDate(startDate)} – ${formatMoroccoDate(endDate)}`;
+  const shortLabel = isSingleDay
+    ? `Single Day (${workingDays}d · ${effectiveConfig.workersCount} ops)`
+    : `Custom Range (${workingDays}d · ${effectiveConfig.workersCount} ops)`;
+
+  return calculatePeriodProfit(
+    periodId,
+    periodLabel,
+    shortLabel,
+    startDate,
+    endDate,
+    Math.max(1, workingDays),
+    rolls,
+    effectiveConfig,
+    stockEntries
+  );
+}
+
+/**
+ * Daily Profit Breakdown for Day-by-Day performance analysis:
+ * Calculates Gross Profit for the day minus (Operators count * 1 day daily cost)
+ */
+export interface DailyProfitDetail {
+  dateStr: string;           // "2026-10-12"
+  displayDate: string;       // "12 Oct 2026"
+  dayOfWeek: string;         // "Monday"
+  isToday: boolean;
+  workingDays: number;       // 1 day
+  rollsCount: number;
+  totalProducedPieces: number;
+  totalRollCostEur: number;
+  totalProductionValueEur: number;
+  grossProfitEur: number;
+  grossProfitDH: number;
+  workersCount: number;      // e.g. 3
+  dailyLaborCostEur: number; // e.g. 3 * 203.36 / 10.80 = €56.49
+  dailyLaborCostDH: number;  // 610.08 DH
+  netProfitEur: number;      // grossProfitEur - dailyLaborCostEur
+  netProfitDH: number;       // grossProfitDH - dailyLaborCostDH
+  netProfitMarginPercent: number;
+  rolls: RollPeriodProfitDetail[];
+}
+
+export function calculateDailyProfitBreakdown(
+  rolls: RollEntry[],
+  config: WorkerCostConfig,
+  stockEntries: any[] = []
+): DailyProfitDetail[] {
+  const single = getSingleWorkerCost(config);
+  const dailyLaborDH = Math.round(config.workersCount * single.daily * 100) / 100;
+  const dailyLaborEur = config.eurToDhRate > 0
+    ? Math.round((dailyLaborDH / config.eurToDhRate) * 100) / 100
+    : 0;
+
+  const dateMap = new Map<string, RollEntry[]>();
+  const todayStr = getMoroccoDateStr();
+  dateMap.set(todayStr, []);
+
+  // Collect all dates that have active or closed rolls
+  rolls.forEach((r) => {
+    const status = normalizeRollStatus(r.status);
+    if (status !== 'IN PRODUCTION' && status !== 'CLOSED' && !r.openedAt) return;
+    const cand = r.openedAt || r.date || r.createdAt;
+    if (!cand) return;
+    const dStr = typeof cand === 'string' ? cand.slice(0, 10) : '';
+    if (dStr && dStr.length === 10) {
+      if (!dateMap.has(dStr)) {
+        dateMap.set(dStr, []);
+      }
+      dateMap.get(dStr)!.push(r);
+    }
+  });
+
+  const sortedDates = Array.from(dateMap.keys()).sort((a, b) => b.localeCompare(a));
+  const monthNames = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
+  const dayNames = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
+
+  return sortedDates.map((dateStr) => {
+    const dayRolls = dateMap.get(dateStr) || [];
+    const [y, m, d] = dateStr.split('-').map(Number);
+    const dateObj = new Date(y, m - 1, d, 12, 0, 0);
+    const isToday = dateStr === todayStr;
+    const dayOfWeek = dayNames[dateObj.getDay()] || '';
+    const displayDate = `${d} ${monthNames[m - 1]} ${y}`;
+
+    let totalProducedPieces = 0;
+    let totalRollCostEur = 0;
+    let totalProductionValueEur = 0;
+    let grossProfitEur = 0;
+    const periodRolls: RollPeriodProfitDetail[] = [];
+
+    dayRolls.forEach((roll) => {
+      const metrics = calculateRollProductionMetrics(roll, undefined, undefined, stockEntries);
+      const gProfitEur = metrics.grossProfit;
+      const gProfitDH = Math.round(gProfitEur * config.eurToDhRate * 100) / 100;
+
+      totalProducedPieces += metrics.producedPieces;
+      totalRollCostEur += metrics.rollCost;
+      totalProductionValueEur += metrics.productionValue;
+      grossProfitEur += gProfitEur;
+
+      periodRolls.push({
+        roll,
+        barcode: roll.barcode || roll.id,
+        material: metrics.material,
+        referenceId: metrics.referenceId,
+        openedAt: roll.openedAt || roll.date,
+        status: metrics.status,
+        producedPieces: metrics.producedPieces,
+        rollCostEur: metrics.rollCost,
+        productionValueEur: metrics.productionValue,
+        grossProfitEur: gProfitEur,
+        grossProfitDH: gProfitDH,
+        materialEfficiency: metrics.materialEfficiency
+      });
+    });
+
+    totalRollCostEur = Math.round(totalRollCostEur * 100) / 100;
+    totalProductionValueEur = Math.round(totalProductionValueEur * 100) / 100;
+    grossProfitEur = Math.round(grossProfitEur * 100) / 100;
+    const grossProfitDH = Math.round(grossProfitEur * config.eurToDhRate * 100) / 100;
+
+    // NET PROFIT = Gross Profit - Daily Labor (e.g. 3 operators in 1 day)
+    const netProfitDH = Math.round((grossProfitDH - dailyLaborDH) * 100) / 100;
+    const netProfitEur = config.eurToDhRate > 0
+      ? Math.round((netProfitDH / config.eurToDhRate) * 100) / 100
+      : 0;
+
+    const netProfitMarginPercent = grossProfitDH !== 0
+      ? Math.round((netProfitDH / Math.abs(grossProfitDH)) * 10000) / 100
+      : 0;
+
+    return {
+      dateStr,
+      displayDate,
+      dayOfWeek,
+      isToday,
+      workingDays: 1,
+      rollsCount: periodRolls.length,
+      totalProducedPieces,
+      totalRollCostEur,
+      totalProductionValueEur,
+      grossProfitEur,
+      grossProfitDH,
+      workersCount: config.workersCount,
+      dailyLaborCostEur: dailyLaborEur,
+      dailyLaborCostDH: dailyLaborDH,
+      netProfitEur,
+      netProfitDH,
+      netProfitMarginPercent,
+      rolls: periodRolls
+    };
+  });
 }

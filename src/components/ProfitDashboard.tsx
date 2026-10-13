@@ -87,12 +87,8 @@ export default function ProfitDashboard({
   const [draftRate, setDraftRate] = useState<number>(config.eurToDhRate);
   const [configSaveSuccess, setConfigSaveSuccess] = useState(false);
 
-  // Period View Mode: strictly 2 buttons ('month' 26th-25th | 'week' ISO weeks)
-  const [viewType, setViewType] = useState<ViewPeriodType>('month');
-
-  // Currently selected period index or ID
+  // Currently selected month ID (Monthly 26th-25th cycle)
   const [selectedMonthId, setSelectedMonthId] = useState<string>('');
-  const [selectedWeekId, setSelectedWeekId] = useState<string>('');
 
   // Expanded roll details in table
   const [expandedRollBarcode, setExpandedRollBarcode] = useState<string | null>(null);
@@ -118,12 +114,6 @@ export default function ProfitDashboard({
       setSelectedMonthId(companyMonths[0].id);
     }
   }, [companyMonths, selectedMonthId]);
-
-  useEffect(() => {
-    if (isoWeeks.length > 0 && !selectedWeekId) {
-      setSelectedWeekId(isoWeeks[0].id);
-    }
-  }, [isoWeeks, selectedWeekId]);
 
   // Handle configuration open
   const openConfigModal = () => {
@@ -207,40 +197,22 @@ export default function ProfitDashboard({
     return config.eurToDhRate > 0 ? workforceCost.totalWeekly / config.eurToDhRate : 0;
   }, [workforceCost, config.eurToDhRate]);
 
-  // Selected period evaluation
+  // Active monthly period evaluation
   const activePeriodProfit = useMemo<PeriodProfitResult>(() => {
-    if (viewType === 'month') {
-      const selected = companyMonths.find(m => m.id === selectedMonthId) || companyMonths[0];
-      if (selected) {
-        const days = getPeriodEffectiveDays(selected.id, selected.workingDays);
-        return calculatePeriodProfit(
-          selected.id,
-          selected.label,
-          selected.shortLabel,
-          selected.startDate,
-          selected.endDate,
-          days,
-          rolls,
-          config,
-          stockEntries
-        );
-      }
-    } else {
-      const selected = isoWeeks.find(w => w.id === selectedWeekId) || isoWeeks[0];
-      if (selected) {
-        const days = getPeriodEffectiveDays(selected.id, selected.workingDays);
-        return calculatePeriodProfit(
-          selected.id,
-          selected.label,
-          `Week ${selected.weekNumber}`,
-          selected.startDate,
-          selected.endDate,
-          days,
-          rolls,
-          config,
-          stockEntries
-        );
-      }
+    const selected = companyMonths.find(m => m.id === selectedMonthId) || companyMonths[0];
+    if (selected) {
+      const days = getPeriodEffectiveDays(selected.id, selected.workingDays);
+      return calculatePeriodProfit(
+        selected.id,
+        selected.label,
+        selected.shortLabel,
+        selected.startDate,
+        selected.endDate,
+        days,
+        rolls,
+        config,
+        stockEntries
+      );
     }
 
     // Fallback safety
@@ -257,89 +229,57 @@ export default function ProfitDashboard({
       config,
       stockEntries
     );
-  }, [viewType, selectedMonthId, selectedWeekId, companyMonths, isoWeeks, rolls, config, stockEntries, workingDaysOverrides]);
+  }, [
+    selectedMonthId, 
+    companyMonths, 
+    rolls, 
+    config, 
+    stockEntries, 
+    workingDaysOverrides
+  ]);
 
-  // List of all periods evaluated for historical comparison table
+  // List of all monthly cycles evaluated for table
   const allEvaluatedPeriods = useMemo(() => {
-    if (viewType === 'month') {
-      return companyMonths.map(m => {
-        const days = getPeriodEffectiveDays(m.id, m.workingDays);
-        return calculatePeriodProfit(
-          m.id,
-          m.label,
-          m.shortLabel,
-          m.startDate,
-          m.endDate,
-          days,
-          rolls,
-          config,
-          stockEntries
-        );
-      });
-    } else {
-      return isoWeeks.map(w => {
-        const days = getPeriodEffectiveDays(w.id, w.workingDays);
-        return calculatePeriodProfit(
-          w.id,
-          w.label,
-          `W${w.weekNumber}`,
-          w.startDate,
-          w.endDate,
-          days,
-          rolls,
-          config,
-          stockEntries
-        );
-      });
-    }
-  }, [viewType, companyMonths, isoWeeks, rolls, config, stockEntries, workingDaysOverrides]);
+    return companyMonths.map(m => {
+      const days = getPeriodEffectiveDays(m.id, m.workingDays);
+      return calculatePeriodProfit(
+        m.id,
+        m.label,
+        m.shortLabel,
+        m.startDate,
+        m.endDate,
+        days,
+        rolls,
+        config,
+        stockEntries
+      );
+    });
+  }, [companyMonths, rolls, config, stockEntries, workingDaysOverrides]);
 
-  // Navigation helpers for Prev/Next period
+  // Navigation helpers for Prev/Next period (Monthly mode)
   const handlePrevPeriod = () => {
-    if (viewType === 'month') {
-      const idx = companyMonths.findIndex(m => m.id === selectedMonthId);
-      if (idx !== -1 && idx < companyMonths.length - 1) {
-        setSelectedMonthId(companyMonths[idx + 1].id);
-      }
-    } else {
-      const idx = isoWeeks.findIndex(w => w.id === selectedWeekId);
-      if (idx !== -1 && idx < isoWeeks.length - 1) {
-        setSelectedWeekId(isoWeeks[idx + 1].id);
-      }
+    const idx = companyMonths.findIndex(m => m.id === selectedMonthId);
+    if (idx !== -1 && idx < companyMonths.length - 1) {
+      setSelectedMonthId(companyMonths[idx + 1].id);
     }
   };
 
   const handleNextPeriod = () => {
-    if (viewType === 'month') {
-      const idx = companyMonths.findIndex(m => m.id === selectedMonthId);
-      if (idx > 0) {
-        setSelectedMonthId(companyMonths[idx - 1].id);
-      }
-    } else {
-      const idx = isoWeeks.findIndex(w => w.id === selectedWeekId);
-      if (idx > 0) {
-        setSelectedWeekId(isoWeeks[idx - 1].id);
-      }
+    const idx = companyMonths.findIndex(m => m.id === selectedMonthId);
+    if (idx > 0) {
+      setSelectedMonthId(companyMonths[idx - 1].id);
     }
   };
 
   const canGoPrev = useMemo(() => {
-    if (viewType === 'month') {
-      const idx = companyMonths.findIndex(m => m.id === selectedMonthId);
-      return idx !== -1 && idx < companyMonths.length - 1;
-    }
-    const idx = isoWeeks.findIndex(w => w.id === selectedWeekId);
-    return idx !== -1 && idx < isoWeeks.length - 1;
-  }, [viewType, companyMonths, selectedMonthId, isoWeeks, selectedWeekId]);
+    const idx = companyMonths.findIndex(m => m.id === selectedMonthId);
+    return idx !== -1 && idx < companyMonths.length - 1;
+  }, [companyMonths, selectedMonthId]);
 
   const canGoNext = useMemo(() => {
-    if (viewType === 'month') {
-      const idx = companyMonths.findIndex(m => m.id === selectedMonthId);
-      return idx > 0;
-    }
-    const idx = isoWeeks.findIndex(w => w.id === selectedWeekId);
+    const idx = companyMonths.findIndex(m => m.id === selectedMonthId);
     return idx > 0;
-  }, [viewType, companyMonths, selectedMonthId, isoWeeks, selectedWeekId]);
+  }, [companyMonths, selectedMonthId]);
 
   return (
     <div className="space-y-5 animate-fadeIn pb-12" id="profit-dashboard-module">
@@ -364,7 +304,7 @@ export default function ProfitDashboard({
           </div>
         </div>
 
-        {/* Center: Monthly Period Indicator (Weekly section removed) */}
+        {/* Center: Monthly Period Indicator */}
         <div className="flex items-center bg-slate-100 p-0.5 rounded-xl self-center lg:self-auto" id="profit-period-two-buttons">
           <div
             className="px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold bg-white text-slate-900 shadow-xs flex items-center gap-1.5"
@@ -456,8 +396,8 @@ export default function ProfitDashboard({
             }`}>
               {formatEuroCurrency(activePeriodProfit.netProfitEur)}
             </div>
-            <p className="text-xs text-slate-500 mt-1">
-              Company net earnings
+            <p className="text-xs text-slate-500 mt-1 font-mono font-medium">
+              Gross {formatEuroCurrency(activePeriodProfit.grossProfitEur)} − Labor {formatEuroCurrency(activePeriodProfit.totalLaborCostEur)}
             </p>
           </div>
         </div>
@@ -474,7 +414,9 @@ export default function ProfitDashboard({
           </div>
 
           <div className="mt-2.5">
-            <div className="text-2xl sm:text-3xl font-black font-mono text-indigo-700 tracking-tight">
+            <div className={`text-2xl sm:text-3xl font-black font-mono tracking-tight ${
+              activePeriodProfit.grossProfitEur < 0 ? 'text-rose-600' : 'text-indigo-700'
+            }`}>
               {formatEuroCurrency(activePeriodProfit.grossProfitEur)}
             </div>
             <p className="text-xs text-slate-400 mt-1">
@@ -506,8 +448,8 @@ export default function ProfitDashboard({
             <div className="text-2xl sm:text-3xl font-black font-mono text-slate-900 tracking-tight">
               {formatEuroCurrency(activePeriodProfit.totalLaborCostEur)}
             </div>
-            <p className="text-xs text-slate-400 mt-1">
-              {config.workersCount} operators ({activePeriodProfit.workingDays} working days)
+            <p className="text-xs text-slate-400 mt-1 font-mono">
+              {activePeriodProfit.workersCount} operators ({activePeriodProfit.workingDays} {activePeriodProfit.workingDays === 1 ? 'day' : 'days'})
             </p>
           </div>
         </div>
@@ -584,7 +526,7 @@ export default function ProfitDashboard({
                         className="hover:bg-slate-50/80 transition-colors cursor-pointer"
                       >
                         <td className="py-3 px-4 font-mono font-bold text-slate-900 flex items-center gap-2">
-                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
+                          <span className={`w-1.5 h-1.5 rounded-full ${r.grossProfitEur < 0 ? 'bg-rose-500' : 'bg-emerald-500'}`} />
                           <span>{r.barcode}</span>
                         </td>
                         <td className="py-3 px-4 text-slate-600 font-medium">
@@ -598,7 +540,13 @@ export default function ProfitDashboard({
                         <td className="py-3 px-4 text-right font-mono font-bold text-slate-900">
                           {r.producedPieces.toLocaleString()} pcs
                         </td>
-                        <td className="py-3 px-4 text-right font-mono font-bold text-emerald-600">
+                        <td className={`py-3 px-4 text-right font-mono font-bold ${
+                          r.materialEfficiency < 70
+                            ? 'text-rose-600'
+                            : r.materialEfficiency <= 90
+                            ? 'text-amber-500'
+                            : 'text-emerald-600'
+                        }`}>
                           {formatEfficiencyPercent(r.materialEfficiency)}
                         </td>
                         <td className="py-3 px-4 text-right font-mono text-slate-500">
@@ -607,7 +555,9 @@ export default function ProfitDashboard({
                         <td className="py-3 px-4 text-right font-mono text-indigo-600 font-bold">
                           {formatEuroCurrency(r.productionValueEur)}
                         </td>
-                        <td className="py-3 px-4 text-right font-mono font-black text-emerald-600">
+                        <td className={`py-3 px-4 text-right font-mono font-black ${
+                          r.grossProfitEur < 0 ? 'text-rose-600' : 'text-emerald-600'
+                        }`}>
                           {formatEuroCurrency(r.grossProfitEur)}
                         </td>
                       </tr>
@@ -635,7 +585,9 @@ export default function ProfitDashboard({
                                 </div>
                                 <div>
                                   <span className="text-slate-400 block">Gross Profit:</span>
-                                  <span className="font-bold text-emerald-600">{formatEuroCurrency(r.grossProfitEur)}</span>
+                                  <span className={`font-bold ${r.grossProfitEur < 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
+                                    {formatEuroCurrency(r.grossProfitEur)}
+                                  </span>
                                 </div>
                               </div>
                             </div>
@@ -651,15 +603,25 @@ export default function ProfitDashboard({
         )}
       </div>
 
-      {/* HISTORICAL PERIOD COMPARISON TABLE */}
+      {/* HISTORICAL & DAILY PERIOD EVALUATION TABLE */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3.5">
-        <div className="flex items-center justify-between">
-          <h3 className="text-xs sm:text-sm font-bold text-slate-900 font-mono">
-            {viewType === 'month' ? 'Monthly History (26th–25th)' : 'Weekly History (ISO Weeks)'}
-          </h3>
-          <span className="text-2xs font-mono text-slate-400">EUR (€)</span>
+        
+        {/* Header: div:nth-of-type(4) > div:nth-of-type(1) */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+          <div className="flex items-center gap-2">
+            <Coins size={16} className="text-emerald-600" />
+            <h3 className="text-xs sm:text-sm font-bold text-slate-900 font-mono">
+              Monthly Cycles History (26th – 25th)
+            </h3>
+            <span className="text-2xs font-mono text-slate-400">EUR (€)</span>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs font-mono text-slate-500">
+            <span>Selected Period: <strong className="text-slate-900">{activePeriodProfit.periodLabel}</strong></span>
+          </div>
         </div>
 
+        {/* MONTHLY CYCLES TABLE */}
         <div className="overflow-x-auto rounded-2xl border border-slate-100">
           <table className="w-full text-left text-xs border-collapse">
             <thead>
@@ -677,9 +639,7 @@ export default function ProfitDashboard({
             </thead>
             <tbody className="divide-y divide-slate-100">
               {allEvaluatedPeriods.map((p) => {
-                const isSelected = viewType === 'month' 
-                  ? p.periodId === selectedMonthId 
-                  : p.periodId === selectedWeekId;
+                const isSelected = p.periodId === selectedMonthId;
 
                 return (
                   <tr 
@@ -693,7 +653,7 @@ export default function ProfitDashboard({
                       <div className="text-[10px] text-slate-400 font-mono">{p.shortLabel}</div>
                     </td>
                     
-                    {/* Working Days Cell (CSS Selector target: td:nth-of-type(2)) */}
+                    {/* Working Days Cell */}
                     <td className="py-3.5 px-4 font-mono text-slate-700">
                       <div className="font-bold text-slate-900 flex items-center gap-1.5">
                         <span>{p.workingDays} working days</span>
@@ -714,7 +674,9 @@ export default function ProfitDashboard({
                     <td className="py-3.5 px-4 text-right font-mono text-slate-900">
                       {p.totalProducedPieces.toLocaleString()}
                     </td>
-                    <td className="py-3.5 px-4 text-right font-mono font-bold text-indigo-700">
+                    <td className={`py-3.5 px-4 text-right font-mono font-bold ${
+                      p.grossProfitEur < 0 ? 'text-rose-600' : 'text-indigo-700'
+                    }`}>
                       {formatEuroCurrency(p.grossProfitEur)}
                     </td>
                     <td className="py-3.5 px-4 text-right font-mono text-slate-600">
@@ -732,10 +694,7 @@ export default function ProfitDashboard({
                     </td>
                     <td className="py-3.5 px-4 text-center">
                       <button
-                        onClick={() => {
-                          if (viewType === 'month') setSelectedMonthId(p.periodId);
-                          else setSelectedWeekId(p.periodId);
-                        }}
+                        onClick={() => setSelectedMonthId(p.periodId)}
                         className={`px-3 py-1 rounded-lg text-2xs font-bold transition-all cursor-pointer ${
                           isSelected 
                             ? 'bg-emerald-600 text-white shadow-2xs' 
