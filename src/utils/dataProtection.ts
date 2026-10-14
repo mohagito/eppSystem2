@@ -189,11 +189,11 @@ export function exportFullDatabaseBackupJSON(data: {
 }
 
 /**
- * Standard factory reserve stock baseline (20 rolls = 9 Yellow Huesker, 7 Kuga, 4 White Huesker)
+ * Verified factory reserve stock baseline (11 unopened rolls in stock: 6 Yellow Huesker, 2 Kuga, 3 White Huesker, 0 India)
  */
 export const FACTORY_RESERVE_BASELINE_ROLLS: Omit<RollEntry, 'date'>[] = [
-  // 9 Yellow Huesker (100m each)
-  ...Array.from({ length: 9 }, (_, i) => ({
+  // 6 Yellow Huesker (100m each)
+  ...Array.from({ length: 6 }, (_, i) => ({
     id: `roll-seed-yellow-${i + 1}`,
     materialName: 'Yellow Huesker' as const,
     status: 'Unopened' as const,
@@ -203,8 +203,8 @@ export const FACTORY_RESERVE_BASELINE_ROLLS: Omit<RollEntry, 'date'>[] = [
     barcode: `EPP-ROLL-YELLOWHUESKER-${String(i + 1).padStart(3, '0')}`,
     notes: `Factory Reserve Stock - Roll #${i + 1} (100m)`
   })),
-  // 7 Kuga (50m each)
-  ...Array.from({ length: 7 }, (_, i) => ({
+  // 2 Kuga (50m each)
+  ...Array.from({ length: 2 }, (_, i) => ({
     id: `roll-seed-kuga-${i + 1}`,
     materialName: 'Kuga' as const,
     status: 'Unopened' as const,
@@ -214,8 +214,8 @@ export const FACTORY_RESERVE_BASELINE_ROLLS: Omit<RollEntry, 'date'>[] = [
     barcode: `EPP-ROLL-KUGA-${String(i + 1).padStart(3, '0')}`,
     notes: `Factory Reserve Stock - Roll #${i + 1} (50m)`
   })),
-  // 4 White Huesker (100m each)
-  ...Array.from({ length: 4 }, (_, i) => ({
+  // 3 White Huesker (100m each)
+  ...Array.from({ length: 3 }, (_, i) => ({
     id: `roll-seed-white-${i + 1}`,
     materialName: 'White Huesker' as const,
     status: 'Unopened' as const,
@@ -229,17 +229,25 @@ export const FACTORY_RESERVE_BASELINE_ROLLS: Omit<RollEntry, 'date'>[] = [
 
 /**
  * Safely restores baseline factory rolls WITHOUT deleting any custom operator rolls
+ * NEVER touches active rolls (in production) or closed rolls (history)
  */
 export async function restoreBaselineReserveRolls(preserveCustom: boolean = true): Promise<number> {
   const todayDate = getMoroccoDateStr();
   const rollsSnap = await getDocs(collection(db, 'rolls'));
+  
+  // If the database already has active or unopened rolls, do not force-seed duplicates
+  if (rollsSnap.size >= 10) {
+    return 0;
+  }
+
   const existingIds = new Set(rollsSnap.docs.map(d => d.id));
+  const existingBarcodes = new Set(rollsSnap.docs.map(d => d.data().barcode).filter(Boolean));
 
   const batch = writeBatch(db);
   let restoredCount = 0;
 
   for (const base of FACTORY_RESERVE_BASELINE_ROLLS) {
-    if (!existingIds.has(base.id)) {
+    if (!existingIds.has(base.id) && (!base.barcode || !existingBarcodes.has(base.barcode))) {
       const ref = doc(db, 'rolls', base.id);
       batch.set(ref, {
         ...base,
@@ -249,11 +257,14 @@ export async function restoreBaselineReserveRolls(preserveCustom: boolean = true
     }
   }
 
-  // If preserveCustom is false, remove anything else (only if explicitly requested)
+  // If preserveCustom is false, NEVER delete active or consumed rolls under any circumstances!
   if (!preserveCustom) {
     const baselineIds = new Set(FACTORY_RESERVE_BASELINE_ROLLS.map(b => b.id));
     rollsSnap.docs.forEach(d => {
-      if (!baselineIds.has(d.id)) {
+      const data = d.data();
+      const status = (data.status || '').toUpperCase();
+      const isProtected = status === 'ACTIVE' || status === 'IN PRODUCTION' || status === 'CLOSED' || status === 'CONSUMED';
+      if (!baselineIds.has(d.id) && !isProtected) {
         batch.delete(d.ref);
       }
     });

@@ -15,9 +15,14 @@ import {
   getSingleWorkerCost,
   getTotalWorkforceCost,
   getFirstRollOpenedDate,
+  getFirstEfficiencyRollDateStr,
   generateCompanyMonthsFromFirstRoll,
   generateIsoWeeksFromFirstRoll,
   calculatePeriodProfit,
+  calculateDynamicRangeProfit,
+  calculateDailyProfitBreakdown,
+  DailyProfitDetail,
+  countWorkingDays,
   getCompanyMonthForDate,
   getIsoWeekForDate,
   getSavedWorkingDaysOverrides,
@@ -30,6 +35,10 @@ import {
   formatEuroCurrency, 
   formatEfficiencyPercent 
 } from '../utils/financialCalculations';
+import { 
+  getMoroccoDateStr,
+  formatMoroccoDate 
+} from '../utils/timeZone';
 import { 
   TrendingUp, 
   TrendingDown, 
@@ -51,7 +60,10 @@ import {
   Percent, 
   X, 
   Coins,
-  Edit2
+  Edit2,
+  Zap,
+  CalendarRange,
+  ArrowRight
 } from 'lucide-react';
 
 interface ProfitDashboardProps {
@@ -176,6 +188,91 @@ export default function ProfitDashboard({
     setEditingDaysPeriodId(null);
   };
 
+  // Period Mode: 'dynamic' (default as requested) or 'monthly'
+  const [periodMode, setPeriodMode] = useState<'dynamic' | 'monthly'>('dynamic');
+
+  // Dynamic range state:
+  // Starts from first roll opened with efficiency calculation date (2 Oct 2026) to current date (dynamic change)
+  const defaultEfficiencyStartDate = useMemo(() => {
+    return getFirstEfficiencyRollDateStr(rolls);
+  }, [rolls]);
+
+  const todayMoroccoStr = useMemo(() => getMoroccoDateStr(), []);
+
+  const [dynamicStartDate, setDynamicStartDate] = useState<string>(defaultEfficiencyStartDate);
+  const [dynamicEndDate, setDynamicEndDate] = useState<string>(todayMoroccoStr);
+  const [manualDynamicDays, setManualDynamicDays] = useState<number | null>(null);
+  const [isEditingDynamicDays, setIsEditingDynamicDays] = useState<boolean>(false);
+  const [draftDynamicDays, setDraftDynamicDays] = useState<number>(8);
+
+  // Automatically count working days (Mon-Sat, Sun excluded) between dynamic dates
+  const autoCalculatedWorkingDays = useMemo(() => {
+    try {
+      const [sY, sM, sD] = dynamicStartDate.split('-').map(Number);
+      const [eY, eM, eD] = dynamicEndDate.split('-').map(Number);
+      if (sY && sM && sD && eY && eM && eD) {
+        const s = new Date(sY, sM - 1, sD);
+        const e = new Date(eY, eM - 1, eD);
+        return Math.max(1, countWorkingDays(s, e));
+      }
+    } catch {}
+    return 8;
+  }, [dynamicStartDate, dynamicEndDate]);
+
+  const effectiveDynamicDays = manualDynamicDays ?? autoCalculatedWorkingDays;
+
+  // Preset quick handlers
+  const handleSetPresetFullDynamic = () => {
+    setDynamicStartDate(defaultEfficiencyStartDate);
+    setDynamicEndDate(getMoroccoDateStr());
+    setManualDynamicDays(null);
+  };
+
+  const handleSetPresetToday = () => {
+    const t = getMoroccoDateStr();
+    setDynamicStartDate(t);
+    setDynamicEndDate(t);
+    setManualDynamicDays(1);
+  };
+
+  const handleSetPresetYesterday = () => {
+    const yest = new Date();
+    yest.setDate(yest.getDate() - 1);
+    const yStr = getMoroccoDateStr(yest);
+    setDynamicStartDate(yStr);
+    setDynamicEndDate(yStr);
+    setManualDynamicDays(1);
+  };
+
+  const handleSetPresetLast7Days = () => {
+    const past = new Date();
+    past.setDate(past.getDate() - 6);
+    setDynamicStartDate(getMoroccoDateStr(past));
+    setDynamicEndDate(getMoroccoDateStr());
+    setManualDynamicDays(null);
+  };
+
+  // Section 4 view subtab: 'daily' (Daily Breakdown) | 'monthly' (Monthly Cycles History)
+  const [section4Tab, setSection4Tab] = useState<'daily' | 'monthly'>('daily');
+
+  // Dynamic period calculation result
+  const dynamicPeriodProfit = useMemo<PeriodProfitResult>(() => {
+    return calculateDynamicRangeProfit(
+      dynamicStartDate,
+      dynamicEndDate,
+      effectiveDynamicDays,
+      rolls,
+      config,
+      undefined,
+      stockEntries
+    );
+  }, [dynamicStartDate, dynamicEndDate, effectiveDynamicDays, rolls, config, stockEntries]);
+
+  // Daily profit breakdown for day-by-day performance analysis
+  const dailyBreakdown = useMemo<DailyProfitDetail[]>(() => {
+    return calculateDailyProfitBreakdown(rolls, config, stockEntries);
+  }, [rolls, config, stockEntries]);
+
   // Helper cost numbers (converted to EUR for UI display)
   const singleCost = useMemo(() => getSingleWorkerCost(config), [config]);
   const workforceCost = useMemo(() => getTotalWorkforceCost(config), [config]);
@@ -197,8 +294,12 @@ export default function ProfitDashboard({
     return config.eurToDhRate > 0 ? workforceCost.totalWeekly / config.eurToDhRate : 0;
   }, [workforceCost, config.eurToDhRate]);
 
-  // Active monthly period evaluation
+  // Active period evaluation: supports dynamic mode (02 Oct - Today) or monthly mode (26th - 25th)
   const activePeriodProfit = useMemo<PeriodProfitResult>(() => {
+    if (periodMode === 'dynamic') {
+      return dynamicPeriodProfit;
+    }
+
     const selected = companyMonths.find(m => m.id === selectedMonthId) || companyMonths[0];
     if (selected) {
       const days = getPeriodEffectiveDays(selected.id, selected.workingDays);
@@ -230,6 +331,8 @@ export default function ProfitDashboard({
       stockEntries
     );
   }, [
+    periodMode,
+    dynamicPeriodProfit,
     selectedMonthId, 
     companyMonths, 
     rolls, 
@@ -304,56 +407,88 @@ export default function ProfitDashboard({
           </div>
         </div>
 
-        {/* Center: Monthly Period Indicator */}
-        <div className="flex items-center bg-slate-100 p-0.5 rounded-xl self-center lg:self-auto" id="profit-period-two-buttons">
-          <div
-            className="px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold bg-white text-slate-900 shadow-xs flex items-center gap-1.5"
+        {/* Center: Period Mode Toggle (Dynamic vs Monthly) */}
+        <div className="flex items-center bg-slate-100 p-0.5 rounded-xl self-center lg:self-auto gap-0.5" id="profit-period-two-buttons">
+          <button
+            onClick={() => setPeriodMode('dynamic')}
+            className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              periodMode === 'dynamic'
+                ? 'bg-white text-emerald-800 shadow-xs ring-1 ring-emerald-500/20'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
+            id="profit-tab-dynamic"
+          >
+            <Zap size={13} className={periodMode === 'dynamic' ? 'text-emerald-600' : 'text-slate-400'} />
+            <span>Dynamic (02 Oct – Today)</span>
+          </button>
+
+          <button
+            onClick={() => setPeriodMode('monthly')}
+            className={`px-3 sm:px-4 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center gap-1.5 ${
+              periodMode === 'monthly'
+                ? 'bg-white text-slate-900 shadow-xs ring-1 ring-slate-300/60'
+                : 'text-slate-600 hover:text-slate-900'
+            }`}
             id="profit-tab-month"
           >
-            <Calendar size={13} className="text-emerald-600" />
+            <Calendar size={13} className={periodMode === 'monthly' ? 'text-indigo-600' : 'text-slate-400'} />
             <span>Monthly (26th – 25th)</span>
-          </div>
+          </button>
         </div>
 
-        {/* Right: Period Dropdown Selector & Small Settings Action */}
+        {/* Right: Adaptive Period Controls & Settings Action */}
         <div className="flex items-center gap-1.5 justify-end shrink-0" id="profit-header-controls">
-          <button
-            onClick={handlePrevPeriod}
-            disabled={!canGoPrev}
-            className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-              canGoPrev
-                ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 active:scale-95'
-                : 'border-slate-100 text-slate-300 cursor-not-allowed'
-            }`}
-            title="Previous Period"
-          >
-            <ChevronLeft size={14} />
-          </button>
+          {periodMode === 'dynamic' ? (
+            <div className="flex items-center gap-1.5">
+              <span className="inline-flex items-center gap-1 px-2.5 py-1 bg-emerald-50 text-emerald-800 border border-emerald-200 rounded-lg text-xs font-mono font-bold">
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                <span>{formatMoroccoDate(new Date(dynamicStartDate))} – {dynamicEndDate === todayMoroccoStr ? 'Today' : formatMoroccoDate(new Date(dynamicEndDate))}</span>
+              </span>
+              <span className="px-2 py-1 bg-slate-100 text-slate-700 border border-slate-200 rounded-lg text-xs font-mono font-bold">
+                {effectiveDynamicDays} days
+              </span>
+            </div>
+          ) : (
+            <>
+              <button
+                onClick={handlePrevPeriod}
+                disabled={!canGoPrev}
+                className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                  canGoPrev
+                    ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 active:scale-95'
+                    : 'border-slate-100 text-slate-300 cursor-not-allowed'
+                }`}
+                title="Previous Period"
+              >
+                <ChevronLeft size={14} />
+              </button>
 
-          <select
-            value={selectedMonthId}
-            onChange={(e) => setSelectedMonthId(e.target.value)}
-            className="bg-slate-50 border border-slate-200 text-slate-900 text-xs font-bold rounded-lg px-2.5 py-1.5 cursor-pointer shadow-3xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
-          >
-            {companyMonths.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.label} ({m.shortLabel})
-              </option>
-            ))}
-          </select>
+              <select
+                value={selectedMonthId}
+                onChange={(e) => setSelectedMonthId(e.target.value)}
+                className="bg-slate-50 border border-slate-200 text-slate-900 text-xs font-bold rounded-lg px-2.5 py-1.5 cursor-pointer shadow-3xs focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                {companyMonths.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label} ({m.shortLabel})
+                  </option>
+                ))}
+              </select>
 
-          <button
-            onClick={handleNextPeriod}
-            disabled={!canGoNext}
-            className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
-              canGoNext
-                ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 active:scale-95'
-                : 'border-slate-100 text-slate-300 cursor-not-allowed'
-            }`}
-            title="Next Period"
-          >
-            <ChevronRight size={14} />
-          </button>
+              <button
+                onClick={handleNextPeriod}
+                disabled={!canGoNext}
+                className={`p-1.5 rounded-lg border transition-all cursor-pointer ${
+                  canGoNext
+                    ? 'border-slate-200 text-slate-600 hover:bg-slate-50 hover:text-slate-900 active:scale-95'
+                    : 'border-slate-100 text-slate-300 cursor-not-allowed'
+                }`}
+                title="Next Period"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </>
+          )}
 
           {/* Quick Settings Button */}
           <button
@@ -603,113 +738,543 @@ export default function ProfitDashboard({
         )}
       </div>
 
-      {/* HISTORICAL & DAILY PERIOD EVALUATION TABLE */}
-      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3.5">
+      {/* HISTORICAL & DYNAMIC PERIOD EVALUATION (div:nth-of-type(4)) */}
+      <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4" id="profit-evaluation-section">
         
         {/* Header: div:nth-of-type(4) > div:nth-of-type(1) */}
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
-          <div className="flex items-center gap-2">
-            <Coins size={16} className="text-emerald-600" />
-            <h3 className="text-xs sm:text-sm font-bold text-slate-900 font-mono">
-              Monthly Cycles History (26th – 25th)
-            </h3>
-            <span className="text-2xs font-mono text-slate-400">EUR (€)</span>
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-3 border-b border-slate-100">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className="w-8 h-8 rounded-lg bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 flex items-center justify-center shrink-0">
+              <Zap size={16} />
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-xs sm:text-sm font-bold text-slate-900 font-mono">
+                  Dynamic Period Evaluation & Production Ledger
+                </h3>
+                <span className="px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-emerald-50 text-emerald-700 border border-emerald-200 flex items-center gap-1">
+                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />
+                  Dynamic: 02 Oct → Today
+                </span>
+              </div>
+            </div>
           </div>
 
-          <div className="flex items-center gap-2 text-xs font-mono text-slate-500">
-            <span>Selected Period: <strong className="text-slate-900">{activePeriodProfit.periodLabel}</strong></span>
+          {/* Subtab Toggle: Daily Breakdown vs Monthly Cycles */}
+          <div className="flex items-center bg-slate-100 p-0.5 rounded-xl self-start sm:self-auto gap-0.5">
+            <button
+              onClick={() => setSection4Tab('daily')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                section4Tab === 'daily'
+                  ? 'bg-white text-emerald-800 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Clock size={12} className={section4Tab === 'daily' ? 'text-emerald-600' : 'text-slate-400'} />
+              <span>Daily Breakdown</span>
+            </button>
+
+            <button
+              onClick={() => setSection4Tab('monthly')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer flex items-center gap-1.5 ${
+                section4Tab === 'monthly'
+                  ? 'bg-white text-slate-900 shadow-2xs'
+                  : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              <Calendar size={12} className={section4Tab === 'monthly' ? 'text-indigo-600' : 'text-slate-400'} />
+              <span>Monthly Cycles (26th–25th)</span>
+            </button>
           </div>
         </div>
 
-        {/* MONTHLY CYCLES TABLE */}
-        <div className="overflow-x-auto rounded-2xl border border-slate-100">
-          <table className="w-full text-left text-xs border-collapse">
-            <thead>
-              <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold text-slate-400 uppercase tracking-wider font-mono">
-                <th className="py-3 px-4">Period</th>
-                <th className="py-3 px-4">Working Days</th>
-                <th className="py-3 px-4 text-center">Rolls Cut</th>
-                <th className="py-3 px-4 text-right">Produced PCS</th>
-                <th className="py-3 px-4 text-right">Gross Profit (€)</th>
-                <th className="py-3 px-4 text-right">Operators Cost (€)</th>
-                <th className="py-3 px-4 text-right">NET PROFIT (€)</th>
-                <th className="py-3 px-4 text-right">Margin %</th>
-                <th className="py-3 px-4 text-center">Action</th>
-              </tr>
-            </thead>
-            <tbody className="divide-y divide-slate-100">
-              {allEvaluatedPeriods.map((p) => {
-                const isSelected = p.periodId === selectedMonthId;
+        {/* DYNAMIC CONTROLS TOOLBAR (Presets & Date Range Pickers) */}
+        <div className="bg-slate-50/80 border border-slate-200/80 rounded-xl p-3.5 space-y-3">
+          {/* Row 1: Quick Presets */}
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400 font-mono mr-1">
+                Presets:
+              </span>
+              
+              <button
+                onClick={() => {
+                  handleSetPresetFullDynamic();
+                  setPeriodMode('dynamic');
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono transition cursor-pointer flex items-center gap-1 ${
+                  dynamicStartDate === defaultEfficiencyStartDate && dynamicEndDate === todayMoroccoStr
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                }`}
+                title="Dynamic range from first roll opened with efficiency (02 Oct) to current date"
+              >
+                <Zap size={11} />
+                <span>02 Oct → Today (Dynamic)</span>
+              </button>
 
-                return (
-                  <tr 
-                    key={p.periodId}
-                    className={`transition-colors ${
-                      isSelected ? 'bg-emerald-50/40 font-bold' : 'hover:bg-slate-50/60'
-                    }`}
+              <button
+                onClick={() => {
+                  handleSetPresetToday();
+                  setPeriodMode('dynamic');
+                }}
+                className={`px-2.5 py-1 rounded-lg text-xs font-bold font-mono transition cursor-pointer flex items-center gap-1 ${
+                  dynamicStartDate === todayMoroccoStr && dynamicEndDate === todayMoroccoStr
+                    ? 'bg-emerald-600 text-white shadow-2xs'
+                    : 'bg-white hover:bg-slate-100 text-slate-700 border border-slate-200'
+                }`}
+                title="Single day profit (Today with 3 operators)"
+              >
+                <Clock size={11} />
+                <span>Today / Last Day</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  handleSetPresetYesterday();
+                  setPeriodMode('dynamic');
+                }}
+                className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono transition cursor-pointer bg-white hover:bg-slate-100 text-slate-700 border border-slate-200"
+                title="Yesterday single day profit"
+              >
+                <span>Yesterday</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  handleSetPresetLast7Days();
+                  setPeriodMode('dynamic');
+                }}
+                className="px-2.5 py-1 rounded-lg text-xs font-bold font-mono transition cursor-pointer bg-white hover:bg-slate-100 text-slate-700 border border-slate-200"
+                title="Last 7 days"
+              >
+                <span>Last 7 Days</span>
+              </button>
+            </div>
+
+            <span className="text-[11px] font-mono text-slate-400">
+              Active Mode: <strong className="text-emerald-700 capitalize">{periodMode}</strong>
+            </span>
+          </div>
+
+          {/* Row 2: Custom Date Inputs & Working Days */}
+          <div className="flex flex-wrap items-center gap-3 pt-1 text-xs">
+            {/* From Date */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500 font-bold font-mono">From:</span>
+              <input
+                type="date"
+                value={dynamicStartDate}
+                onChange={(e) => {
+                  setDynamicStartDate(e.target.value);
+                  setManualDynamicDays(null);
+                  setPeriodMode('dynamic');
+                }}
+                className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 font-mono font-bold text-slate-800 text-xs focus:ring-2 focus:ring-emerald-500 shadow-3xs"
+              />
+            </div>
+
+            {/* To Date */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500 font-bold font-mono">To:</span>
+              <input
+                type="date"
+                value={dynamicEndDate}
+                onChange={(e) => {
+                  setDynamicEndDate(e.target.value);
+                  setManualDynamicDays(null);
+                  setPeriodMode('dynamic');
+                }}
+                className="bg-white border border-slate-200 rounded-lg px-2.5 py-1 font-mono font-bold text-slate-800 text-xs focus:ring-2 focus:ring-emerald-500 shadow-3xs"
+              />
+            </div>
+
+            {/* Working Days Pill / Edit */}
+            <div className="flex items-center gap-1.5">
+              <span className="text-slate-500 font-bold font-mono">Working Days:</span>
+              {isEditingDynamicDays ? (
+                <div className="flex items-center gap-1">
+                  <input
+                    type="number"
+                    min="1"
+                    max="60"
+                    value={draftDynamicDays}
+                    onChange={(e) => setDraftDynamicDays(Math.max(1, Number(e.target.value) || 1))}
+                    className="w-14 bg-white border border-emerald-400 rounded-lg px-2 py-0.5 font-mono font-bold text-slate-900 text-xs"
+                    autoFocus
+                  />
+                  <button
+                    onClick={() => {
+                      setManualDynamicDays(draftDynamicDays);
+                      setIsEditingDynamicDays(false);
+                    }}
+                    className="px-2 py-1 bg-emerald-600 text-white rounded-lg text-2xs font-bold cursor-pointer"
                   >
-                    <td className="py-3.5 px-4">
-                      <div className="font-bold text-slate-900">{p.periodLabel}</div>
-                      <div className="text-[10px] text-slate-400 font-mono">{p.shortLabel}</div>
-                    </td>
-                    
-                    {/* Working Days Cell */}
-                    <td className="py-3.5 px-4 font-mono text-slate-700">
-                      <div className="font-bold text-slate-900 flex items-center gap-1.5">
-                        <span>{p.workingDays} working days</span>
-                        {p.periodId.includes('2026-10') && (
-                          <span className="w-2 h-2 rounded-full bg-emerald-500" title="Active production window" />
-                        )}
-                      </div>
-                      <div className="text-[10px] text-slate-400 font-sans">
-                        {p.periodId.includes('2026-10')
-                          ? '02 Oct – 10 Oct (excl. 1 Sun)'
-                          : `${p.workingDays} days (Mon–Sat)`}
-                      </div>
-                    </td>
+                    Save
+                  </button>
+                  <button
+                    onClick={() => setIsEditingDynamicDays(false)}
+                    className="px-1.5 py-1 bg-slate-200 text-slate-700 rounded-lg text-2xs cursor-pointer"
+                  >
+                    ✕
+                  </button>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    setDraftDynamicDays(effectiveDynamicDays);
+                    setIsEditingDynamicDays(true);
+                  }}
+                  className="px-2.5 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg font-mono font-bold text-xs flex items-center gap-1.5 transition cursor-pointer"
+                  title="Click to adjust working days for this dynamic range"
+                >
+                  <span>{effectiveDynamicDays} days</span>
+                  <Edit2 size={10} className="text-amber-600" />
+                </button>
+              )}
+            </div>
 
-                    <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">
-                      {p.rollsCount}
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono text-slate-900">
-                      {p.totalProducedPieces.toLocaleString()}
-                    </td>
-                    <td className={`py-3.5 px-4 text-right font-mono font-bold ${
-                      p.grossProfitEur < 0 ? 'text-rose-600' : 'text-indigo-700'
-                    }`}>
-                      {formatEuroCurrency(p.grossProfitEur)}
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono text-slate-600">
-                      {formatEuroCurrency(p.totalLaborCostEur)}
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono font-black">
-                      <span className={p.netProfitEur >= 0 ? 'text-emerald-700' : 'text-rose-600'}>
-                        {formatEuroCurrency(p.netProfitEur)}
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-right font-mono font-bold">
-                      <span className={p.netProfitMarginPercent >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
-                        {p.netProfitMarginPercent >= 0 ? '+' : ''}{p.netProfitMarginPercent.toFixed(1)}%
-                      </span>
-                    </td>
-                    <td className="py-3.5 px-4 text-center">
-                      <button
-                        onClick={() => setSelectedMonthId(p.periodId)}
-                        className={`px-3 py-1 rounded-lg text-2xs font-bold transition-all cursor-pointer ${
-                          isSelected 
-                            ? 'bg-emerald-600 text-white shadow-2xs' 
-                            : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+            {/* Workforce Info */}
+            <div className="flex items-center gap-1.5 text-slate-500 font-mono text-[11px] ml-auto">
+              <Users size={12} className="text-slate-400" />
+              <span>{config.workersCount} operators ({formatEuroCurrency(workforceDailyEur)}/day)</span>
+            </div>
+          </div>
+        </div>
+
+        {/* DYNAMIC PERIOD KPI SUMMARY STRIP */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2.5">
+          {/* Metric 1: Rolls Cut */}
+          <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
+              Rolls Cut
+            </span>
+            <div className="text-lg font-black font-mono text-slate-900 mt-0.5">
+              {dynamicPeriodProfit.rollsCount} rolls
+            </div>
+            <span className="text-[10.5px] text-slate-400 font-mono block">
+              In selected window
+            </span>
+          </div>
+
+          {/* Metric 2: Produced Output */}
+          <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
+              Produced Output
+            </span>
+            <div className="text-lg font-black font-mono text-slate-900 mt-0.5">
+              {dynamicPeriodProfit.totalProducedPieces.toLocaleString()} pcs
+            </div>
+            <span className="text-[10.5px] text-slate-400 font-mono block">
+              Finished airbags
+            </span>
+          </div>
+
+          {/* Metric 3: Gross Profit */}
+          <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
+              Gross Profit
+            </span>
+            <div className={`text-lg font-black font-mono mt-0.5 ${
+              dynamicPeriodProfit.grossProfitEur < 0 ? 'text-rose-600' : 'text-indigo-700'
+            }`}>
+              {formatEuroCurrency(dynamicPeriodProfit.grossProfitEur)}
+            </div>
+            <span className="text-[10.5px] text-slate-400 font-mono block">
+              Value − Fabric cost
+            </span>
+          </div>
+
+          {/* Metric 4: Operators Labor Cost */}
+          <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
+              Operators Labor
+            </span>
+            <div className="text-lg font-black font-mono text-slate-900 mt-0.5">
+              {formatEuroCurrency(dynamicPeriodProfit.totalLaborCostEur)}
+            </div>
+            <span className="text-[10.5px] text-slate-400 font-mono block">
+              {effectiveDynamicDays}d × {config.workersCount} ops
+            </span>
+          </div>
+
+          {/* Metric 5: Net Profit */}
+          <div className={`rounded-xl p-3 border ${
+            dynamicPeriodProfit.netProfitEur >= 0 
+              ? 'bg-emerald-50/70 border-emerald-200' 
+              : 'bg-rose-50/70 border-rose-200'
+          }`}>
+            <span className="text-[10px] font-bold uppercase tracking-wider text-slate-500 block font-mono">
+              Net Profit
+            </span>
+            <div className={`text-lg font-black font-mono mt-0.5 ${
+              dynamicPeriodProfit.netProfitEur >= 0 ? 'text-emerald-700' : 'text-rose-600'
+            }`}>
+              {formatEuroCurrency(dynamicPeriodProfit.netProfitEur)}
+            </div>
+            <span className={`text-[10.5px] font-mono font-bold block ${
+              dynamicPeriodProfit.netProfitMarginPercent >= 0 ? 'text-emerald-700' : 'text-rose-600'
+            }`}>
+              {dynamicPeriodProfit.netProfitMarginPercent >= 0 ? '+' : ''}{dynamicPeriodProfit.netProfitMarginPercent.toFixed(1)}% margin
+            </span>
+          </div>
+
+          {/* Metric 6: Average Yield Efficiency */}
+          {(() => {
+            const rollsInWindow = dynamicPeriodProfit.rolls;
+            const avgYield = rollsInWindow.length > 0
+              ? Math.round(
+                  (rollsInWindow.reduce((acc, r) => acc + (r.materialEfficiency || 0), 0) / rollsInWindow.length) * 100
+                ) / 100
+              : 0;
+
+            const yieldColorClass = avgYield < 70 
+              ? 'text-rose-600' 
+              : avgYield <= 90 
+              ? 'text-amber-500' 
+              : 'text-emerald-600';
+
+            return (
+              <div className="bg-slate-50 border border-slate-200/80 rounded-xl p-3">
+                <span className="text-[10px] font-bold uppercase tracking-wider text-slate-400 block font-mono">
+                  Yield Efficiency
+                </span>
+                <div className={`text-lg font-black font-mono mt-0.5 ${yieldColorClass}`}>
+                  {formatEfficiencyPercent(avgYield)}
+                </div>
+                <span className="text-[10.5px] text-slate-400 font-mono block">
+                  {avgYield < 70 ? 'Below 70%' : avgYield <= 90 ? '70% – 90%' : 'Over 90%'}
+                </span>
+              </div>
+            );
+          })()}
+        </div>
+
+        {/* SUBTAB CONTENT: DAILY BREAKDOWN TABLE */}
+        {section4Tab === 'daily' && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-mono text-slate-500">
+              <span className="font-bold text-slate-700">
+                Daily Performance Breakdown ({dailyBreakdown.length} recorded production days)
+              </span>
+              <span>Labor evaluated at 3 operators / day (610.08 DH = €56.49/day)</span>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-slate-100">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                    <th className="py-3 px-4">Date / Day</th>
+                    <th className="py-3 px-4 text-center">Working Day</th>
+                    <th className="py-3 px-4 text-center">Rolls Cut</th>
+                    <th className="py-3 px-4 text-right">Produced PCS</th>
+                    <th className="py-3 px-4 text-right">Gross Profit (€)</th>
+                    <th className="py-3 px-4 text-right">3 Operators Labor (€)</th>
+                    <th className="py-3 px-4 text-right">NET PROFIT (€)</th>
+                    <th className="py-3 px-4 text-right">Yield Efficiency</th>
+                    <th className="py-3 px-4 text-center">Dashboard Focus</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-100 font-mono">
+                  {dailyBreakdown.map((d) => {
+                    const isFocus = periodMode === 'dynamic' && dynamicStartDate === d.dateStr && dynamicEndDate === d.dateStr;
+                    const efficiency = d.avgMaterialEfficiency || (
+                      d.rolls.length > 0
+                        ? Math.round((d.rolls.reduce((sum, r) => sum + (r.materialEfficiency || 0), 0) / d.rolls.length) * 100) / 100
+                        : 0
+                    );
+
+                    const effColor = efficiency < 70
+                      ? 'text-rose-600'
+                      : efficiency <= 90
+                      ? 'text-amber-500'
+                      : 'text-emerald-600';
+
+                    return (
+                      <tr 
+                        key={d.dateStr}
+                        className={`transition-colors ${
+                          isFocus ? 'bg-emerald-50/50 font-bold' : 'hover:bg-slate-50/70'
                         }`}
                       >
-                        {isSelected ? 'Viewing' : 'Select'}
-                      </button>
-                    </td>
+                        <td className="py-3.5 px-4 font-sans">
+                          <div className="font-bold text-slate-900 flex items-center gap-1.5 font-mono">
+                            <span>{d.displayDate}</span>
+                            {d.isToday && (
+                              <span className="px-1.5 py-0.5 rounded text-[9.5px] font-bold bg-emerald-100 text-emerald-800 uppercase tracking-wide">
+                                Today
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-400">
+                            {d.dayOfWeek}
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-4 text-center text-slate-600">
+                          1 day
+                        </td>
+
+                        <td className="py-3.5 px-4 text-center font-bold text-slate-800">
+                          {d.rollsCount}
+                        </td>
+
+                        <td className="py-3.5 px-4 text-right text-slate-900 font-bold">
+                          {d.totalProducedPieces.toLocaleString()} pcs
+                        </td>
+
+                        {/* Gross Profit: Red if negative */}
+                        <td className={`py-3.5 px-4 text-right font-bold ${
+                          d.grossProfitEur < 0 ? 'text-rose-600' : 'text-indigo-700'
+                        }`}>
+                          {formatEuroCurrency(d.grossProfitEur)}
+                        </td>
+
+                        {/* Operators Labor Cost */}
+                        <td className="py-3.5 px-4 text-right text-slate-500">
+                          {formatEuroCurrency(d.dailyLaborCostEur)}
+                        </td>
+
+                        {/* Net Profit: Red if negative, green if positive */}
+                        <td className="py-3.5 px-4 text-right font-black">
+                          <span className={d.netProfitEur >= 0 ? 'text-emerald-700' : 'text-rose-600'}>
+                            {formatEuroCurrency(d.netProfitEur)}
+                          </span>
+                        </td>
+
+                        {/* Yield Efficiency: <70 red, 70-90 yellow, >90 green */}
+                        <td className={`py-3.5 px-4 text-right font-bold ${effColor}`}>
+                          {formatEfficiencyPercent(efficiency)}
+                        </td>
+
+                        <td className="py-3.5 px-4 text-center">
+                          <button
+                            onClick={() => {
+                              setPeriodMode('dynamic');
+                              setDynamicStartDate(d.dateStr);
+                              setDynamicEndDate(d.dateStr);
+                              setManualDynamicDays(1);
+                            }}
+                            className={`px-2.5 py-1 rounded-lg text-2xs font-bold transition cursor-pointer ${
+                              isFocus
+                                ? 'bg-emerald-600 text-white shadow-2xs'
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                            }`}
+                            title="Focus the dashboard KPI cards on this single day"
+                          >
+                            {isFocus ? 'Focused' : 'Inspect Day'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+
+        {/* SUBTAB CONTENT: MONTHLY CYCLES TABLE */}
+        {section4Tab === 'monthly' && (
+          <div className="space-y-2">
+            <div className="flex items-center justify-between text-xs font-mono text-slate-500">
+              <span className="font-bold text-slate-700">Company Monthly Accounting Cycles (26th of month M-1 to 25th of month M)</span>
+              <span>Selected Period: <strong className="text-slate-900">{activePeriodProfit.periodLabel}</strong></span>
+            </div>
+
+            <div className="overflow-x-auto rounded-2xl border border-slate-100">
+              <table className="w-full text-left text-xs border-collapse">
+                <thead>
+                  <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold text-slate-400 uppercase tracking-wider font-mono">
+                    <th className="py-3 px-4">Period</th>
+                    <th className="py-3 px-4">Working Days</th>
+                    <th className="py-3 px-4 text-center">Rolls Cut</th>
+                    <th className="py-3 px-4 text-right">Produced PCS</th>
+                    <th className="py-3 px-4 text-right">Gross Profit (€)</th>
+                    <th className="py-3 px-4 text-right">Operators Cost (€)</th>
+                    <th className="py-3 px-4 text-right">NET PROFIT (€)</th>
+                    <th className="py-3 px-4 text-right">Margin %</th>
+                    <th className="py-3 px-4 text-center">Action</th>
                   </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
+                </thead>
+                <tbody className="divide-y divide-slate-100">
+                  {allEvaluatedPeriods.map((p) => {
+                    const isSelected = periodMode === 'monthly' && p.periodId === selectedMonthId;
+
+                    return (
+                      <tr 
+                        key={p.periodId}
+                        className={`transition-colors ${
+                          isSelected ? 'bg-emerald-50/40 font-bold' : 'hover:bg-slate-50/60'
+                        }`}
+                      >
+                        <td className="py-3.5 px-4">
+                          <div className="font-bold text-slate-900">{p.periodLabel}</div>
+                          <div className="text-[10px] text-slate-400 font-mono">{p.shortLabel}</div>
+                        </td>
+                        
+                        {/* Working Days Cell */}
+                        <td className="py-3.5 px-4 font-mono text-slate-700">
+                          <div className="font-bold text-slate-900 flex items-center gap-1.5">
+                            <span>{p.workingDays} working days</span>
+                            {p.periodId.includes('2026-10') && (
+                              <span className="w-2 h-2 rounded-full bg-emerald-500" title="Active production window" />
+                            )}
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-sans">
+                            {p.periodId.includes('2026-10')
+                              ? '02 Oct – 10 Oct (excl. 1 Sun)'
+                              : `${p.workingDays} days (Mon–Sat)`}
+                          </div>
+                        </td>
+
+                        <td className="py-3.5 px-4 text-center font-mono font-bold text-slate-700">
+                          {p.rollsCount}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono text-slate-900">
+                          {p.totalProducedPieces.toLocaleString()}
+                        </td>
+                        <td className={`py-3.5 px-4 text-right font-mono font-bold ${
+                          p.grossProfitEur < 0 ? 'text-rose-600' : 'text-indigo-700'
+                        }`}>
+                          {formatEuroCurrency(p.grossProfitEur)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono text-slate-600">
+                          {formatEuroCurrency(p.totalLaborCostEur)}
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-black">
+                          <span className={p.netProfitEur >= 0 ? 'text-emerald-700' : 'text-rose-600'}>
+                            {formatEuroCurrency(p.netProfitEur)}
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-right font-mono font-bold">
+                          <span className={p.netProfitMarginPercent >= 0 ? 'text-emerald-600' : 'text-rose-500'}>
+                            {p.netProfitMarginPercent >= 0 ? '+' : ''}{p.netProfitMarginPercent.toFixed(1)}%
+                          </span>
+                        </td>
+                        <td className="py-3.5 px-4 text-center">
+                          <button
+                            onClick={() => {
+                              setSelectedMonthId(p.periodId);
+                              setPeriodMode('monthly');
+                            }}
+                            className={`px-3 py-1 rounded-lg text-2xs font-bold transition-all cursor-pointer ${
+                              isSelected 
+                                ? 'bg-emerald-600 text-white shadow-2xs' 
+                                : 'bg-slate-100 hover:bg-slate-200 text-slate-700'
+                            }`}
+                          >
+                            {isSelected ? 'Viewing' : 'Select'}
+                          </button>
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* CONFIGURATION MODAL / DRAWER (WHERE DH VALUES ARE STORED AND CONFIGURED) */}

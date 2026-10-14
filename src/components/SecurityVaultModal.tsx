@@ -99,11 +99,11 @@ export default function SecurityVaultModal({
         <div class="text-left text-xs space-y-2 text-slate-300">
           <p>This will check and restore missing factory reserve baseline rolls:</p>
           <ul class="list-disc pl-5 text-emerald-400 font-semibold space-y-1">
-            <li>9 Yellow Huesker (100m each)</li>
-            <li>7 Kuga (50m each)</li>
-            <li>4 White Huesker (100m each)</li>
+            <li>6 Yellow Huesker (100m each)</li>
+            <li>2 Kuga (50m each)</li>
+            <li>3 White Huesker (100m each)</li>
           </ul>
-          <p class="text-amber-400 font-bold pt-2">Note: Any newly registered rolls will be preserved!</p>
+          <p class="text-amber-400 font-bold pt-2">Note: Active rolls in production and closed rolls are 100% protected!</p>
         </div>
       `,
       icon: 'question',

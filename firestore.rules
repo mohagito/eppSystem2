@@ -78,20 +78,22 @@ service cloud.firestore {
       allow delete: if isValidId(planId);
     }
 
-    // Rolls Traceability Collection (Permanent factory traceability - ZERO deletion permitted)
+    // Rolls Traceability Collection (Permanent factory traceability - Active & Closed rolls are NEVER deletable)
     match /rolls/{rollId} {
       allow read: if true;
       allow create, update: if isValidId(rollId)
         && request.resource.data.id == rollId
         && request.resource.data.materialName is string && request.resource.data.materialName.size() <= 100
-        && isValidDate(request.resource.data.date)
+        && (!('date' in request.resource.data) || isValidDate(request.resource.data.date) || request.resource.data.date is string)
         && (!('openedAt' in request.resource.data) || request.resource.data.openedAt is string)
         && (!('barcode' in request.resource.data) || (request.resource.data.barcode is string && request.resource.data.barcode.size() <= 200))
-        && request.resource.data.operator is string && request.resource.data.operator.size() <= 100
-        && request.resource.data.createdBy is string
+        && (!('operator' in request.resource.data) || (request.resource.data.operator is string && request.resource.data.operator.size() <= 100))
+        && (!('createdBy' in request.resource.data) || request.resource.data.createdBy is string)
         && (!('status' in request.resource.data) || request.resource.data.status is string);
-      // Strictly prevent deletion: Rolls are permanent factory assets and can NEVER be deleted
-      allow delete: if false;
+      // Strictly prevent deletion of active (in production) or closed (consumed) rolls
+      // Only unopened duplicate/seed stock may be cleaned if necessary
+      allow delete: if isValidId(rollId) 
+        && (!('status' in resource.data) || resource.data.status == 'Unopened' || resource.data.status == 'NEW');
     }
 
     // Settings / Daily Targets Document - Protected against accidental wipeout

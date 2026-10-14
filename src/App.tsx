@@ -1985,6 +1985,13 @@ export default function App() {
     const roll = rolls.find((r) => r.id === id);
     if (!roll) return;
 
+    // Zero-Trust Guard: Never allow deleting active rolls in production or closed rolls
+    const canonical = normalizeRollStatus(roll.status);
+    if (canonical !== 'NEW') {
+      addToast('Security Guard: Active (In Production) and Closed rolls are permanent factory assets and cannot be deleted.', 'error');
+      return;
+    }
+
     // Safety snapshot before deletion
     recordVaultSnapshot(
       { rolls, stockEntries, deliveries, plans, profiles, dailyTargets },
@@ -1994,11 +2001,11 @@ export default function App() {
 
     triggerCustomConfirm(
       'Confirm Roll Record Removal',
-      `Are you sure you want to permanently delete the traceability record for ${roll.materialName} (${roll.barcode || 'Pending Barcode'})? This action cannot be undone.`,
+      `Are you sure you want to delete the unopened stock record for ${roll.materialName} (${roll.barcode || 'Pending Barcode'})? This action cannot be undone.`,
       () => {
         deleteDoc(doc(db, 'rolls', id))
           .then(() => {
-            addToast(`Traceability log for roll ${roll.barcode || roll.materialName} has been deleted.`, 'success');
+            addToast(`Stock record for roll ${roll.barcode || roll.materialName} has been deleted.`, 'success');
           })
           .catch((err) => {
             handleFirestoreError(err, OperationType.DELETE, `rolls/${id}`);
@@ -2046,7 +2053,7 @@ export default function App() {
   const handleRecoverRolls = () => {
     triggerCustomConfirm(
       'Restore Factory Rolls Baseline',
-      'This will check and restore factory baseline reserve stock (9 Yellow Huesker, 7 Kuga, 4 White Huesker) into the database. Any registered custom rolls will be preserved safely. Proceed?',
+      'This will check and restore factory baseline reserve stock (6 Yellow Huesker, 2 Kuga, 3 White Huesker) into the database. Active and custom rolls will be preserved safely. Proceed?',
       async () => {
         try {
           // Take safety snapshot first
@@ -2059,7 +2066,7 @@ export default function App() {
           const restoredCount = await restoreBaselineReserveRolls(true);
           const msg = restoredCount > 0 
             ? `Factory baseline recovered! ${restoredCount} rolls added to active reserve.` 
-            : 'All 20 baseline factory reserve rolls are already in the database.';
+            : 'All factory reserve rolls are already in the database.';
           addToast(msg, 'success');
           triggerNotification(
             '🔄 Rolls Database Verified',

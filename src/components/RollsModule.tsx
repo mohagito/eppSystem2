@@ -370,6 +370,7 @@ export default function RollsModule({
       if (result.isConfirmed) {
         const { consumedMeters, notes: consumeNotes } = result.value;
         onConsumeRoll(roll.id, consumedMeters, consumeNotes);
+        setSubTab('history');
       }
     });
   };
@@ -516,6 +517,7 @@ export default function RollsModule({
       if (result.isConfirmed && result.value) {
         const { barcode: b, referenceId: r, expectedPieces: exp, actualLength: l } = result.value;
         onOpenRoll(roll.id, b, r, exp, l);
+        setSubTab('active');
       }
     });
   };
@@ -662,40 +664,14 @@ export default function RollsModule({
   const visibleRollsCount = (targetStatus: 'Unopened' | 'Active' | 'Consumed') => {
     return rolls.filter(r => {
       const canonical = normalizeRollStatus(r.status);
-      const isTarget = 
-        targetStatus === 'Unopened' ? canonical === 'NEW' :
-        targetStatus === 'Active' ? canonical === 'IN PRODUCTION' :
-        canonical === 'CLOSED';
-
-      if (currentUser.role === 'worker') {
-        if (targetStatus === 'Unopened') {
-          return isTarget;
-        }
-        return (
-          isTarget &&
-          ((r.operator || '').toLowerCase().trim() === currentUser.name.toLowerCase().trim() ||
-            r.createdBy === currentUser.id)
-        );
-      }
-      return isTarget;
+      if (targetStatus === 'Unopened') return canonical === 'NEW';
+      if (targetStatus === 'Active') return canonical === 'IN PRODUCTION';
+      return canonical === 'CLOSED';
     }).length;
   };
 
   // Filter rolls based on status and search query
   const filteredRolls = rolls
-    .filter(r => {
-      const canonical = normalizeRollStatus(r.status);
-      if (currentUser.role === 'worker') {
-        if (canonical === 'NEW') {
-          return true;
-        }
-        return (
-          (r.operator || '').toLowerCase().trim() === currentUser.name.toLowerCase().trim() ||
-          r.createdBy === currentUser.id
-        );
-      }
-      return true;
-    })
     .filter(r => {
       const canonical = normalizeRollStatus(r.status);
       let matchesTab = false;
@@ -709,7 +685,8 @@ export default function RollsModule({
       const matchesSearch = 
         r.materialName.toLowerCase().includes(searchQuery.toLowerCase()) ||
         (r.barcode || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (r.operator || '').toLowerCase().includes(searchQuery.toLowerCase());
+        (r.operator || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
+        (r.referenceId || '').toLowerCase().includes(searchQuery.toLowerCase());
       return matchesTab && matchesSearch;
     });
 
@@ -793,16 +770,6 @@ export default function RollsModule({
         </div>
 
         <div className="flex items-center gap-2.5">
-          {onRecoverRolls && (
-            <button
-              onClick={onRecoverRolls}
-              className="px-3.5 py-2.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-2xs active:scale-95"
-              title="Restore factory reserve baseline: 9 Yellow Huesker, 7 Kuga, 4 White Huesker"
-            >
-              <RotateCcw size={14} className="text-emerald-600" />
-              <span>Recover Rolls Database</span>
-            </button>
-          )}
           <button
             onClick={() => setFormOpen(!formOpen)}
             className={`px-4 py-2.5 rounded-xl text-xs font-bold transition-all shadow-xs flex items-center gap-2 cursor-pointer active:scale-95 ${
@@ -1045,7 +1012,7 @@ export default function RollsModule({
                 type="button"
                 onClick={onRecoverRolls}
                 className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-2xs active:scale-95"
-                title="Recover factory reserve baseline database (9 Yellow Huesker, 7 Kuga, 4 White Huesker)"
+                title="Verify factory reserve stock (6 Yellow Huesker, 2 Kuga, 3 White Huesker)"
               >
                 <RotateCcw size={13} className="text-emerald-600" />
                 <span>Recover Database</span>
@@ -1066,7 +1033,7 @@ export default function RollsModule({
           <div className="mx-4 my-3 p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
             <div className="flex items-center gap-2 text-amber-900 text-xs font-bold">
               <AlertCircle size={18} className="text-amber-600 shrink-0" />
-              <span>Rolls database is currently at zero. Click Recover to restore factory spreadsheet stock (9 Yellow Huesker, 7 Kuga, 4 White Huesker).</span>
+              <span>Rolls database is currently at zero. Click Recover to restore factory spreadsheet stock (6 Yellow Huesker, 2 Kuga, 3 White Huesker).</span>
             </div>
             <button
               onClick={onRecoverRolls}
@@ -1215,36 +1182,45 @@ export default function RollsModule({
           <div className="flex bg-slate-100 p-1 rounded-xl max-w-md shrink-0" id="rolls-sub-tabs">
             <button
               onClick={() => setSubTab('unopened')}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 subTab === 'unopened'
-                  ? 'bg-white text-slate-900 shadow-xs'
+                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
                   : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               <Archive size={13} className={subTab === 'unopened' ? 'text-indigo-600' : ''} />
-              NEW ({visibleRollsCount('Unopened')})
+              <span>Rolls Stock (Unopened)</span>
+              <span className="ml-1 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700">
+                {visibleRollsCount('Unopened')}
+              </span>
             </button>
             <button
               onClick={() => setSubTab('active')}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 subTab === 'active'
-                  ? 'bg-white text-slate-900 shadow-xs'
+                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
                   : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               <CheckCircle2 size={13} className={subTab === 'active' ? 'text-amber-600' : ''} />
-              IN PRODUCTION ({visibleRollsCount('Active')})
+              <span>In Production (Active)</span>
+              <span className="ml-1 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
+                {visibleRollsCount('Active')}
+              </span>
             </button>
             <button
               onClick={() => setSubTab('history')}
-              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 subTab === 'history'
-                  ? 'bg-white text-slate-900 shadow-xs'
+                  ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
                   : 'text-slate-500 hover:text-slate-800'
               }`}
             >
               <History size={13} className={subTab === 'history' ? 'text-slate-600' : ''} />
-              CLOSED ({visibleRollsCount('Consumed')})
+              <span>Closed Rolls</span>
+              <span className="ml-1 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
+                {visibleRollsCount('Consumed')}
+              </span>
             </button>
           </div>
 
@@ -1495,11 +1471,11 @@ export default function RollsModule({
                           <Pencil size={13} />
                         </button>
 
-                        {isManager && (
+                        {isManager && normalizeRollStatus(roll.status) === 'NEW' && (
                           <button
                             onClick={() => onDeleteRoll(roll.id)}
                             className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
-                            title="Delete traceability log"
+                            title="Delete unopened roll record"
                           >
                             <Trash2 size={13} />
                           </button>
@@ -1552,8 +1528,12 @@ export default function RollsModule({
         expectedYields={expectedYields}
         piecePrices={piecePrices}
         onClose={() => setInspectedRoll(null)}
-        onRecordProduction={onRecordProduction}
-        onMarkFinished={onMarkFinished}
+        onMarkFinished={async (rollId, waste, notes) => {
+          if (onMarkFinished) {
+            await onMarkFinished(rollId, waste, notes);
+            setSubTab('history');
+          }
+        }}
         onOpenCloseRoll={(r) => {
           setInspectedRoll(null);
           setClosingRoll(r);
@@ -1571,6 +1551,7 @@ export default function RollsModule({
               await onCloseRoll(rollId, unpackaged, notes);
             }
             setClosingRoll(null);
+            setSubTab('history');
           }}
         />
       )}

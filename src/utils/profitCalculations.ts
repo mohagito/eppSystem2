@@ -162,6 +162,31 @@ export function getFirstRollOpenedDate(rolls: RollEntry[]): Date {
 }
 
 /**
+ * Finds the date string (YYYY-MM-DD) of the first roll opened with efficiency calculation.
+ * Defaults to '2026-10-02' (2 Oct 2026) as factory efficiency start date.
+ */
+export function getFirstEfficiencyRollDateStr(rolls: RollEntry[]): string {
+  let earliestDateStr: string | null = null;
+
+  rolls.forEach((r) => {
+    const status = normalizeRollStatus(r.status);
+    if (status === 'IN PRODUCTION' || status === 'CLOSED' || r.openedAt || r.materialEfficiency !== undefined) {
+      const candidates = [r.openedAt, r.date, r.createdAt].filter(Boolean);
+      candidates.forEach((c) => {
+        const dStr = typeof c === 'string' ? c.slice(0, 10) : '';
+        if (dStr && dStr.length === 10 && dStr.startsWith('202')) {
+          if (!earliestDateStr || dStr < earliestDateStr) {
+            earliestDateStr = dStr;
+          }
+        }
+      });
+    }
+  });
+
+  return earliestDateStr || '2026-10-02';
+}
+
+/**
  * Company Month Period:
  * Runs from day 26 of month M-1 to day 25 of month M.
  */
@@ -671,6 +696,7 @@ export interface DailyProfitDetail {
   netProfitEur: number;      // grossProfitEur - dailyLaborCostEur
   netProfitDH: number;       // grossProfitDH - dailyLaborCostDH
   netProfitMarginPercent: number;
+  avgMaterialEfficiency?: number;
   rolls: RollPeriodProfitDetail[];
 }
 
@@ -763,6 +789,12 @@ export function calculateDailyProfitBreakdown(
       ? Math.round((netProfitDH / Math.abs(grossProfitDH)) * 10000) / 100
       : 0;
 
+    const avgMaterialEfficiency = periodRolls.length > 0
+      ? Math.round(
+          (periodRolls.reduce((sum, r) => sum + (r.materialEfficiency || 0), 0) / periodRolls.length) * 100
+        ) / 100
+      : 0;
+
     return {
       dateStr,
       displayDate,
@@ -781,6 +813,7 @@ export function calculateDailyProfitBreakdown(
       netProfitEur,
       netProfitDH,
       netProfitMarginPercent,
+      avgMaterialEfficiency,
       rolls: periodRolls
     };
   });
