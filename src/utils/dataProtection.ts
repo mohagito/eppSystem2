@@ -228,6 +228,81 @@ export const FACTORY_RESERVE_BASELINE_ROLLS: Omit<RollEntry, 'date'>[] = [
 ];
 
 /**
+ * Closed Roll 2600056310 (HUESKER 82 / White Huesker - 100m - Closed with 4320 pcs CRAFTER produced, expected 8675)
+ */
+export const ROLL_2600056310_CLOSED: RollEntry = {
+  id: 'roll-seed-white-2',
+  barcode: '2600056310',
+  materialName: 'White Huesker',
+  status: 'Consumed',
+  metersTotal: 100,
+  consumedMeters: 100,
+  rollCost: 1610.00,
+  date: '2026-10-14',
+  openedAt: '2026-10-14T08:00:00.000Z',
+  closedAt: '2026-10-14T10:30:00.000Z',
+  operator: 'Mouad',
+  referenceId: 'CRAFTER',
+  relatedReferences: ['CRAFTER', 'CADDY'],
+  expectedPieces: 8675,
+  producedPieces: 4320,
+  productionValue: 2678.40,
+  grossProfit: 1068.40,
+  profitPercent: 66.36,
+  materialEfficiency: 49.80,
+  productionRecords: [
+    {
+      id: 'rec-2600056310-1',
+      rollId: 'roll-seed-white-2',
+      rollBarcode: '2600056310',
+      referenceId: 'CRAFTER',
+      quantity: 4320,
+      date: '2026-10-14',
+      time: '10:00',
+      operator: 'Mouad',
+      machine: 'Big Machine',
+      notes: 'Huesker 82 CRAFTER batch',
+      createdAt: '2026-10-14T10:00:00.000Z'
+    }
+  ],
+  reconciliation: {
+    references: [
+      {
+        reference: 'CRAFTER',
+        openingStock: 0,
+        productionDuringRoll: 4320,
+        closingUnpackaged: 0,
+        actualProduction: 4320,
+        pricePerPiece: 0.6200,
+        productionValue: 2678.40,
+        finalStock: 4320
+      }
+    ],
+    totalActualPieces: 4320,
+    totalProductionValue: 2678.40,
+    rollCost: 1610.00,
+    grossProfit: 1068.40,
+    profitPercent: 66.36,
+    closedAt: '2026-10-14T10:30:00.000Z',
+    closedBy: 'Mouad'
+  },
+  notes: 'Huesker 82 Roll 2600056310 - CRAFTER 4320 pcs produced (expected 8675 pcs)',
+  createdBy: 'Mouad'
+};
+
+/**
+ * Complete verified factory rolls (Unopened stock: 6 Yellow, 2 Kuga, 3 White, 0 India; plus historical closed roll 2600056310)
+ */
+export function getBaselineFactoryRolls(): RollEntry[] {
+  const today = getMoroccoDateStr();
+  const unopened: RollEntry[] = FACTORY_RESERVE_BASELINE_ROLLS.map(r => ({
+    ...r,
+    date: today
+  } as RollEntry));
+  return [...unopened, ROLL_2600056310_CLOSED];
+}
+
+/**
  * Safely restores baseline factory rolls WITHOUT deleting any custom operator rolls
  * NEVER touches active rolls (in production) or closed rolls (history)
  */

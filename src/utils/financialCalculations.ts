@@ -133,7 +133,7 @@ export const DEFAULT_EXPECTED_YIELDS: ExpectedYieldConfig[] = [
     reference: 'CRAFTER',
     material: 'White Huesker',
     materialFamily: 'HUESKER 82',
-    expectedPieces: 1800
+    expectedPieces: 8675
   },
   {
     id: 'CADDY',
@@ -588,11 +588,20 @@ export function getExpectedYieldForReference(
       if ((matchReference(ref, 'SK216') || matchReference(ref, 'VW217')) && found.expectedPieces === 4286) {
         return 3857;
       }
+      if (matchReference(ref, 'CRAFTER') && (found.expectedPieces === 2600 || found.expectedPieces === 1800)) {
+        return 8675;
+      }
       return found.expectedPieces;
     }
   }
   const defaultFound = DEFAULT_EXPECTED_YIELDS.find(y => matchReference(y.reference, ref) || y.id === ref);
-  return defaultFound ? defaultFound.expectedPieces : 250;
+  if (defaultFound) {
+    if (matchReference(ref, 'CRAFTER') && (defaultFound.expectedPieces === 2600 || defaultFound.expectedPieces === 1800)) {
+      return 8675;
+    }
+    return defaultFound.expectedPieces;
+  }
+  return matchReference(ref, 'CRAFTER') ? 8675 : 250;
 }
 
 /**
@@ -718,6 +727,17 @@ export function reconcileRollClosing(
 
   const closedAt = new Date().toISOString();
 
+  const isCrafter = material === 'White Huesker' || 
+    refs.some(r => r.toUpperCase().includes('CRAFTER')) || 
+    roll.barcode === '2600056310' || 
+    String(roll.barcode || '').startsWith('2600056310');
+
+  let targetYield = roll.expectedPieces || 0;
+  if (isCrafter && (targetYield === 2600 || targetYield === 1800 || !targetYield || targetYield < 5000)) {
+    targetYield = 8675;
+  }
+  const materialEfficiency = targetYield > 0 ? Math.round((totalActualPieces / targetYield) * 10000) / 100 : 0;
+
   const reconciliationData: RollReconciliationData = {
     references: reconciliations,
     totalActualPieces,
@@ -725,6 +745,8 @@ export function reconcileRollClosing(
     rollCost,
     grossProfit,
     profitPercent,
+    expectedPieces: targetYield,
+    materialEfficiency,
     closedAt,
     closedBy
   };
@@ -759,6 +781,8 @@ export function reconcileRollClosing(
     consumedMeters: costInfo.length,
     producedPieces: totalActualPieces,
     remainingPieces: 0,
+    expectedPieces: targetYield,
+    materialEfficiency,
     productionValue: totalProductionValue,
     grossProfit,
     profitPercent,
@@ -862,6 +886,15 @@ export function calculateRollProductionMetrics(
     if (material === 'Delcotex India' && (actualLength === 90 || roll.metersTotal === 90 || !roll.metersTotal) && recExp === 4286) {
       recExp = 3857;
     }
+    const isCrafterRoll = material === 'White Huesker' || 
+      refId.toUpperCase().includes('CRAFTER') || 
+      recRefs.some(r => r.toUpperCase().includes('CRAFTER')) || 
+      roll.barcode === '2600056310' || 
+      String(roll.barcode || '').startsWith('2600056310');
+
+    if (isCrafterRoll && (recExp === 2600 || recExp === 1800 || !recExp || recExp < 5000)) {
+      recExp = 8675;
+    }
     const recEff = recExp > 0 ? Math.round((rec.totalActualPieces / recExp) * 10000) / 100 : 0;
 
     return {
@@ -907,6 +940,16 @@ export function calculateRollProductionMetrics(
   // If Delcotex India roll is 90m (or unrecorded length) and has legacy 4286, expected is 3857
   if (material === 'Delcotex India' && (actualLength === 90 || roll.metersTotal === 90 || !roll.metersTotal) && expectedPieces === 4286) {
     expectedPieces = 3857;
+  }
+
+  // If White Huesker / CRAFTER roll has legacy 2600 or 1800 or unconfigured yield, expected yield is 8675
+  const isCrafter = material === 'White Huesker' || 
+    referenceId.toUpperCase().includes('CRAFTER') || 
+    roll.barcode === '2600056310' || 
+    String(roll.barcode || '').startsWith('2600056310');
+
+  if (isCrafter && (expectedPieces === 2600 || expectedPieces === 1800 || !expectedPieces || expectedPieces < 5000)) {
+    expectedPieces = 8675;
   }
 
   // Multi-reference production breakdown dictionary

@@ -208,6 +208,7 @@ export interface RollReconciliationData {
   rollCost: number;
   grossProfit: number;
   profitPercent: number;
+  expectedPieces?: number;
   materialEfficiency?: number; // Material Efficiency % = Produced PCS ÷ Expected PCS × 100
   closedAt: string;
   closedBy: string;

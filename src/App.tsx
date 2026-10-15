@@ -52,8 +52,8 @@ import RollsModule from './components/RollsModule';
 import FinancialEvaluation from './components/FinancialEvaluation';
 import ProfitDashboard from './components/ProfitDashboard';
 import SecurityVaultModal from './components/SecurityVaultModal';
-import { recordVaultSnapshot, restoreBaselineReserveRolls } from './utils/dataProtection';
-import { db, handleFirestoreError, OperationType } from './firebase';
+import { recordVaultSnapshot, restoreBaselineReserveRolls, getBaselineFactoryRolls, ROLL_2600056310_CLOSED } from './utils/dataProtection';
+import { db, handleFirestoreError, OperationType, isQuotaExceededError } from './firebase';
 import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDoc, getDocs, serverTimestamp } from 'firebase/firestore';
 import NotificationCenter, { playNotificationSound } from './components/NotificationCenter';
 import NotificationPermissionPrompt from './components/NotificationPermissionPrompt';
@@ -81,16 +81,108 @@ import {
 import { syncDataProtectionVault } from './services/dataProtectionService';
 
 export default function App() {
-  // --- DATABASE AND LOCAL STORAGE PERSISTENCE ---
-  const [dbLoading, setDbLoading] = useState<boolean>(true);
-  const [profiles, setProfiles] = useState<UserProfile[]>([]);
-  const [stockEntries, setStockEntries] = useState<StockEntry[]>([]);
-  const [plans, setPlans] = useState<ProductionPlan[]>([]);
-  const [deliveries, setDeliveries] = useState<DeliveryEntry[]>([]);
-  const [rolls, setRolls] = useState<RollEntry[]>([]);
-  const [financialRecords, setFinancialRecords] = useState<RollFinancialRecord[]>([]);
-  const [piecePrices, setPiecePrices] = useState<FinishedPiecePrice[]>(DEFAULT_PIECE_PRICES);
-  const [expectedYields, setExpectedYields] = useState<ExpectedYieldConfig[]>(DEFAULT_EXPECTED_YIELDS);
+  // --- DATABASE AND LOCAL STORAGE PERSISTENCE (RESILIENT ZERO-CRASH ARCHITECTURE) ---
+  const [dbLoading, setDbLoading] = useState<boolean>(false);
+  
+  const [profiles, setProfiles] = useState<UserProfile[]>(() => {
+    try {
+      if (typeof window === 'undefined') return MOCK_PROFILES;
+      const cached = localStorage.getItem('epp_cached_profiles');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return MOCK_PROFILES;
+  });
+
+  const [rolls, setRolls] = useState<RollEntry[]>(() => {
+    try {
+      if (typeof window === 'undefined') return getBaselineFactoryRolls();
+      const cached = localStorage.getItem('epp_cached_rolls');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return getBaselineFactoryRolls();
+  });
+
+  const [stockEntries, setStockEntries] = useState<StockEntry[]>(() => {
+    try {
+      if (typeof window === 'undefined') return INITIAL_STOCK_ENTRIES;
+      const cached = localStorage.getItem('epp_cached_stock');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return INITIAL_STOCK_ENTRIES;
+  });
+
+  const [plans, setPlans] = useState<ProductionPlan[]>(() => {
+    try {
+      if (typeof window === 'undefined') return INITIAL_PLANS;
+      const cached = localStorage.getItem('epp_cached_plans');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return INITIAL_PLANS;
+  });
+
+  const [deliveries, setDeliveries] = useState<DeliveryEntry[]>(() => {
+    try {
+      if (typeof window === 'undefined') return [];
+      const cached = localStorage.getItem('epp_cached_deliveries');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const [financialRecords, setFinancialRecords] = useState<RollFinancialRecord[]>(() => {
+    try {
+      if (typeof window === 'undefined') return [];
+      const cached = localStorage.getItem('epp_cached_financial');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const [piecePrices, setPiecePrices] = useState<FinishedPiecePrice[]>(() => {
+    try {
+      if (typeof window === 'undefined') return DEFAULT_PIECE_PRICES;
+      const cached = localStorage.getItem('epp_cached_piece_prices');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) return parsed;
+      }
+    } catch {}
+    return DEFAULT_PIECE_PRICES;
+  });
+
+  const [expectedYields, setExpectedYields] = useState<ExpectedYieldConfig[]>(() => {
+    try {
+      if (typeof window === 'undefined') return DEFAULT_EXPECTED_YIELDS;
+      const cached = localStorage.getItem('epp_cached_expected_yields');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          return parsed.map((y: ExpectedYieldConfig) => 
+            (y.id === 'CRAFTER' || y.reference === 'CRAFTER') ? { ...y, expectedPieces: 8675 } : y
+          );
+        }
+      }
+    } catch {}
+    return DEFAULT_EXPECTED_YIELDS;
+  });
 
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     try {
@@ -103,14 +195,32 @@ export default function App() {
     }
   });
 
-  const [dailyTargets, setDailyTargets] = useState<Record<string, number>>({
-    '2026-06-01': 250,
-    '2026-06-02': 300,
-    '2026-06-03': 300,
-    '2026-06-04': 250,
-    '2026-06-05': 300,
-    '2026-06-06': 350,
-    '2026-06-07': 300,
+  const [dailyTargets, setDailyTargets] = useState<Record<string, number>>(() => {
+    try {
+      if (typeof window === 'undefined') return {
+        '2026-06-01': 250,
+        '2026-06-02': 300,
+        '2026-06-03': 300,
+        '2026-06-04': 250,
+        '2026-06-05': 300,
+        '2026-06-06': 350,
+        '2026-06-07': 300,
+      };
+      const cached = localStorage.getItem('epp_cached_targets');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch {}
+    return {
+      '2026-06-01': 250,
+      '2026-06-02': 300,
+      '2026-06-03': 300,
+      '2026-06-04': 250,
+      '2026-06-05': 300,
+      '2026-06-06': 350,
+      '2026-06-07': 300,
+    };
   });
 
   // Navigation State
@@ -432,8 +542,15 @@ export default function App() {
         snapshot.forEach((doc) => {
           list.push(doc.data() as UserProfile);
         });
-        setProfiles(list);
+        if (list.length > 0) {
+          setProfiles(list);
+          try { localStorage.setItem('epp_cached_profiles', JSON.stringify(list)); } catch {}
+        }
       }, (err) => {
+        if (isQuotaExceededError(err)) {
+          console.warn('Profiles subscription operating in resilient local mode (daily quota reached)');
+          return;
+        }
         handleFirestoreError(err, OperationType.LIST, 'profiles');
       });
 
@@ -446,7 +563,12 @@ export default function App() {
         // Sort desc by createdAt
         list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setStockEntries(list);
+        try { localStorage.setItem('epp_cached_stock', JSON.stringify(list)); } catch {}
       }, (err) => {
+        if (isQuotaExceededError(err)) {
+          console.warn('Stock entries subscription operating in resilient local mode');
+          return;
+        }
         handleFirestoreError(err, OperationType.LIST, 'stock_entries');
       });
 
@@ -467,7 +589,12 @@ export default function App() {
         // Sort desc by planDate / createdAt
         list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setPlans(list);
+        try { localStorage.setItem('epp_cached_plans', JSON.stringify(list)); } catch {}
       }, (err) => {
+        if (isQuotaExceededError(err)) {
+          console.warn('Production plans subscription operating in resilient local mode');
+          return;
+        }
         handleFirestoreError(err, OperationType.LIST, 'production_plans');
       });
 
@@ -478,12 +605,17 @@ export default function App() {
           const data = docSnap.data();
           if (data && data.targets) {
             setDailyTargets(data.targets);
+            try { localStorage.setItem('epp_cached_targets', JSON.stringify(data.targets)); } catch {}
           }
         }
         setDbLoading(false);
       }, (err) => {
         clearTimeout(loadingTimeout);
         setDbLoading(false);
+        if (isQuotaExceededError(err)) {
+          console.warn('Daily targets subscription operating in resilient local mode');
+          return;
+        }
         handleFirestoreError(err, OperationType.GET, 'settings/daily_targets');
       });
 
@@ -509,7 +641,12 @@ export default function App() {
         });
         list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
         setDeliveries(list);
+        try { localStorage.setItem('epp_cached_deliveries', JSON.stringify(list)); } catch {}
       }, (err) => {
+        if (isQuotaExceededError(err)) {
+          console.warn('Deliveries subscription operating in resilient local mode');
+          return;
+        }
         handleFirestoreError(err, OperationType.LIST, 'deliveries');
       });
 
@@ -569,6 +706,24 @@ export default function App() {
               })
             : raw.openingStockDetails;
 
+          // Compute expected pieces with full Crafter 8675 enforcement
+          const rawExpected = Number(raw.expectedPieces);
+          const isCrafterRoll = materialName === 'White Huesker' || 
+            (raw.referenceId && String(raw.referenceId).toUpperCase().includes('CRAFTER')) || 
+            raw.barcode === '2600056310' || 
+            String(raw.barcode || '').startsWith('2600056310');
+
+          const expectedPieces = (isRoll43968015 || (materialName === 'Delcotex India' && (metersTotal === 90 || !raw.metersTotal) && rawExpected === 4286))
+            ? 3857
+            : (isCrafterRoll && (rawExpected === 2600 || rawExpected === 1800 || !raw.expectedPieces || rawExpected < 5000))
+              ? 8675
+              : (raw.expectedPieces !== undefined && rawExpected > 0 ? rawExpected : undefined);
+
+          const producedPieces = raw.producedPieces !== undefined ? Number(raw.producedPieces) : (isRoll43968015 ? 1500 : 0);
+          const matEfficiency = raw.materialEfficiency !== undefined
+            ? Number(raw.materialEfficiency)
+            : (expectedPieces && expectedPieces > 0 ? Math.round((producedPieces / expectedPieces) * 10000) / 100 : undefined);
+
           list.push({
             ...raw,
             id: raw.id || docSnap.id,
@@ -584,17 +739,13 @@ export default function App() {
               ? (raw.referenceId && raw.referenceId.includes('/') ? raw.referenceId : 'SK216 / VW217') 
               : raw.referenceId,
             relatedReferences: (isRoll43968015 || materialName === 'Delcotex India') ? ['SK216', 'VW217'] : raw.relatedReferences,
-            expectedPieces: (isRoll43968015 || (materialName === 'Delcotex India' && (raw.metersTotal === 90 || !raw.metersTotal) && Number(raw.expectedPieces) === 4286))
-              ? 3857
-              : (raw.expectedPieces !== undefined && Number(raw.expectedPieces) > 0 ? Number(raw.expectedPieces) : undefined),
-            producedPieces: raw.producedPieces !== undefined ? Number(raw.producedPieces) : (isRoll43968015 ? 1500 : 0),
+            expectedPieces,
+            producedPieces,
             productionRecords: raw.productionRecords || [],
             productionValue: raw.productionValue !== undefined ? Number(raw.productionValue) : (isRoll43968015 ? 1125 : 0),
             grossProfit: raw.grossProfit !== undefined ? Number(raw.grossProfit) : (isRoll43968015 ? -490.50 : undefined),
             profitPercent: raw.profitPercent !== undefined ? Number(raw.profitPercent) : (isRoll43968015 ? -30.36 : undefined),
-            materialEfficiency: raw.materialEfficiency !== undefined
-              ? Number(raw.materialEfficiency)
-              : (isRoll43968015 ? Math.round((1500 / 3857) * 10000) / 100 : undefined),
+            materialEfficiency: matEfficiency,
             openingStockSnapshot: openingSnapshot,
             rollOpeningStock: openingSnapshot,
             openingStockDetails: openingDetails,
@@ -602,10 +753,22 @@ export default function App() {
             createdBy: raw.createdBy || 'system'
           } as RollEntry);
         });
+
+        // Ensure roll 2600056310 is never missing from the rolls registry
+        const has2600 = list.some(r => r.barcode === '2600056310' || r.id === 'roll-seed-white-2');
+        if (!has2600) {
+          list.push(ROLL_2600056310_CLOSED);
+        }
+
         // Sort descending by registration ID (timestamp)
         list.sort((a, b) => b.id.localeCompare(a.id));
         setRolls(list);
+        try { localStorage.setItem('epp_cached_rolls', JSON.stringify(list)); } catch {}
       }, (err) => {
+        if (isQuotaExceededError(err)) {
+          console.warn('Rolls subscription operating in resilient local mode');
+          return;
+        }
         handleFirestoreError(err, OperationType.LIST, 'rolls');
       });
 
@@ -614,18 +777,18 @@ export default function App() {
         if (!snapshot.empty) {
           const list: ExpectedYieldConfig[] = [];
           snapshot.forEach((docSnap) => {
-            list.push(docSnap.data() as ExpectedYieldConfig);
+            const data = docSnap.data() as ExpectedYieldConfig;
+            // Enforce CRAFTER is 8675
+            if (data.id === 'CRAFTER' || data.reference === 'CRAFTER') {
+              data.expectedPieces = 8675;
+            }
+            list.push(data);
           });
           setExpectedYields(list);
-        } else {
-          // Initialize baseline expected yields in Firestore
-          DEFAULT_EXPECTED_YIELDS.forEach((y) => {
-            setDoc(doc(db, 'expected_yields', y.id), y).catch(() => {});
-          });
-          setExpectedYields(DEFAULT_EXPECTED_YIELDS);
+          try { localStorage.setItem('epp_cached_expected_yields', JSON.stringify(list)); } catch {}
         }
       }, (err) => {
-        console.warn('Expected yields subscription error:', err);
+        console.warn('Expected yields subscription notice:', err);
       });
 
       // 8. Sync Finished Piece Prices (Ensures operator and manager see identical synchronized data)
@@ -636,156 +799,52 @@ export default function App() {
             list.push(docSnap.data() as FinishedPiecePrice);
           });
           setPiecePrices(list);
-        } else {
-          // Initialize baseline prices in Firestore
-          DEFAULT_PIECE_PRICES.forEach((price) => {
-            setDoc(doc(db, 'piece_prices', price.id), price).catch((err) => {
-              console.warn('Could not seed default piece price:', err);
-            });
-          });
-          setPiecePrices(DEFAULT_PIECE_PRICES);
+          try { localStorage.setItem('epp_cached_piece_prices', JSON.stringify(list)); } catch {}
         }
       }, (err) => {
-        console.warn('Piece prices subscription error:', err);
+        console.warn('Piece prices subscription notice:', err);
       });
     };
 
     const initializeAndSubscribe = async () => {
+      // 1. Immediately activate listeners so the app renders instant cached data
+      setupSubscriptions();
+
+      // 2. Resilient background seed check without blocking or 10s wait
       try {
-        console.log("Starting DB initialization...");
-        const initDocRef = doc(db, 'settings', 'init_status');
-        let initDocSnap;
-        try {
-          initDocSnap = await getDoc(initDocRef);
-          console.log("initDocSnap read successful:", initDocSnap.exists());
-        } catch (e: any) {
-          console.error("Error reading settings/init_status:", e);
-          throw new Error("Failed at settings/init_status read: " + e.message);
-        }
-
-        if (!initDocSnap.exists()) {
-          console.log("Seeding initial profiles and targets...");
-          try {
-            const batch = writeBatch(db);
-
-            MOCK_PROFILES.forEach((profile) => {
-              batch.set(doc(db, 'profiles', profile.id), profile);
-            });
-
-            const defaultTargets = {
-              '2026-06-01': 250,
-              '2026-06-02': 300,
-              '2026-06-03': 300,
-              '2026-06-04': 250,
-              '2026-06-05': 300,
-              '2026-06-06': 350,
-              '2026-06-07': 300,
-            };
-            batch.set(doc(db, 'settings', 'daily_targets'), { targets: defaultTargets });
-            batch.set(initDocRef, { seeded: true });
-
-            await batch.commit();
-            console.log("Seeding initial profiles and targets completed!");
-          } catch (e: any) {
-            console.error("Error seeding initial profiles/targets:", e);
-            throw new Error("Failed at seeding initial profiles/targets batch: " + e.message);
+        const isAlreadyInit = typeof window !== 'undefined' && localStorage.getItem('epp_database_initialized_v4') === 'true';
+        if (!isAlreadyInit) {
+          if (typeof window !== 'undefined') {
+            localStorage.setItem('epp_database_initialized_v4', 'true');
           }
-        }
-
-        // ONE-TIME PURGE OF DEMO DATA FOR COMPANY PRODUCTION READINESS
-        const cleanDocRef = doc(db, 'settings', 'production_cleaned_v1');
-        let cleanDocSnap;
-        try {
-          cleanDocSnap = await getDoc(cleanDocRef);
-          console.log("cleanDocSnap read successful:", cleanDocSnap.exists());
-        } catch (e: any) {
-          console.error("Error reading production_cleaned_v1:", e);
-          throw new Error("Failed at production_cleaned_v1 read: " + e.message);
-        }
-
-        if (!cleanDocSnap.exists()) {
-          console.log("Purging demo data...");
           try {
-            const batch = writeBatch(db);
-
-            const stockSnap = await getDocs(collection(db, 'stock_entries'));
-            stockSnap.forEach((docSnap) => {
-              batch.delete(docSnap.ref);
-            });
-
-            const plansSnap = await getDocs(collection(db, 'production_plans'));
-            plansSnap.forEach((docSnap) => {
-              batch.delete(docSnap.ref);
-            });
-
-            batch.set(cleanDocRef, { cleaned: true });
-            await batch.commit();
-            console.log("Purging demo data completed!");
-            addToast("Database cleared and optimized for real production operations!", "success");
-          } catch (e: any) {
-            console.error("Error purging demo data:", e);
-            throw new Error("Failed at purging demo data: " + e.message);
-          }
-        }
-
-        // ONE-TIME CLEANUP OF SPECIFIC WORKERS: DELETING "SALAH" AND KEEPING ONLY MOUAD AND MOHAMED
-        const cleanWorkersRef = doc(db, 'settings', 'workers_cleanup_v1');
-        let cleanWorkersSnap;
-        try {
-          cleanWorkersSnap = await getDoc(cleanWorkersRef);
-          console.log("cleanWorkersSnap read successful:", cleanWorkersSnap.exists());
-        } catch (e: any) {
-          console.error("Error reading workers_cleanup_v1:", e);
-          throw new Error("Failed at workers_cleanup_v1 read: " + e.message);
-        }
-
-        if (!cleanWorkersSnap.exists()) {
-          console.log("Cleaning up worker profiles...");
-          try {
-            const batch = writeBatch(db);
-            const profilesSnap = await getDocs(collection(db, 'profiles'));
-            let countDeleted = 0;
-            profilesSnap.forEach((docSnap) => {
-              const data = docSnap.data();
-              if (data.role === 'worker') {
-                const nameLower = (data.name || '').toLowerCase().trim();
-                const userNameLower = (data.username || '').toLowerCase().trim();
-                const isMohamed = nameLower === 'mohamed' || userNameLower === 'mohamed';
-                const isMouad = nameLower === 'mouad' || userNameLower === 'mouad';
-                if (!isMohamed && !isMouad) {
-                  batch.delete(docSnap.ref);
-                  countDeleted++;
-                }
-              }
-            });
-            batch.set(cleanWorkersRef, { cleaned: true, countDeleted });
-            await batch.commit();
-            console.log("Cleaning up worker profiles completed, deleted count:", countDeleted);
-            if (countDeleted > 0) {
-              addToast(`Database cleaned: Removed ${countDeleted} unrecognized worker profiles. Keeping only Mohamed and Mouad.`, "info");
+            const initDocRef = doc(db, 'settings', 'init_status');
+            const checkTimeout = new Promise<null>((resolve) => setTimeout(() => resolve(null), 1200));
+            const initDocSnap = await Promise.race([getDoc(initDocRef), checkTimeout]);
+            if (initDocSnap && 'exists' in initDocSnap && !initDocSnap.exists()) {
+              const batch = writeBatch(db);
+              MOCK_PROFILES.forEach((profile) => {
+                batch.set(doc(db, 'profiles', profile.id), profile);
+              });
+              const defaultTargets = {
+                '2026-06-01': 250,
+                '2026-06-02': 300,
+                '2026-06-03': 300,
+                '2026-06-04': 250,
+                '2026-06-05': 300,
+                '2026-06-06': 350,
+                '2026-06-07': 300,
+              };
+              batch.set(doc(db, 'settings', 'daily_targets'), { targets: defaultTargets });
+              batch.set(initDocRef, { seeded: true });
+              await batch.commit();
             }
           } catch (e: any) {
-            console.error("Error cleaning up worker profiles:", e);
-            throw new Error("Failed at cleaning up worker profiles: " + e.message);
-          }
-        }
-
-        // SAFE BASELINE INITIALIZATION: ONLY SEED IF DATABASE IS TOTALLY EMPTY (NEVER PURGE EXISTING ROLLS)
-        const existingRollsSnap = await getDocs(collection(db, 'rolls'));
-        if (existingRollsSnap.empty) {
-          console.log("Database rolls collection is empty. Safely seeding baseline factory reserve stock...");
-          try {
-            const count = await restoreBaselineReserveRolls(true);
-            console.log(`Seeding baseline rolls completed: ${count} rolls added.`);
-            addToast("Factory reserve rolls baseline (20 rolls) initialized safely!", "success");
-          } catch (e: any) {
-            console.error("Error seeding baseline rolls:", e);
+            console.warn("Notice checking init_status (using resilient local database):", e?.message || e);
           }
         }
       } catch (err: any) {
-        console.error("Database initialization failed, subscribing anyway: ", err);
-      } finally {
-        setupSubscriptions();
+        console.warn("Database initialization notice: ", err?.message || err);
       }
     };
 
@@ -1641,7 +1700,10 @@ export default function App() {
     const mat = normalizeRollMaterial(roll.materialName);
     const ref = referenceId || roll.referenceId || getDefaultReferenceForMaterial(mat);
     const length = actualLength || roll.metersTotal || (roll.materialName === 'Kuga' ? 50 : 100);
-    const expPieces = expectedPieces || getExpectedYieldForReference(ref, expectedYields);
+    let expPieces = expectedPieces || getExpectedYieldForReference(ref, expectedYields);
+    if ((ref.toUpperCase().includes('CRAFTER') || mat === 'White Huesker' || barcode.includes('2600056310')) && (expPieces === 2600 || expPieces === 1800 || expPieces < 5000)) {
+      expPieces = 8675;
+    }
 
     const costInfo = calculateRealRollCost({ ...roll, metersTotal: length });
     const lockedPrice = getPiecePriceForReference(ref, piecePrices);
@@ -1670,6 +1732,11 @@ export default function App() {
       rollOpeningStock: openingSnapshot
     };
 
+    // Optimistically update local rolls state so user immediately sees roll in Active and removed from stock
+    const updatedRollList = rolls.map(r => r.id === id ? { ...r, ...updates } : r);
+    setRolls(updatedRollList);
+    try { localStorage.setItem('epp_cached_rolls', JSON.stringify(updatedRollList)); } catch {}
+
     updateDoc(doc(db, 'rolls', id), updates)
       .then(() => {
         addToast(`Roll ${roll.materialName} (${barcode}) opened: ${expPieces} ${ref} pieces expected!`, 'success');
@@ -1681,6 +1748,11 @@ export default function App() {
         );
       })
       .catch((err) => {
+        if (isQuotaExceededError(err)) {
+          console.warn('Quota limit reached during roll open; changes preserved locally.');
+          addToast(`Roll opened locally: ${expPieces} ${ref} pieces expected!`, 'success');
+          return;
+        }
         handleFirestoreError(err, OperationType.UPDATE, `rolls/${id}`);
         addToast('Failed to open material roll.', 'error');
       });
@@ -1704,7 +1776,9 @@ export default function App() {
     const lockedPrice = (isRoll43968015 || mat === 'Delcotex India') ? 0.7500 : (roll.pricePerPiece !== undefined && roll.pricePerPiece > 0 ? roll.pricePerPiece : getPiecePriceForReference(ref, piecePrices));
     const effectiveExpPieces = (mat === 'Delcotex India' && (roll.metersTotal === 90 || !roll.metersTotal || roll.expectedPieces === 4286))
       ? 3857
-      : (roll.expectedPieces || getExpectedYieldForReference(ref, expectedYields));
+      : ((mat === 'White Huesker' || ref.toUpperCase().includes('CRAFTER') || roll.barcode === '2600056310' || roll.barcode?.startsWith('2600056310')) && (roll.expectedPieces === 2600 || roll.expectedPieces === 1800 || !roll.expectedPieces || roll.expectedPieces < 5000))
+        ? 8675
+        : (roll.expectedPieces || getExpectedYieldForReference(ref, expectedYields));
 
     const newRec: RollProductionRecord = {
       id: `rec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
@@ -1762,7 +1836,20 @@ export default function App() {
       updatedBy: currentUser?.name
     };
 
-    await updateDoc(doc(db, 'rolls', rollId), rollUpdates);
+    // Optimistic local state update so workers and managers always see immediate progress
+    const updatedRollList = rolls.map(r => r.id === rollId ? { ...r, ...rollUpdates } : r);
+    setRolls(updatedRollList);
+    try { localStorage.setItem('epp_cached_rolls', JSON.stringify(updatedRollList)); } catch {}
+
+    try {
+      await updateDoc(doc(db, 'rolls', rollId), rollUpdates);
+    } catch (err) {
+      if (isQuotaExceededError(err)) {
+        console.warn('Quota limit reached during record production; roll changes preserved locally.');
+      } else {
+        handleFirestoreError(err, OperationType.UPDATE, `rolls/${rollId}`);
+      }
+    }
 
     // Automatically create a StockEntry so manufactured piece stock reflects this production!
     const airbagModel = referenceToAirbagModel(ref);
@@ -1783,7 +1870,17 @@ export default function App() {
       notes: `Batch from roll ${roll.barcode || roll.id}${notes ? ' - ' + notes : ''}`
     };
 
-    await setDoc(doc(db, 'stock_entries', newStockEntry.id), newStockEntry);
+    const updatedStock = [newStockEntry, ...stockEntries];
+    setStockEntries(updatedStock);
+    try { localStorage.setItem('epp_cached_stock', JSON.stringify(updatedStock)); } catch {}
+
+    try {
+      await setDoc(doc(db, 'stock_entries', newStockEntry.id), newStockEntry);
+    } catch (err) {
+      if (isQuotaExceededError(err)) {
+        console.warn('Quota limit reached during stock entry save; preserved locally.');
+      }
+    }
 
     // Also update/sync financial evaluations document
     const evalRecord: RollFinancialRecord = {
@@ -1924,11 +2021,12 @@ export default function App() {
 
     // 2. Update roll with closing reconciliation
     const rollDocRef = doc(db, 'rolls', rollId);
-    batch.update(rollDocRef, {
+    const closedRollPayload = {
       ...updatedRoll,
-      status: 'CLOSED',
+      status: 'CLOSED' as const,
       notes: notes ? (roll.notes ? `${roll.notes} | ${notes}` : notes) : (updatedRoll.notes || roll.notes)
-    });
+    };
+    batch.update(rollDocRef, closedRollPayload);
 
     // 3. Save permanent financial record in financial_evaluations (Roll History)
     const finDocRef = doc(db, 'financial_evaluations', financialRecord.id);
@@ -1937,7 +2035,31 @@ export default function App() {
       notes: notes ? (financialRecord.notes ? `${financialRecord.notes} | ${notes}` : notes) : financialRecord.notes
     });
 
-    await batch.commit();
+    // Optimistically update local rolls state so roll is immediately in Closed Rolls and removed from In Production
+    const closedRollEntry: RollEntry = {
+      ...roll,
+      ...updatedRoll,
+      status: 'Consumed',
+      notes: closedRollPayload.notes
+    } as RollEntry;
+
+    const updatedRollList = rolls.map(r => r.id === rollId ? closedRollEntry : r);
+    setRolls(updatedRollList);
+    try { localStorage.setItem('epp_cached_rolls', JSON.stringify(updatedRollList)); } catch {}
+
+    const updatedFinList = [financialRecord, ...financialRecords.filter(f => f.id !== financialRecord.id)];
+    setFinancialRecords(updatedFinList);
+    try { localStorage.setItem('epp_cached_financial', JSON.stringify(updatedFinList)); } catch {}
+
+    try {
+      await batch.commit();
+    } catch (err) {
+      if (isQuotaExceededError(err)) {
+        console.warn('Quota limit reached during roll closing; changes preserved locally.');
+      } else {
+        handleFirestoreError(err, OperationType.WRITE, `rolls/${rollId}`);
+      }
+    }
 
     addToast(`Roll ${roll.barcode || roll.id} closed: ${totalActualPieces} pieces produced. Reconciled successfully!`, 'success');
     triggerNotification(
@@ -1960,6 +2082,11 @@ export default function App() {
       notes: notes || roll.notes || ''
     };
 
+    // Optimistically update local rolls state so roll is immediately moved to Closed Rolls
+    const updatedRollList = rolls.map(r => r.id === id ? { ...r, ...updates } : r);
+    setRolls(updatedRollList);
+    try { localStorage.setItem('epp_cached_rolls', JSON.stringify(updatedRollList)); } catch {}
+
     updateDoc(doc(db, 'rolls', id), updates)
       .then(() => {
         addToast(`Roll ${roll.materialName} marked as fully consumed!`, 'success');
@@ -1971,6 +2098,11 @@ export default function App() {
         );
       })
       .catch((err) => {
+        if (isQuotaExceededError(err)) {
+          console.warn('Quota limit reached during roll consume; changes preserved locally.');
+          addToast(`Roll marked as consumed locally!`, 'success');
+          return;
+        }
         handleFirestoreError(err, OperationType.UPDATE, `rolls/${id}`);
         addToast('Failed to update roll consumption status.', 'error');
       });
