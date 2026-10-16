@@ -92,7 +92,6 @@ export default function FinancialEvaluation({
   // Filters State
   const [searchRoll, setSearchRoll] = useState<string>('');
   const [filterMaterial, setFilterMaterial] = useState<string>('all');
-  const [filterReference, setFilterReference] = useState<string>('all');
   const [filterStatus, setFilterStatus] = useState<string>('all');
 
   // Editable maps for Configuration Modals
@@ -146,19 +145,14 @@ export default function FinancialEvaluation({
         }
       }
 
-      // 3. Reference filter
-      if (filterReference !== 'all') {
-        if (item.referenceId !== filterReference) return false;
-      }
-
-      // 4. Status filter
+      // 3. Status filter
       if (filterStatus !== 'all') {
         if (item.status !== filterStatus) return false;
       }
 
       return true;
     });
-  }, [rollRowsWithMetrics, searchRoll, filterMaterial, filterReference, filterStatus]);
+  }, [rollRowsWithMetrics, searchRoll, filterMaterial, filterStatus]);
 
   // 4 Primary KPI Summaries: Total Roll Cost, Production Value, Gross Profit, Material Efficiency
   // Dynamically aggregates strictly over the filtered rolls selection
@@ -169,7 +163,7 @@ export default function FinancialEvaluation({
     let totalProducedPieces = 0;
 
     // If filterStatus is 'all' and no other active filter, default to started rolls (IN PRODUCTION or CLOSED)
-    const targetRolls = (filterStatus === 'all' && filterMaterial === 'all' && filterReference === 'all' && !searchRoll)
+    const targetRolls = (filterStatus === 'all' && filterMaterial === 'all' && !searchRoll)
       ? filteredRollRows.filter((r) => r.status === 'IN PRODUCTION' || r.status === 'CLOSED')
       : filteredRollRows;
 
@@ -199,7 +193,7 @@ export default function FinancialEvaluation({
       totalProducedPieces,
       averageEfficiency
     };
-  }, [filteredRollRows, filterStatus, filterMaterial, filterReference, searchRoll]);
+  }, [filteredRollRows, filterStatus, filterMaterial, searchRoll]);
 
   // Open Price Configuration Modal
   const openPriceConfig = () => {
@@ -439,22 +433,6 @@ export default function FinancialEvaluation({
             <option value="KUGA">KUGA</option>
           </select>
 
-          {/* Reference Filter */}
-          <select
-            value={filterReference}
-            onChange={(e) => setFilterReference(e.target.value)}
-            className="bg-slate-50 border border-slate-200 px-3 py-1.5 rounded-xl text-xs font-semibold text-slate-700 focus:outline-hidden focus:ring-1 focus:ring-emerald-500 cursor-pointer"
-          >
-            <option value="all">All References</option>
-            <option value="BCB-FRA">BCB-FRA</option>
-            <option value="TETOUAN / XJX-MARR">TETOUAN / XJX-MARR</option>
-            <option value="CRAFTER">CRAFTER</option>
-            <option value="SK216">SK216</option>
-            <option value="VW217">VW217</option>
-            <option value="KUGA LHD">KUGA LHD</option>
-            <option value="KUGA RHD">KUGA RHD</option>
-          </select>
-
           {/* Status Filter */}
           <select
             value={filterStatus}
@@ -469,12 +447,11 @@ export default function FinancialEvaluation({
         </div>
 
         {/* Clear Filters (if active) */}
-        {(searchRoll || filterMaterial !== 'all' || filterReference !== 'all' || filterStatus !== 'all') && (
+        {(searchRoll || filterMaterial !== 'all' || filterStatus !== 'all') && (
           <button
             onClick={() => {
               setSearchRoll('');
               setFilterMaterial('all');
-              setFilterReference('all');
               setFilterStatus('all');
             }}
             className="inline-flex items-center gap-1 text-[11px] font-extrabold text-slate-500 hover:text-slate-800 transition-colors self-start md:self-center cursor-pointer"
@@ -621,7 +598,7 @@ export default function FinancialEvaluation({
                   <td colSpan={4} className="py-3 px-4 uppercase tracking-wider text-[10px] text-slate-500 font-extrabold">
                     {filterStatus !== 'all' 
                       ? `Total ${filterStatus} (${summaryKPIs.activeRollsCount} ${summaryKPIs.activeRollsCount === 1 ? 'roll' : 'rolls'})` 
-                      : (searchRoll || filterMaterial !== 'all' || filterReference !== 'all')
+                      : (searchRoll || filterMaterial !== 'all')
                       ? `Total Filtered (${summaryKPIs.activeRollsCount} ${summaryKPIs.activeRollsCount === 1 ? 'roll' : 'rolls'})`
                       : `Total Active Production (${summaryKPIs.activeRollsCount} rolls started)`}
                   </td>

@@ -921,11 +921,6 @@ export default function StockManagement({
                 <div className="flex items-center justify-between py-3 px-5 mt-5 rounded-full bg-[#ea580c] border border-[#ea580c] shadow-xs hover:bg-[#d97706] transition-all">
                   <span className="text-[11px] text-orange-100 font-black uppercase tracking-widest font-sans" title="Counted finished stock (Packaged pieces ready for shipment)">Total</span>
                   <div className="flex items-center gap-2">
-                    {currentUser.role === 'manager' && (
-                      <span className="text-xs font-black font-mono text-orange-200" title={`Financial valuation: €${modelValuation.toFixed(2)}`}>
-                        (€{modelValuation.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })})
-                      </span>
-                    )}
                     <span className="text-base font-black font-mono text-white select-all">{packagedStock}</span>
                   </div>
                 </div>
