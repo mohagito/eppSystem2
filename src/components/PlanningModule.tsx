@@ -745,7 +745,7 @@ export default function PlanningModule({
                     />
                   )}
                   <span className={`text-[9px] font-extrabold px-1 py-0.2 rounded border uppercase truncate ${getModelPillStyles(plan.model)}`}>
-                    {(plan.model || '').toLowerCase()}
+                    {plan.model.toLowerCase()}
                   </span>
                 </div>
                 <div className="flex items-center gap-1 shrink-0">

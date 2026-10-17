@@ -265,8 +265,13 @@ export default function StockManagement({
       return;
     }
 
-    // Handled safely depending on role: if manager, we credit as workerName or currentUser.name
-    const finalWorkerName = (currentUser.role === 'manager' ? (workerName || currentUser.name) : currentUser.name) || 'Operator';
+    // Handled safely depending on role: if manager, we don't ask about operator, just credit as current manager or empty
+    const finalWorkerName = currentUser.role === 'manager' ? workerName : currentUser.name;
+
+    if (!finalWorkerName) {
+      setFormError('Operator / Worker Name is required.');
+      return;
+    }
 
     const pkgSize = PACKAGING_SIZES[selectedModel] || 250;
     const currentUnpackaged = unpackagedQtySums[selectedModel] || 0;
@@ -274,25 +279,6 @@ export default function StockManagement({
     const autoPackagedQty = Math.floor(totalAvailable / pkgSize) * pkgSize;
     const autoUnpackagedQty = totalAvailable % pkgSize;
     const numPacks = autoPackagedQty / pkgSize;
-
-    const executeAdd = () => {
-      onAddEntry({
-        modelId: selectedModel,
-        workerName: finalWorkerName,
-        date: entryDate || getLocalDateStr(),
-        quantity: parsedQty,
-        createdBy: currentUser.id,
-        machine: targetMachine !== 'ALL' ? (targetMachine as any) : undefined,
-        planId: targetPlanId || undefined,
-        type: 'production'
-      });
-
-      // Reset fields except date and worker name
-      setQuantity('');
-      setAssociationType('NONE');
-      setTargetMachine('ALL');
-      setTargetPlanId('');
-    };
 
     let htmlContent = `Do you want to log production of <strong>${parsedQty} pcs</strong> of model <strong>${selectedModel}</strong>?`;
     htmlContent += `
@@ -328,32 +314,42 @@ export default function StockManagement({
         </div>
       </div>`;
 
-    try {
-      Swal.fire({
-        title: 'Confirm Stock Addition',
-        html: htmlContent,
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Yes, Save & Auto-Package',
-        cancelButtonText: 'Cancel',
-        background: '#0f172a',
-        color: '#cbd5e1',
-        confirmButtonColor: '#10b981',
-        cancelButtonColor: '#f43f5e',
-        customClass: {
-          popup: 'rounded-2xl border border-slate-850 shadow-2xl p-6 font-sans',
-          title: 'text-sm font-extrabold uppercase tracking-wider text-slate-100 font-sans mt-2'
-        }
-      }).then((result) => {
-        if (result.isConfirmed) {
-          executeAdd();
-        }
-      }).catch(() => {
-        executeAdd();
-      });
-    } catch {
-      executeAdd();
-    }
+    Swal.fire({
+      title: 'Confirm Stock Addition',
+      html: htmlContent,
+      icon: 'question',
+      showCancelButton: true,
+      confirmButtonText: 'Yes, Save & Auto-Package',
+      cancelButtonText: 'Cancel',
+      background: '#0f172a',
+      color: '#cbd5e1',
+      confirmButtonColor: '#10b981',
+      cancelButtonColor: '#f43f5e',
+      customClass: {
+        popup: 'rounded-2xl border border-slate-850 shadow-2xl p-6 font-sans',
+        title: 'text-sm font-extrabold uppercase tracking-wider text-slate-100 font-sans mt-2'
+      }
+    }).then((result) => {
+      if (result.isConfirmed) {
+        // Add the production entry
+        onAddEntry({
+          modelId: selectedModel,
+          workerName: finalWorkerName,
+          date: entryDate || getLocalDateStr(),
+          quantity: parsedQty,
+          createdBy: currentUser.id,
+          machine: targetMachine !== 'ALL' ? (targetMachine as any) : undefined,
+          planId: targetPlanId || undefined,
+          type: 'production'
+        });
+
+        // Reset fields except date and worker name
+        setQuantity('');
+        setAssociationType('NONE');
+        setTargetMachine('ALL');
+        setTargetPlanId('');
+      }
+    });
   };
 
   // Pre-calculate per-model packaged stock sums and unpackaged quantities dynamically
@@ -530,18 +526,17 @@ export default function StockManagement({
   // Filter & search implementation
   const filteredEntries = useMemo(() => {
     let source = [...entries];
-    if (currentUser?.role === 'worker') {
+    if (currentUser.role === 'worker') {
       source = source.filter(
-        (e) => (e.workerName || '').toLowerCase().trim() === (currentUser?.name || '').toLowerCase().trim()
+        (e) => e.workerName.toLowerCase().trim() === currentUser.name.toLowerCase().trim()
       );
     }
-    return source.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).filter((e) => {
+    return source.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).filter((e) => {
       const matchModel = filterModel === 'ALL' || e.modelId === filterModel;
       const matchWorker = filterWorker === 'ALL' || e.workerName === filterWorker;
-      const searchLower = (filterSearch || '').toLowerCase();
       const matchSearch = filterSearch === '' || 
-        (e.workerName || '').toLowerCase().includes(searchLower) || 
-        (e.modelId || '').toLowerCase().includes(searchLower);
+        e.workerName.toLowerCase().includes(filterSearch.toLowerCase()) || 
+        e.modelId.toLowerCase().includes(filterSearch.toLowerCase());
       return matchModel && matchWorker && matchSearch;
     });
   }, [entries, currentUser, filterModel, filterWorker, filterSearch]);
@@ -1494,7 +1489,7 @@ export default function StockManagement({
             </div>
 
             <div className="flex justify-between items-center text-xs text-slate-450 px-1 font-mono">
-              <span>Showing {filteredEntries.length} of {currentUser?.role === 'worker' ? entries.filter(e => (e.workerName || '').toLowerCase().trim() === (currentUser?.name || '').toLowerCase().trim()).length : entries.length} records</span>
+              <span>Showing {filteredEntries.length} of {currentUser.role === 'worker' ? entries.filter(e => e.workerName.toLowerCase().trim() === currentUser.name.toLowerCase().trim()).length : entries.length} records</span>
               <span>Sorted by Recency</span>
             </div>
           </div>

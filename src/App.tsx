@@ -25,8 +25,7 @@ import {
   ShieldCheck,
   Lock,
   CircleDollarSign,
-  Coins,
-  TrendingUp
+  Coins
 } from 'lucide-react';
 import { 
   UserProfile, 
@@ -52,7 +51,6 @@ import DeliveryModule from './components/DeliveryModule';
 import RollsModule from './components/RollsModule';
 import FinancialEvaluation from './components/FinancialEvaluation';
 import ProfitDashboard from './components/ProfitDashboard';
-import EfficiencyAnalytics from './components/EfficiencyAnalytics';
 import SecurityVaultModal from './components/SecurityVaultModal';
 import { recordVaultSnapshot, restoreBaselineReserveRolls, getBaselineFactoryRolls, ROLL_2600056310_CLOSED } from './utils/dataProtection';
 import { db, handleFirestoreError, OperationType, isQuotaExceededError } from './firebase';
@@ -186,80 +184,15 @@ export default function App() {
     return DEFAULT_EXPECTED_YIELDS;
   });
 
-  // --- DUAL-STORAGE SESSION & ACTIVE VIEW PERSISTENCE ---
-  const getPersistedUser = (): UserProfile | null => {
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     try {
       if (typeof window === 'undefined') return null;
-      const local = localStorage.getItem('epp_current_user');
-      if (local) {
-        const parsed = JSON.parse(local);
-        if (parsed && typeof parsed === 'object' && parsed.id && parsed.name) return parsed;
-      }
-      const session = sessionStorage.getItem('epp_current_user');
-      if (session) {
-        const parsed = JSON.parse(session);
-        if (parsed && typeof parsed === 'object' && parsed.id && parsed.name) return parsed;
-      }
+      const saved = localStorage.getItem('epp_current_user');
+      return saved ? JSON.parse(saved) : null;
     } catch (e) {
       console.warn('Could not read user profile from storage:', e);
+      return null;
     }
-    return null;
-  };
-
-  const persistUser = (user: UserProfile | null) => {
-    try {
-      if (typeof window === 'undefined') return;
-      if (user) {
-        const json = JSON.stringify(user);
-        localStorage.setItem('epp_current_user', json);
-        sessionStorage.setItem('epp_current_user', json);
-      } else {
-        localStorage.removeItem('epp_current_user');
-        sessionStorage.removeItem('epp_current_user');
-      }
-    } catch (e) {
-      console.warn('User storage persistence error:', e);
-    }
-  };
-
-  const getPersistedTab = (): string => {
-    try {
-      if (typeof window !== 'undefined') {
-        const params = new URLSearchParams(window.location.search);
-        const tabParam = params.get('tab');
-        if (tabParam && tabParam !== 'label_printer') return tabParam;
-
-        const local = localStorage.getItem('epp_active_tab');
-        if (local) return local;
-
-        const session = sessionStorage.getItem('epp_active_tab');
-        if (session) return session;
-      }
-    } catch (e) {
-      console.warn('Could not parse active tab from storage/URL:', e);
-    }
-    return 'dashboard';
-  };
-
-  const persistTab = (tab: string) => {
-    try {
-      if (typeof window === 'undefined') return;
-      if (tab) {
-        localStorage.setItem('epp_active_tab', tab);
-        sessionStorage.setItem('epp_active_tab', tab);
-        const url = new URL(window.location.href);
-        if (url.searchParams.get('tab') !== tab) {
-          url.searchParams.set('tab', tab);
-          window.history.replaceState({}, '', url.toString());
-        }
-      }
-    } catch (e) {
-      console.warn('Tab persistence error:', e);
-    }
-  };
-
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
-    return getPersistedUser();
   });
 
   const [dailyTargets, setDailyTargets] = useState<Record<string, number>>(() => {
@@ -290,14 +223,18 @@ export default function App() {
     };
   });
 
-  // Navigation State - Restores exact previous section on refresh
-  const [activeTab, setActiveTab] = useState<string>(() => {
-    const saved = getPersistedTab();
-    const initialUser = getPersistedUser();
-    if (initialUser && initialUser.role !== 'manager' && ['financial', 'profit', 'efficiency'].includes(saved)) {
-      return 'dashboard';
+  // Navigation State
+  const [activeTab, setActiveTab ] = useState<string>(() => {
+    try {
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        if (tab && tab !== 'label_printer') return tab;
+      }
+    } catch (e) {
+      console.warn('Could not parse navigation tab from URL:', e);
     }
-    return saved;
+    return 'dashboard';
   });
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [quickNavOpen, setQuickNavOpen] = useState<boolean>(false);
@@ -959,14 +896,16 @@ export default function App() {
   }, [currentUser?.role]);
 
   useEffect(() => {
-    persistUser(currentUser);
-  }, [currentUser]);
-
-  useEffect(() => {
-    if (activeTab) {
-      persistTab(activeTab);
+    try {
+      if (currentUser) {
+        localStorage.setItem('epp_current_user', JSON.stringify(currentUser));
+      } else {
+        localStorage.removeItem('epp_current_user');
+      }
+    } catch (e) {
+      console.warn('Storage sync failed:', e);
     }
-  }, [activeTab]);
+  }, [currentUser]);
 
   // 100% Silent Background Data Protection & Continuous Snapshot Redundancy
   useEffect(() => {
@@ -1060,13 +999,8 @@ export default function App() {
   // --- ACTIONS ---
   const handlePresetSelect = (profile: UserProfile) => {
     setCurrentUser(profile);
-    persistUser(profile);
     setAuthError('');
-    const targetTab = getPersistedTab();
-    const isRoleRestricted = profile.role !== 'manager' && ['financial', 'profit', 'efficiency'].includes(targetTab);
-    const finalTab = isRoleRestricted ? 'dashboard' : targetTab;
-    setActiveTab(finalTab);
-    persistTab(finalTab);
+    setActiveTab('dashboard');
     addToast(`Authenticated as ${profile.name} (${profile.role.toUpperCase()})`, 'success');
   };
 
@@ -1096,12 +1030,7 @@ export default function App() {
 
     if (found) {
       setCurrentUser(found);
-      persistUser(found);
-      const targetTab = getPersistedTab();
-      const isRoleRestricted = found.role !== 'manager' && ['financial', 'profit', 'efficiency'].includes(targetTab);
-      const finalTab = isRoleRestricted ? 'dashboard' : targetTab;
-      setActiveTab(finalTab);
-      persistTab(finalTab);
+      setActiveTab('dashboard');
       addToast(`Welcome back, ${found.name}!`, 'success');
     } else {
       setAuthError('Authentication failed. Incorrect username or password.');
@@ -1134,14 +1063,12 @@ export default function App() {
     setDoc(doc(db, 'profiles', newProfile.id), newProfile)
       .then(() => {
         setCurrentUser(newProfile);
-        persistUser(newProfile);
         setSignUpMode(false);
         setSignUpName('');
         setSignUpUsername('');
         setSignUpPassword('');
         setSignUpStation('');
         setActiveTab('dashboard');
-        persistTab('dashboard');
         addToast(`Successfully registered and authenticated. Welcome, ${newProfile.name}!`, 'success');
       })
       .catch((err) => {
@@ -1153,17 +1080,9 @@ export default function App() {
   const handleLogout = () => {
     addToast(`Session safely terminated. Goodbye, ${currentUser?.name}!`, 'info');
     setCurrentUser(null);
-    persistUser(null);
     setLoginUsername('');
     setLoginPassword('');
     setActiveTab('dashboard');
-    try {
-      localStorage.removeItem('epp_active_tab');
-      sessionStorage.removeItem('epp_active_tab');
-      const url = new URL(window.location.href);
-      url.searchParams.delete('tab');
-      window.history.replaceState({}, '', url.toString());
-    } catch {}
   };
 
   // --- CORE DATA MUTATORS ---
@@ -1254,142 +1173,56 @@ export default function App() {
       createdAt: new Date().toISOString()
     };
 
-    const isCorrection = newEntry.edited === true || newEntry.quantity < 0;
-    const formattedQty = newEntry.quantity >= 0 ? `+${newEntry.quantity}` : `${newEntry.quantity}`;
-
-    // 1. Optimistic update: Update local stock entries state and cache immediately
-    setStockEntries((prevEntries) => {
-      const updated = [newEntry, ...prevEntries.filter(e => e.id !== newEntry.id)];
-      try { localStorage.setItem('epp_cached_stock', JSON.stringify(updated)); } catch {}
-      return updated;
-    });
-
-    // 2. Roll records & financials live calculation
-    let updatedRecs: RollProductionRecord[] = [];
-    let totalProduced = 0;
-    let totalVal = 0;
-    let activeExp = 0;
-    let materialEfficiency = 0;
-    let grossProfit = 0;
-    let profitPercent = 0;
-    let cost = 0;
-    let finRecord: RollFinancialRecord | null = null;
-
-    if (activeRoll && !isCorrection && (newEntry.type === 'production' || !newEntry.type)) {
-      const prodRec: RollProductionRecord = {
-        id: `rec-${newEntry.id}`,
-        rollId: activeRoll.id,
-        rollBarcode: activeRoll.barcode || activeRoll.id,
-        referenceId: cleanedEntry.modelId,
-        quantity: Number(cleanedEntry.quantity) || 0,
-        date: cleanedEntry.date || getMoroccoDateStr(),
-        time: getMoroccoTimeStr(),
-        operator: cleanedEntry.workerName || activeRoll.operator || 'Operator',
-        machine: cleanedEntry.machine || 'Big Machine',
-        notes: cleanedEntry.notes || `Stock movement for ${cleanedEntry.modelId}`,
-        createdAt: new Date().toISOString()
-      };
-
-      const existingRecs = activeRoll.productionRecords || [];
-      updatedRecs = [...existingRecs.filter(r => r.id !== prodRec.id), prodRec];
-
-      let skProduced = 0;
-      let vwProduced = 0;
-
-      updatedRecs.forEach((r) => {
-        const q = Number(r.quantity) || 0;
-        totalProduced += q;
-        const p = (activeRoll.barcode === '43968015' || activeRoll.id === '43968015')
-          ? 0.7500
-          : getPiecePriceForReference(r.referenceId, piecePrices);
-        totalVal += q * p;
-        if (matchReference(r.referenceId, 'SK216')) skProduced += q;
-        if (matchReference(r.referenceId, 'VW217')) vwProduced += q;
-      });
-
-      totalVal = Math.round(totalVal * 100) / 100;
-      cost = (activeRoll.barcode === '43968015' || activeRoll.id === '43968015')
-        ? 1615.50
-        : (activeRoll.rollCost || calculateRealRollCost(activeRoll).cost);
-      grossProfit = Math.round((totalVal - cost) * 100) / 100;
-      profitPercent = cost > 0 ? Math.round((grossProfit / cost) * 10000) / 100 : 0;
-
-      activeExp = activeRoll.expectedPieces || ((activeRoll.barcode === '43968015' || activeRoll.id === '43968015' || activeRoll.materialName === 'Delcotex India') ? 3857 : 250);
-      materialEfficiency = activeExp > 0 ? Math.round((totalProduced / activeExp) * 10000) / 100 : 0;
-
-      // Optimistically update rolls state & storage
-      setRolls((prevRolls) => {
-        const updated = prevRolls.map((r) =>
-          r.id === activeRoll.id
-            ? {
-                ...r,
-                productionRecords: updatedRecs,
-                producedPieces: totalProduced,
-                expectedPieces: activeExp,
-                remainingPieces: Math.max(0, activeExp - totalProduced),
-                materialEfficiency,
-                productionValue: totalVal,
-                grossProfit,
-                profitPercent,
-                updatedAt: new Date().toISOString(),
-                updatedBy: cleanedEntry.workerName || currentUser?.name || 'Operator'
-              }
-            : r
-        );
-        try { localStorage.setItem('epp_cached_rolls', JSON.stringify(updated)); } catch {}
-        return updated;
-      });
-
-      finRecord = {
-        id: `fe-${activeRoll.id}`,
-        rollId: activeRoll.id,
-        rollBarcode: activeRoll.barcode || activeRoll.id,
-        rollNumber: activeRoll.rollNumber || activeRoll.barcode || activeRoll.id,
-        materialName: normalizeRollMaterial(activeRoll.materialName),
-        rollLength: activeRoll.metersTotal || 90,
-        rollCost: cost,
-        items: [
-          { reference: 'SK216', pieces: skProduced, pricePerPiece: 0.75, productionValue: Math.round(skProduced * 0.75 * 100) / 100 },
-          { reference: 'VW217', pieces: vwProduced, pricePerPiece: 0.75, productionValue: Math.round(vwProduced * 0.75 * 100) / 100 }
-        ],
-        totalPieces: totalProduced,
-        totalProductionValue: totalVal,
-        grossProfit,
-        profitPercentage: profitPercent,
-        materialEfficiency,
-        evaluatedAt: getMoroccoDateStr(),
-        evaluatedBy: cleanedEntry.workerName || currentUser?.name || 'Operator',
-        notes: `Live evaluation: ${totalProduced} pcs produced from roll ${activeRoll.barcode || activeRoll.id}`,
-        openingStockSnapshot: activeRoll.openingStockSnapshot || { SK216: 11897, VW217: 5889 },
-        rollOpeningStock: activeRoll.rollOpeningStock || { SK216: 11897, VW217: 5889 },
-        status: 'IN PRODUCTION',
-        updatedAt: new Date().toISOString()
-      };
-    }
-
-    // 3. Immediate UI Toast & notifications
-    if (isCorrection) {
-      addToast(`Stored stock adjustments: ${formattedQty} units of ${newEntry.modelId} corrected successfully!`, 'success');
-      triggerNotification(
-        '🔧 General Stock Corrected',
-        `Manager ${newEntry.workerName} successfully adjusted available stockpile for ${newEntry.modelId} by ${formattedQty} pcs: "${newEntry.editReason || 'manual adjustment'}".`,
-        'stock',
-        'all'
-      );
-    } else {
-      addToast(`Registered output level: +${newEntry.quantity} units of ${newEntry.modelId} saved!`, 'success');
-      triggerNotification(
-        '📦 Stock Logged in Inventory',
-        `Worker ${newEntry.workerName} successfully submitted output log: +${newEntry.quantity} units of airbag ${newEntry.modelId} at ${newEntry.machine || 'Assembly Line'}.`,
-        'stock',
-        'all'
-      );
-    }
-
-    // 4. Background Cloud Database sync with graceful offline/quota resiliency
     setDoc(doc(db, 'stock_entries', newEntry.id), newEntry)
       .then(() => {
+        const isCorrection = newEntry.edited === true || newEntry.quantity < 0;
+        const formattedQty = newEntry.quantity >= 0 ? `+${newEntry.quantity}` : `${newEntry.quantity}`;
+        
+        // If production was added and linked to an active roll in production, update roll production records & financials live
         if (activeRoll && !isCorrection && (newEntry.type === 'production' || !newEntry.type)) {
+          const prodRec: RollProductionRecord = {
+            id: `rec-${newEntry.id}`,
+            rollId: activeRoll.id,
+            rollBarcode: activeRoll.barcode || activeRoll.id,
+            referenceId: cleanedEntry.modelId,
+            quantity: Number(cleanedEntry.quantity) || 0,
+            date: cleanedEntry.date || getMoroccoDateStr(),
+            time: getMoroccoTimeStr(),
+            operator: cleanedEntry.workerName || activeRoll.operator || 'Operator',
+            machine: cleanedEntry.machine || 'Big Machine',
+            notes: cleanedEntry.notes || `Stock movement for ${cleanedEntry.modelId}`,
+            createdAt: new Date().toISOString()
+          };
+
+          const existingRecs = activeRoll.productionRecords || [];
+          const updatedRecs = [...existingRecs.filter(r => r.id !== prodRec.id), prodRec];
+
+          let totalProduced = 0;
+          let totalVal = 0;
+          let skProduced = 0;
+          let vwProduced = 0;
+
+          updatedRecs.forEach((r) => {
+            const q = Number(r.quantity) || 0;
+            totalProduced += q;
+            const p = (activeRoll.barcode === '43968015' || activeRoll.id === '43968015')
+              ? 0.7500
+              : getPiecePriceForReference(r.referenceId, piecePrices);
+            totalVal += q * p;
+            if (matchReference(r.referenceId, 'SK216')) skProduced += q;
+            if (matchReference(r.referenceId, 'VW217')) vwProduced += q;
+          });
+
+          totalVal = Math.round(totalVal * 100) / 100;
+          const cost = (activeRoll.barcode === '43968015' || activeRoll.id === '43968015')
+            ? 1615.50
+            : (activeRoll.rollCost || calculateRealRollCost(activeRoll).cost);
+          const grossProfit = Math.round((totalVal - cost) * 100) / 100;
+          const profitPercent = cost > 0 ? Math.round((grossProfit / cost) * 10000) / 100 : 0;
+
+          const activeExp = activeRoll.expectedPieces || ((activeRoll.barcode === '43968015' || activeRoll.id === '43968015' || activeRoll.materialName === 'Delcotex India') ? 3857 : 250);
+          const materialEfficiency = activeExp > 0 ? Math.round((totalProduced / activeExp) * 10000) / 100 : 0;
+
           updateDoc(doc(db, 'rolls', activeRoll.id), {
             productionRecords: updatedRecs,
             producedPieces: totalProduced,
@@ -1403,17 +1236,55 @@ export default function App() {
             updatedBy: cleanedEntry.workerName || currentUser?.name || 'Operator'
           }).catch(err => console.warn('Could not auto-attribute production to roll:', err));
 
-          if (finRecord) {
-            setDoc(doc(db, 'financial_evaluations', finRecord.id), finRecord, { merge: true }).catch(() => {});
-          }
+          const finRecord: RollFinancialRecord = {
+            id: `fe-${activeRoll.id}`,
+            rollId: activeRoll.id,
+            rollBarcode: activeRoll.barcode || activeRoll.id,
+            rollNumber: activeRoll.rollNumber || activeRoll.barcode || activeRoll.id,
+            materialName: normalizeRollMaterial(activeRoll.materialName),
+            rollLength: activeRoll.metersTotal || 90,
+            rollCost: cost,
+            items: [
+              { reference: 'SK216', pieces: skProduced, pricePerPiece: 0.75, productionValue: Math.round(skProduced * 0.75 * 100) / 100 },
+              { reference: 'VW217', pieces: vwProduced, pricePerPiece: 0.75, productionValue: Math.round(vwProduced * 0.75 * 100) / 100 }
+            ],
+            totalPieces: totalProduced,
+            totalProductionValue: totalVal,
+            grossProfit,
+            profitPercentage: profitPercent,
+            materialEfficiency,
+            evaluatedAt: getMoroccoDateStr(),
+            evaluatedBy: cleanedEntry.workerName || currentUser?.name || 'Operator',
+            notes: `Live evaluation: ${totalProduced} pcs produced from roll ${activeRoll.barcode || activeRoll.id}`,
+            openingStockSnapshot: activeRoll.openingStockSnapshot || { SK216: 11897, VW217: 5889 },
+            rollOpeningStock: activeRoll.rollOpeningStock || { SK216: 11897, VW217: 5889 },
+            status: 'IN PRODUCTION',
+            updatedAt: new Date().toISOString()
+          };
+          setDoc(doc(db, 'financial_evaluations', finRecord.id), finRecord, { merge: true }).catch(() => {});
+        }
+
+        if (isCorrection) {
+          addToast(`Stored stock adjustments: ${formattedQty} units of ${newEntry.modelId} corrected successfully!`, 'success');
+          triggerNotification(
+            '🔧 General Stock Corrected',
+            `Manager ${newEntry.workerName} successfully adjusted available stockpile for ${newEntry.modelId} by ${formattedQty} pcs: "${newEntry.editReason || 'manual adjustment'}".`,
+            'stock',
+            'all'
+          );
+        } else {
+          addToast(`Registered output level: +${newEntry.quantity} units of ${newEntry.modelId} saved!`, 'success');
+          triggerNotification(
+            '📦 Stock Logged in Inventory',
+            `Worker ${newEntry.workerName} successfully submitted output log: +${newEntry.quantity} units of airbag ${newEntry.modelId} at ${newEntry.machine || 'Assembly Line'}.`,
+            'stock',
+            'all'
+          );
         }
       })
       .catch((err) => {
-        if (!isQuotaExceededError(err)) {
-          handleFirestoreError(err, OperationType.CREATE, `stock_entries/${newEntry.id}`);
-        } else {
-          console.warn('Stock entry persisted in local cache (cloud operating in offline mode):', newEntry.id);
-        }
+        handleFirestoreError(err, OperationType.CREATE, `stock_entries/${newEntry.id}`);
+        addToast('Failed to save stock entry to Cloud Database.', 'error');
       });
   };
 
@@ -1433,16 +1304,10 @@ export default function App() {
       'Confirm Undo Action',
       `Are you sure you want to undo your last entry of ${entry.quantity} units of ${entry.modelId}? This will remove the entry and subtract the progress from the plan.`,
       () => {
-        // Optimistically remove entry from local state & cache
-        setStockEntries((prev) => {
-          const updated = prev.filter((e) => e.id !== id);
-          try { localStorage.setItem('epp_cached_stock', JSON.stringify(updated)); } catch {}
-          return updated;
-        });
-        addToast(`Successfully undone and removed ${entry.quantity} units of ${entry.modelId}.`, 'success');
-
         deleteDoc(doc(db, 'stock_entries', id))
           .then(() => {
+            addToast(`Successfully undone and removed ${entry.quantity} units of ${entry.modelId}.`, 'success');
+
             // Roll subtraction logic if entry was linked to a roll
             if (entry.rollId || entry.rollBarcode) {
               const roll = rolls.find(r => r.id === entry.rollId || r.barcode === entry.rollBarcode);
@@ -1472,24 +1337,6 @@ export default function App() {
                   : (roll.rollCost || calculateRealRollCost(roll).cost);
                 const grossProfit = Math.round((totalVal - cost) * 100) / 100;
                 const profitPercent = cost > 0 ? Math.round((grossProfit / cost) * 10000) / 100 : 0;
-
-                // Optimistically update roll state
-                setRolls((prevRolls) =>
-                  prevRolls.map((r) =>
-                    r.id === roll.id
-                      ? {
-                          ...r,
-                          productionRecords: updatedRecs,
-                          producedPieces: totalProduced,
-                          remainingPieces: Math.max(0, (roll.expectedPieces || 700) - totalProduced),
-                          productionValue: totalVal,
-                          grossProfit,
-                          profitPercent,
-                          updatedAt: new Date().toISOString()
-                        }
-                      : r
-                  )
-                );
 
                 updateDoc(doc(db, 'rolls', roll.id), {
                   productionRecords: updatedRecs,
@@ -1555,9 +1402,8 @@ export default function App() {
             );
           })
           .catch((err) => {
-            if (!isQuotaExceededError(err)) {
-              handleFirestoreError(err, OperationType.DELETE, `stock_entries/${id}`);
-            }
+            handleFirestoreError(err, OperationType.DELETE, `stock_entries/${id}`);
+            addToast('Failed to undo stock entry from Cloud Database.', 'error');
           });
       }
     );
@@ -1574,19 +1420,13 @@ export default function App() {
       'Confirm Entry Removal',
       `Are you sure you want to permanently delete the stock entry recording ${entry.quantity} units of ${entry.modelId}?`,
       () => {
-        // Optimistically remove entry from local state & cache
-        setStockEntries((prev) => {
-          const updated = prev.filter((e) => e.id !== id);
-          try { localStorage.setItem('epp_cached_stock', JSON.stringify(updated)); } catch {}
-          return updated;
-        });
-        addToast(`Removed ${entry.quantity} units of ${entry.modelId} from stockpile records.`, 'success');
-
         deleteDoc(doc(db, 'stock_entries', id))
+          .then(() => {
+            addToast(`Removed ${entry.quantity} units of ${entry.modelId} from stockpile records.`, 'success');
+          })
           .catch((err) => {
-            if (!isQuotaExceededError(err)) {
-              handleFirestoreError(err, OperationType.DELETE, `stock_entries/${id}`);
-            }
+            handleFirestoreError(err, OperationType.DELETE, `stock_entries/${id}`);
+            addToast('Failed to remove stock entry from Cloud Database.', 'error');
           });
       }
     );
@@ -1608,20 +1448,13 @@ export default function App() {
         })
     ) as Partial<StockEntry>;
 
-    // Optimistically update entry in local state & cache
-    setStockEntries((prev) => {
-      const updated = prev.map((e) => e.id === id ? { ...e, ...cleanedUpdate } : e);
-      try { localStorage.setItem('epp_cached_stock', JSON.stringify(updated)); } catch {}
-      return updated;
-    });
-    addToast('Successfully registered and stored stock correction!', 'success');
-
     const finalUpdate: any = {
       ...cleanedUpdate,
       editedAt: serverTimestamp()
     };
     updateDoc(doc(db, 'stock_entries', id), finalUpdate)
       .then(() => {
+        addToast('Successfully registered and stored stock correction!', 'success');
         const entry = stockEntries.find(e => e.id === id);
         if (entry) {
           triggerNotification(
@@ -1633,9 +1466,8 @@ export default function App() {
         }
       })
       .catch((err) => {
-        if (!isQuotaExceededError(err)) {
-          handleFirestoreError(err, OperationType.UPDATE, `stock_entries/${id}`);
-        }
+        handleFirestoreError(err, OperationType.UPDATE, `stock_entries/${id}`);
+        addToast('Failed to update stock entry inside Cloud Database.', 'error');
       });
   };
 
@@ -2671,23 +2503,6 @@ export default function App() {
           />
         );
 
-      case 'efficiency':
-        if (currentUser.role !== 'manager') {
-          return (
-            <div className="p-8 text-center text-slate-500 font-bold">
-              Access Restricted. Efficiency analytics is only accessible to Manager.
-            </div>
-          );
-        }
-        return (
-          <EfficiencyAnalytics
-            rolls={rolls}
-            stockEntries={stockEntries}
-            piecePrices={piecePrices}
-            expectedYields={expectedYields}
-          />
-        );
-
       default:
         return (
           <div className="p-8 text-center text-slate-400">
@@ -2706,7 +2521,6 @@ export default function App() {
     { id: 'delivery', label: 'Deliveries', icon: Truck },
     ...(currentUser?.role === 'manager'
       ? [
-          { id: 'efficiency', label: 'Efficiency Analytics', icon: TrendingUp },
           { id: 'financial', label: 'Financial Evaluation', icon: CircleDollarSign },
           { id: 'profit', label: 'PROFIT DASHBOARD', icon: Coins }
         ]

@@ -94,11 +94,10 @@ export default function WorkerDashboard({
   const myPlans = useMemo(() => {
     return plans.filter((p) => {
       if (!p.assignedWorker) return false;
-      const workerLower = (p.assignedWorker || '').toLowerCase();
-      const currentLower = (currentUser?.name || '').toLowerCase();
-      return workerLower.includes(currentLower) || currentLower.includes(workerLower);
+      return p.assignedWorker.toLowerCase().includes(currentUser.name.toLowerCase()) || 
+             currentUser.name.toLowerCase().includes(p.assignedWorker.toLowerCase());
     });
-  }, [plans, currentUser?.name]);
+  }, [plans, currentUser.name]);
 
   const filteredPlans = useMemo(() => {
     const list = filterType === 'my' ? myPlans : plans;
@@ -353,7 +352,7 @@ export default function WorkerDashboard({
               Operator Station
             </div>
             <h2 className="text-xl md:text-2xl font-bold font-sans text-slate-900 tracking-tight">
-              {getGreeting()}, {(currentUser?.name || 'Operator').split(' ')[0]}!
+              {getGreeting()}, {currentUser.name.split(' ')[0]}!
             </h2>
           </div>
         </div>
