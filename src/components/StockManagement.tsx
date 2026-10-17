@@ -530,17 +530,18 @@ export default function StockManagement({
   // Filter & search implementation
   const filteredEntries = useMemo(() => {
     let source = [...entries];
-    if (currentUser.role === 'worker') {
+    if (currentUser?.role === 'worker') {
       source = source.filter(
-        (e) => e.workerName.toLowerCase().trim() === currentUser.name.toLowerCase().trim()
+        (e) => (e.workerName || '').toLowerCase().trim() === (currentUser?.name || '').toLowerCase().trim()
       );
     }
-    return source.sort((a, b) => b.createdAt.localeCompare(a.createdAt)).filter((e) => {
+    return source.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).filter((e) => {
       const matchModel = filterModel === 'ALL' || e.modelId === filterModel;
       const matchWorker = filterWorker === 'ALL' || e.workerName === filterWorker;
+      const searchLower = (filterSearch || '').toLowerCase();
       const matchSearch = filterSearch === '' || 
-        e.workerName.toLowerCase().includes(filterSearch.toLowerCase()) || 
-        e.modelId.toLowerCase().includes(filterSearch.toLowerCase());
+        (e.workerName || '').toLowerCase().includes(searchLower) || 
+        (e.modelId || '').toLowerCase().includes(searchLower);
       return matchModel && matchWorker && matchSearch;
     });
   }, [entries, currentUser, filterModel, filterWorker, filterSearch]);
@@ -1493,7 +1494,7 @@ export default function StockManagement({
             </div>
 
             <div className="flex justify-between items-center text-xs text-slate-450 px-1 font-mono">
-              <span>Showing {filteredEntries.length} of {currentUser.role === 'worker' ? entries.filter(e => e.workerName.toLowerCase().trim() === currentUser.name.toLowerCase().trim()).length : entries.length} records</span>
+              <span>Showing {filteredEntries.length} of {currentUser?.role === 'worker' ? entries.filter(e => (e.workerName || '').toLowerCase().trim() === (currentUser?.name || '').toLowerCase().trim()).length : entries.length} records</span>
               <span>Sorted by Recency</span>
             </div>
           </div>

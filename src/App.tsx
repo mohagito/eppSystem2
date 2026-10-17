@@ -186,15 +186,80 @@ export default function App() {
     return DEFAULT_EXPECTED_YIELDS;
   });
 
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+  // --- DUAL-STORAGE SESSION & ACTIVE VIEW PERSISTENCE ---
+  const getPersistedUser = (): UserProfile | null => {
     try {
       if (typeof window === 'undefined') return null;
-      const saved = localStorage.getItem('epp_current_user');
-      return saved ? JSON.parse(saved) : null;
+      const local = localStorage.getItem('epp_current_user');
+      if (local) {
+        const parsed = JSON.parse(local);
+        if (parsed && typeof parsed === 'object' && parsed.id && parsed.name) return parsed;
+      }
+      const session = sessionStorage.getItem('epp_current_user');
+      if (session) {
+        const parsed = JSON.parse(session);
+        if (parsed && typeof parsed === 'object' && parsed.id && parsed.name) return parsed;
+      }
     } catch (e) {
       console.warn('Could not read user profile from storage:', e);
-      return null;
     }
+    return null;
+  };
+
+  const persistUser = (user: UserProfile | null) => {
+    try {
+      if (typeof window === 'undefined') return;
+      if (user) {
+        const json = JSON.stringify(user);
+        localStorage.setItem('epp_current_user', json);
+        sessionStorage.setItem('epp_current_user', json);
+      } else {
+        localStorage.removeItem('epp_current_user');
+        sessionStorage.removeItem('epp_current_user');
+      }
+    } catch (e) {
+      console.warn('User storage persistence error:', e);
+    }
+  };
+
+  const getPersistedTab = (): string => {
+    try {
+      if (typeof window !== 'undefined') {
+        const params = new URLSearchParams(window.location.search);
+        const tabParam = params.get('tab');
+        if (tabParam && tabParam !== 'label_printer') return tabParam;
+
+        const local = localStorage.getItem('epp_active_tab');
+        if (local) return local;
+
+        const session = sessionStorage.getItem('epp_active_tab');
+        if (session) return session;
+      }
+    } catch (e) {
+      console.warn('Could not parse active tab from storage/URL:', e);
+    }
+    return 'dashboard';
+  };
+
+  const persistTab = (tab: string) => {
+    try {
+      if (typeof window === 'undefined') return;
+      if (tab) {
+        localStorage.setItem('epp_active_tab', tab);
+        sessionStorage.setItem('epp_active_tab', tab);
+        const url = new URL(window.location.href);
+        if (url.searchParams.get('tab') !== tab) {
+          url.searchParams.set('tab', tab);
+          window.history.replaceState({}, '', url.toString());
+        }
+      }
+    } catch (e) {
+      console.warn('Tab persistence error:', e);
+    }
+  };
+
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    return getPersistedUser();
   });
 
   const [dailyTargets, setDailyTargets] = useState<Record<string, number>>(() => {
@@ -225,18 +290,14 @@ export default function App() {
     };
   });
 
-  // Navigation State
-  const [activeTab, setActiveTab ] = useState<string>(() => {
-    try {
-      if (typeof window !== 'undefined') {
-        const params = new URLSearchParams(window.location.search);
-        const tab = params.get('tab');
-        if (tab && tab !== 'label_printer') return tab;
-      }
-    } catch (e) {
-      console.warn('Could not parse navigation tab from URL:', e);
+  // Navigation State - Restores exact previous section on refresh
+  const [activeTab, setActiveTab] = useState<string>(() => {
+    const saved = getPersistedTab();
+    const initialUser = getPersistedUser();
+    if (initialUser && initialUser.role !== 'manager' && ['financial', 'profit', 'efficiency'].includes(saved)) {
+      return 'dashboard';
     }
-    return 'dashboard';
+    return saved;
   });
   const [mobileMenuOpen, setMobileMenuOpen] = useState<boolean>(false);
   const [quickNavOpen, setQuickNavOpen] = useState<boolean>(false);
@@ -898,16 +959,14 @@ export default function App() {
   }, [currentUser?.role]);
 
   useEffect(() => {
-    try {
-      if (currentUser) {
-        localStorage.setItem('epp_current_user', JSON.stringify(currentUser));
-      } else {
-        localStorage.removeItem('epp_current_user');
-      }
-    } catch (e) {
-      console.warn('Storage sync failed:', e);
-    }
+    persistUser(currentUser);
   }, [currentUser]);
+
+  useEffect(() => {
+    if (activeTab) {
+      persistTab(activeTab);
+    }
+  }, [activeTab]);
 
   // 100% Silent Background Data Protection & Continuous Snapshot Redundancy
   useEffect(() => {
@@ -1001,8 +1060,13 @@ export default function App() {
   // --- ACTIONS ---
   const handlePresetSelect = (profile: UserProfile) => {
     setCurrentUser(profile);
+    persistUser(profile);
     setAuthError('');
-    setActiveTab('dashboard');
+    const targetTab = getPersistedTab();
+    const isRoleRestricted = profile.role !== 'manager' && ['financial', 'profit', 'efficiency'].includes(targetTab);
+    const finalTab = isRoleRestricted ? 'dashboard' : targetTab;
+    setActiveTab(finalTab);
+    persistTab(finalTab);
     addToast(`Authenticated as ${profile.name} (${profile.role.toUpperCase()})`, 'success');
   };
 
@@ -1032,7 +1096,12 @@ export default function App() {
 
     if (found) {
       setCurrentUser(found);
-      setActiveTab('dashboard');
+      persistUser(found);
+      const targetTab = getPersistedTab();
+      const isRoleRestricted = found.role !== 'manager' && ['financial', 'profit', 'efficiency'].includes(targetTab);
+      const finalTab = isRoleRestricted ? 'dashboard' : targetTab;
+      setActiveTab(finalTab);
+      persistTab(finalTab);
       addToast(`Welcome back, ${found.name}!`, 'success');
     } else {
       setAuthError('Authentication failed. Incorrect username or password.');
@@ -1065,12 +1134,14 @@ export default function App() {
     setDoc(doc(db, 'profiles', newProfile.id), newProfile)
       .then(() => {
         setCurrentUser(newProfile);
+        persistUser(newProfile);
         setSignUpMode(false);
         setSignUpName('');
         setSignUpUsername('');
         setSignUpPassword('');
         setSignUpStation('');
         setActiveTab('dashboard');
+        persistTab('dashboard');
         addToast(`Successfully registered and authenticated. Welcome, ${newProfile.name}!`, 'success');
       })
       .catch((err) => {
@@ -1082,9 +1153,17 @@ export default function App() {
   const handleLogout = () => {
     addToast(`Session safely terminated. Goodbye, ${currentUser?.name}!`, 'info');
     setCurrentUser(null);
+    persistUser(null);
     setLoginUsername('');
     setLoginPassword('');
     setActiveTab('dashboard');
+    try {
+      localStorage.removeItem('epp_active_tab');
+      sessionStorage.removeItem('epp_active_tab');
+      const url = new URL(window.location.href);
+      url.searchParams.delete('tab');
+      window.history.replaceState({}, '', url.toString());
+    } catch {}
   };
 
   // --- CORE DATA MUTATORS ---
