@@ -25,7 +25,8 @@ import {
   ShieldCheck,
   Lock,
   CircleDollarSign,
-  Coins
+  Coins,
+  TrendingUp
 } from 'lucide-react';
 import { 
   UserProfile, 
@@ -51,6 +52,7 @@ import DeliveryModule from './components/DeliveryModule';
 import RollsModule from './components/RollsModule';
 import FinancialEvaluation from './components/FinancialEvaluation';
 import ProfitDashboard from './components/ProfitDashboard';
+import EfficiencyAnalytics from './components/EfficiencyAnalytics';
 import SecurityVaultModal from './components/SecurityVaultModal';
 import { recordVaultSnapshot, restoreBaselineReserveRolls, getBaselineFactoryRolls, ROLL_2600056310_CLOSED } from './utils/dataProtection';
 import { db, handleFirestoreError, OperationType, isQuotaExceededError } from './firebase';
@@ -2503,6 +2505,16 @@ export default function App() {
           />
         );
 
+      case 'efficiency':
+        return (
+          <EfficiencyAnalytics
+            rolls={rolls}
+            stockEntries={stockEntries}
+            piecePrices={piecePrices}
+            expectedYields={expectedYields}
+          />
+        );
+
       default:
         return (
           <div className="p-8 text-center text-slate-400">
@@ -2518,6 +2530,7 @@ export default function App() {
     { id: 'stock', label: 'Stock', icon: Database },
     { id: 'plans', label: 'Production Plan', icon: CalendarRange },
     { id: 'rolls', label: 'Material Rolls', icon: Scroll },
+    { id: 'efficiency', label: 'Efficiency Analytics', icon: TrendingUp },
     { id: 'delivery', label: 'Deliveries', icon: Truck },
     ...(currentUser?.role === 'manager'
       ? [
