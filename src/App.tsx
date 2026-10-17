@@ -2593,6 +2593,13 @@ export default function App() {
         );
 
       case 'efficiency':
+        if (currentUser.role !== 'manager') {
+          return (
+            <div className="p-8 text-center text-slate-500 font-bold">
+              Access Restricted. Efficiency analytics is only accessible to Manager.
+            </div>
+          );
+        }
         return (
           <EfficiencyAnalytics
             rolls={rolls}
@@ -2617,10 +2624,10 @@ export default function App() {
     { id: 'stock', label: 'Stock', icon: Database },
     { id: 'plans', label: 'Production Plan', icon: CalendarRange },
     { id: 'rolls', label: 'Material Rolls', icon: Scroll },
-    { id: 'efficiency', label: 'Efficiency Analytics', icon: TrendingUp },
     { id: 'delivery', label: 'Deliveries', icon: Truck },
     ...(currentUser?.role === 'manager'
       ? [
+          { id: 'efficiency', label: 'Efficiency Analytics', icon: TrendingUp },
           { id: 'financial', label: 'Financial Evaluation', icon: CircleDollarSign },
           { id: 'profit', label: 'PROFIT DASHBOARD', icon: Coins }
         ]
