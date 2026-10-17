@@ -1175,56 +1175,142 @@ export default function App() {
       createdAt: new Date().toISOString()
     };
 
+    const isCorrection = newEntry.edited === true || newEntry.quantity < 0;
+    const formattedQty = newEntry.quantity >= 0 ? `+${newEntry.quantity}` : `${newEntry.quantity}`;
+
+    // 1. Optimistic update: Update local stock entries state and cache immediately
+    setStockEntries((prevEntries) => {
+      const updated = [newEntry, ...prevEntries.filter(e => e.id !== newEntry.id)];
+      try { localStorage.setItem('epp_cached_stock', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+
+    // 2. Roll records & financials live calculation
+    let updatedRecs: RollProductionRecord[] = [];
+    let totalProduced = 0;
+    let totalVal = 0;
+    let activeExp = 0;
+    let materialEfficiency = 0;
+    let grossProfit = 0;
+    let profitPercent = 0;
+    let cost = 0;
+    let finRecord: RollFinancialRecord | null = null;
+
+    if (activeRoll && !isCorrection && (newEntry.type === 'production' || !newEntry.type)) {
+      const prodRec: RollProductionRecord = {
+        id: `rec-${newEntry.id}`,
+        rollId: activeRoll.id,
+        rollBarcode: activeRoll.barcode || activeRoll.id,
+        referenceId: cleanedEntry.modelId,
+        quantity: Number(cleanedEntry.quantity) || 0,
+        date: cleanedEntry.date || getMoroccoDateStr(),
+        time: getMoroccoTimeStr(),
+        operator: cleanedEntry.workerName || activeRoll.operator || 'Operator',
+        machine: cleanedEntry.machine || 'Big Machine',
+        notes: cleanedEntry.notes || `Stock movement for ${cleanedEntry.modelId}`,
+        createdAt: new Date().toISOString()
+      };
+
+      const existingRecs = activeRoll.productionRecords || [];
+      updatedRecs = [...existingRecs.filter(r => r.id !== prodRec.id), prodRec];
+
+      let skProduced = 0;
+      let vwProduced = 0;
+
+      updatedRecs.forEach((r) => {
+        const q = Number(r.quantity) || 0;
+        totalProduced += q;
+        const p = (activeRoll.barcode === '43968015' || activeRoll.id === '43968015')
+          ? 0.7500
+          : getPiecePriceForReference(r.referenceId, piecePrices);
+        totalVal += q * p;
+        if (matchReference(r.referenceId, 'SK216')) skProduced += q;
+        if (matchReference(r.referenceId, 'VW217')) vwProduced += q;
+      });
+
+      totalVal = Math.round(totalVal * 100) / 100;
+      cost = (activeRoll.barcode === '43968015' || activeRoll.id === '43968015')
+        ? 1615.50
+        : (activeRoll.rollCost || calculateRealRollCost(activeRoll).cost);
+      grossProfit = Math.round((totalVal - cost) * 100) / 100;
+      profitPercent = cost > 0 ? Math.round((grossProfit / cost) * 10000) / 100 : 0;
+
+      activeExp = activeRoll.expectedPieces || ((activeRoll.barcode === '43968015' || activeRoll.id === '43968015' || activeRoll.materialName === 'Delcotex India') ? 3857 : 250);
+      materialEfficiency = activeExp > 0 ? Math.round((totalProduced / activeExp) * 10000) / 100 : 0;
+
+      // Optimistically update rolls state & storage
+      setRolls((prevRolls) => {
+        const updated = prevRolls.map((r) =>
+          r.id === activeRoll.id
+            ? {
+                ...r,
+                productionRecords: updatedRecs,
+                producedPieces: totalProduced,
+                expectedPieces: activeExp,
+                remainingPieces: Math.max(0, activeExp - totalProduced),
+                materialEfficiency,
+                productionValue: totalVal,
+                grossProfit,
+                profitPercent,
+                updatedAt: new Date().toISOString(),
+                updatedBy: cleanedEntry.workerName || currentUser?.name || 'Operator'
+              }
+            : r
+        );
+        try { localStorage.setItem('epp_cached_rolls', JSON.stringify(updated)); } catch {}
+        return updated;
+      });
+
+      finRecord = {
+        id: `fe-${activeRoll.id}`,
+        rollId: activeRoll.id,
+        rollBarcode: activeRoll.barcode || activeRoll.id,
+        rollNumber: activeRoll.rollNumber || activeRoll.barcode || activeRoll.id,
+        materialName: normalizeRollMaterial(activeRoll.materialName),
+        rollLength: activeRoll.metersTotal || 90,
+        rollCost: cost,
+        items: [
+          { reference: 'SK216', pieces: skProduced, pricePerPiece: 0.75, productionValue: Math.round(skProduced * 0.75 * 100) / 100 },
+          { reference: 'VW217', pieces: vwProduced, pricePerPiece: 0.75, productionValue: Math.round(vwProduced * 0.75 * 100) / 100 }
+        ],
+        totalPieces: totalProduced,
+        totalProductionValue: totalVal,
+        grossProfit,
+        profitPercentage: profitPercent,
+        materialEfficiency,
+        evaluatedAt: getMoroccoDateStr(),
+        evaluatedBy: cleanedEntry.workerName || currentUser?.name || 'Operator',
+        notes: `Live evaluation: ${totalProduced} pcs produced from roll ${activeRoll.barcode || activeRoll.id}`,
+        openingStockSnapshot: activeRoll.openingStockSnapshot || { SK216: 11897, VW217: 5889 },
+        rollOpeningStock: activeRoll.rollOpeningStock || { SK216: 11897, VW217: 5889 },
+        status: 'IN PRODUCTION',
+        updatedAt: new Date().toISOString()
+      };
+    }
+
+    // 3. Immediate UI Toast & notifications
+    if (isCorrection) {
+      addToast(`Stored stock adjustments: ${formattedQty} units of ${newEntry.modelId} corrected successfully!`, 'success');
+      triggerNotification(
+        '🔧 General Stock Corrected',
+        `Manager ${newEntry.workerName} successfully adjusted available stockpile for ${newEntry.modelId} by ${formattedQty} pcs: "${newEntry.editReason || 'manual adjustment'}".`,
+        'stock',
+        'all'
+      );
+    } else {
+      addToast(`Registered output level: +${newEntry.quantity} units of ${newEntry.modelId} saved!`, 'success');
+      triggerNotification(
+        '📦 Stock Logged in Inventory',
+        `Worker ${newEntry.workerName} successfully submitted output log: +${newEntry.quantity} units of airbag ${newEntry.modelId} at ${newEntry.machine || 'Assembly Line'}.`,
+        'stock',
+        'all'
+      );
+    }
+
+    // 4. Background Cloud Database sync with graceful offline/quota resiliency
     setDoc(doc(db, 'stock_entries', newEntry.id), newEntry)
       .then(() => {
-        const isCorrection = newEntry.edited === true || newEntry.quantity < 0;
-        const formattedQty = newEntry.quantity >= 0 ? `+${newEntry.quantity}` : `${newEntry.quantity}`;
-        
-        // If production was added and linked to an active roll in production, update roll production records & financials live
         if (activeRoll && !isCorrection && (newEntry.type === 'production' || !newEntry.type)) {
-          const prodRec: RollProductionRecord = {
-            id: `rec-${newEntry.id}`,
-            rollId: activeRoll.id,
-            rollBarcode: activeRoll.barcode || activeRoll.id,
-            referenceId: cleanedEntry.modelId,
-            quantity: Number(cleanedEntry.quantity) || 0,
-            date: cleanedEntry.date || getMoroccoDateStr(),
-            time: getMoroccoTimeStr(),
-            operator: cleanedEntry.workerName || activeRoll.operator || 'Operator',
-            machine: cleanedEntry.machine || 'Big Machine',
-            notes: cleanedEntry.notes || `Stock movement for ${cleanedEntry.modelId}`,
-            createdAt: new Date().toISOString()
-          };
-
-          const existingRecs = activeRoll.productionRecords || [];
-          const updatedRecs = [...existingRecs.filter(r => r.id !== prodRec.id), prodRec];
-
-          let totalProduced = 0;
-          let totalVal = 0;
-          let skProduced = 0;
-          let vwProduced = 0;
-
-          updatedRecs.forEach((r) => {
-            const q = Number(r.quantity) || 0;
-            totalProduced += q;
-            const p = (activeRoll.barcode === '43968015' || activeRoll.id === '43968015')
-              ? 0.7500
-              : getPiecePriceForReference(r.referenceId, piecePrices);
-            totalVal += q * p;
-            if (matchReference(r.referenceId, 'SK216')) skProduced += q;
-            if (matchReference(r.referenceId, 'VW217')) vwProduced += q;
-          });
-
-          totalVal = Math.round(totalVal * 100) / 100;
-          const cost = (activeRoll.barcode === '43968015' || activeRoll.id === '43968015')
-            ? 1615.50
-            : (activeRoll.rollCost || calculateRealRollCost(activeRoll).cost);
-          const grossProfit = Math.round((totalVal - cost) * 100) / 100;
-          const profitPercent = cost > 0 ? Math.round((grossProfit / cost) * 10000) / 100 : 0;
-
-          const activeExp = activeRoll.expectedPieces || ((activeRoll.barcode === '43968015' || activeRoll.id === '43968015' || activeRoll.materialName === 'Delcotex India') ? 3857 : 250);
-          const materialEfficiency = activeExp > 0 ? Math.round((totalProduced / activeExp) * 10000) / 100 : 0;
-
           updateDoc(doc(db, 'rolls', activeRoll.id), {
             productionRecords: updatedRecs,
             producedPieces: totalProduced,
@@ -1238,55 +1324,17 @@ export default function App() {
             updatedBy: cleanedEntry.workerName || currentUser?.name || 'Operator'
           }).catch(err => console.warn('Could not auto-attribute production to roll:', err));
 
-          const finRecord: RollFinancialRecord = {
-            id: `fe-${activeRoll.id}`,
-            rollId: activeRoll.id,
-            rollBarcode: activeRoll.barcode || activeRoll.id,
-            rollNumber: activeRoll.rollNumber || activeRoll.barcode || activeRoll.id,
-            materialName: normalizeRollMaterial(activeRoll.materialName),
-            rollLength: activeRoll.metersTotal || 90,
-            rollCost: cost,
-            items: [
-              { reference: 'SK216', pieces: skProduced, pricePerPiece: 0.75, productionValue: Math.round(skProduced * 0.75 * 100) / 100 },
-              { reference: 'VW217', pieces: vwProduced, pricePerPiece: 0.75, productionValue: Math.round(vwProduced * 0.75 * 100) / 100 }
-            ],
-            totalPieces: totalProduced,
-            totalProductionValue: totalVal,
-            grossProfit,
-            profitPercentage: profitPercent,
-            materialEfficiency,
-            evaluatedAt: getMoroccoDateStr(),
-            evaluatedBy: cleanedEntry.workerName || currentUser?.name || 'Operator',
-            notes: `Live evaluation: ${totalProduced} pcs produced from roll ${activeRoll.barcode || activeRoll.id}`,
-            openingStockSnapshot: activeRoll.openingStockSnapshot || { SK216: 11897, VW217: 5889 },
-            rollOpeningStock: activeRoll.rollOpeningStock || { SK216: 11897, VW217: 5889 },
-            status: 'IN PRODUCTION',
-            updatedAt: new Date().toISOString()
-          };
-          setDoc(doc(db, 'financial_evaluations', finRecord.id), finRecord, { merge: true }).catch(() => {});
-        }
-
-        if (isCorrection) {
-          addToast(`Stored stock adjustments: ${formattedQty} units of ${newEntry.modelId} corrected successfully!`, 'success');
-          triggerNotification(
-            '🔧 General Stock Corrected',
-            `Manager ${newEntry.workerName} successfully adjusted available stockpile for ${newEntry.modelId} by ${formattedQty} pcs: "${newEntry.editReason || 'manual adjustment'}".`,
-            'stock',
-            'all'
-          );
-        } else {
-          addToast(`Registered output level: +${newEntry.quantity} units of ${newEntry.modelId} saved!`, 'success');
-          triggerNotification(
-            '📦 Stock Logged in Inventory',
-            `Worker ${newEntry.workerName} successfully submitted output log: +${newEntry.quantity} units of airbag ${newEntry.modelId} at ${newEntry.machine || 'Assembly Line'}.`,
-            'stock',
-            'all'
-          );
+          if (finRecord) {
+            setDoc(doc(db, 'financial_evaluations', finRecord.id), finRecord, { merge: true }).catch(() => {});
+          }
         }
       })
       .catch((err) => {
-        handleFirestoreError(err, OperationType.CREATE, `stock_entries/${newEntry.id}`);
-        addToast('Failed to save stock entry to Cloud Database.', 'error');
+        if (!isQuotaExceededError(err)) {
+          handleFirestoreError(err, OperationType.CREATE, `stock_entries/${newEntry.id}`);
+        } else {
+          console.warn('Stock entry persisted in local cache (cloud operating in offline mode):', newEntry.id);
+        }
       });
   };
 
@@ -1306,10 +1354,16 @@ export default function App() {
       'Confirm Undo Action',
       `Are you sure you want to undo your last entry of ${entry.quantity} units of ${entry.modelId}? This will remove the entry and subtract the progress from the plan.`,
       () => {
+        // Optimistically remove entry from local state & cache
+        setStockEntries((prev) => {
+          const updated = prev.filter((e) => e.id !== id);
+          try { localStorage.setItem('epp_cached_stock', JSON.stringify(updated)); } catch {}
+          return updated;
+        });
+        addToast(`Successfully undone and removed ${entry.quantity} units of ${entry.modelId}.`, 'success');
+
         deleteDoc(doc(db, 'stock_entries', id))
           .then(() => {
-            addToast(`Successfully undone and removed ${entry.quantity} units of ${entry.modelId}.`, 'success');
-
             // Roll subtraction logic if entry was linked to a roll
             if (entry.rollId || entry.rollBarcode) {
               const roll = rolls.find(r => r.id === entry.rollId || r.barcode === entry.rollBarcode);
@@ -1339,6 +1393,24 @@ export default function App() {
                   : (roll.rollCost || calculateRealRollCost(roll).cost);
                 const grossProfit = Math.round((totalVal - cost) * 100) / 100;
                 const profitPercent = cost > 0 ? Math.round((grossProfit / cost) * 10000) / 100 : 0;
+
+                // Optimistically update roll state
+                setRolls((prevRolls) =>
+                  prevRolls.map((r) =>
+                    r.id === roll.id
+                      ? {
+                          ...r,
+                          productionRecords: updatedRecs,
+                          producedPieces: totalProduced,
+                          remainingPieces: Math.max(0, (roll.expectedPieces || 700) - totalProduced),
+                          productionValue: totalVal,
+                          grossProfit,
+                          profitPercent,
+                          updatedAt: new Date().toISOString()
+                        }
+                      : r
+                  )
+                );
 
                 updateDoc(doc(db, 'rolls', roll.id), {
                   productionRecords: updatedRecs,
@@ -1404,8 +1476,9 @@ export default function App() {
             );
           })
           .catch((err) => {
-            handleFirestoreError(err, OperationType.DELETE, `stock_entries/${id}`);
-            addToast('Failed to undo stock entry from Cloud Database.', 'error');
+            if (!isQuotaExceededError(err)) {
+              handleFirestoreError(err, OperationType.DELETE, `stock_entries/${id}`);
+            }
           });
       }
     );
@@ -1422,13 +1495,19 @@ export default function App() {
       'Confirm Entry Removal',
       `Are you sure you want to permanently delete the stock entry recording ${entry.quantity} units of ${entry.modelId}?`,
       () => {
+        // Optimistically remove entry from local state & cache
+        setStockEntries((prev) => {
+          const updated = prev.filter((e) => e.id !== id);
+          try { localStorage.setItem('epp_cached_stock', JSON.stringify(updated)); } catch {}
+          return updated;
+        });
+        addToast(`Removed ${entry.quantity} units of ${entry.modelId} from stockpile records.`, 'success');
+
         deleteDoc(doc(db, 'stock_entries', id))
-          .then(() => {
-            addToast(`Removed ${entry.quantity} units of ${entry.modelId} from stockpile records.`, 'success');
-          })
           .catch((err) => {
-            handleFirestoreError(err, OperationType.DELETE, `stock_entries/${id}`);
-            addToast('Failed to remove stock entry from Cloud Database.', 'error');
+            if (!isQuotaExceededError(err)) {
+              handleFirestoreError(err, OperationType.DELETE, `stock_entries/${id}`);
+            }
           });
       }
     );
@@ -1450,13 +1529,20 @@ export default function App() {
         })
     ) as Partial<StockEntry>;
 
+    // Optimistically update entry in local state & cache
+    setStockEntries((prev) => {
+      const updated = prev.map((e) => e.id === id ? { ...e, ...cleanedUpdate } : e);
+      try { localStorage.setItem('epp_cached_stock', JSON.stringify(updated)); } catch {}
+      return updated;
+    });
+    addToast('Successfully registered and stored stock correction!', 'success');
+
     const finalUpdate: any = {
       ...cleanedUpdate,
       editedAt: serverTimestamp()
     };
     updateDoc(doc(db, 'stock_entries', id), finalUpdate)
       .then(() => {
-        addToast('Successfully registered and stored stock correction!', 'success');
         const entry = stockEntries.find(e => e.id === id);
         if (entry) {
           triggerNotification(
@@ -1468,8 +1554,9 @@ export default function App() {
         }
       })
       .catch((err) => {
-        handleFirestoreError(err, OperationType.UPDATE, `stock_entries/${id}`);
-        addToast('Failed to update stock entry inside Cloud Database.', 'error');
+        if (!isQuotaExceededError(err)) {
+          handleFirestoreError(err, OperationType.UPDATE, `stock_entries/${id}`);
+        }
       });
   };
 

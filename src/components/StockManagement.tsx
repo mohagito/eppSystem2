@@ -265,13 +265,8 @@ export default function StockManagement({
       return;
     }
 
-    // Handled safely depending on role: if manager, we don't ask about operator, just credit as current manager or empty
-    const finalWorkerName = currentUser.role === 'manager' ? workerName : currentUser.name;
-
-    if (!finalWorkerName) {
-      setFormError('Operator / Worker Name is required.');
-      return;
-    }
+    // Handled safely depending on role: if manager, we credit as workerName or currentUser.name
+    const finalWorkerName = (currentUser.role === 'manager' ? (workerName || currentUser.name) : currentUser.name) || 'Operator';
 
     const pkgSize = PACKAGING_SIZES[selectedModel] || 250;
     const currentUnpackaged = unpackagedQtySums[selectedModel] || 0;
@@ -279,6 +274,25 @@ export default function StockManagement({
     const autoPackagedQty = Math.floor(totalAvailable / pkgSize) * pkgSize;
     const autoUnpackagedQty = totalAvailable % pkgSize;
     const numPacks = autoPackagedQty / pkgSize;
+
+    const executeAdd = () => {
+      onAddEntry({
+        modelId: selectedModel,
+        workerName: finalWorkerName,
+        date: entryDate || getLocalDateStr(),
+        quantity: parsedQty,
+        createdBy: currentUser.id,
+        machine: targetMachine !== 'ALL' ? (targetMachine as any) : undefined,
+        planId: targetPlanId || undefined,
+        type: 'production'
+      });
+
+      // Reset fields except date and worker name
+      setQuantity('');
+      setAssociationType('NONE');
+      setTargetMachine('ALL');
+      setTargetPlanId('');
+    };
 
     let htmlContent = `Do you want to log production of <strong>${parsedQty} pcs</strong> of model <strong>${selectedModel}</strong>?`;
     htmlContent += `
@@ -314,42 +328,32 @@ export default function StockManagement({
         </div>
       </div>`;
 
-    Swal.fire({
-      title: 'Confirm Stock Addition',
-      html: htmlContent,
-      icon: 'question',
-      showCancelButton: true,
-      confirmButtonText: 'Yes, Save & Auto-Package',
-      cancelButtonText: 'Cancel',
-      background: '#0f172a',
-      color: '#cbd5e1',
-      confirmButtonColor: '#10b981',
-      cancelButtonColor: '#f43f5e',
-      customClass: {
-        popup: 'rounded-2xl border border-slate-850 shadow-2xl p-6 font-sans',
-        title: 'text-sm font-extrabold uppercase tracking-wider text-slate-100 font-sans mt-2'
-      }
-    }).then((result) => {
-      if (result.isConfirmed) {
-        // Add the production entry
-        onAddEntry({
-          modelId: selectedModel,
-          workerName: finalWorkerName,
-          date: entryDate || getLocalDateStr(),
-          quantity: parsedQty,
-          createdBy: currentUser.id,
-          machine: targetMachine !== 'ALL' ? (targetMachine as any) : undefined,
-          planId: targetPlanId || undefined,
-          type: 'production'
-        });
-
-        // Reset fields except date and worker name
-        setQuantity('');
-        setAssociationType('NONE');
-        setTargetMachine('ALL');
-        setTargetPlanId('');
-      }
-    });
+    try {
+      Swal.fire({
+        title: 'Confirm Stock Addition',
+        html: htmlContent,
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Yes, Save & Auto-Package',
+        cancelButtonText: 'Cancel',
+        background: '#0f172a',
+        color: '#cbd5e1',
+        confirmButtonColor: '#10b981',
+        cancelButtonColor: '#f43f5e',
+        customClass: {
+          popup: 'rounded-2xl border border-slate-850 shadow-2xl p-6 font-sans',
+          title: 'text-sm font-extrabold uppercase tracking-wider text-slate-100 font-sans mt-2'
+        }
+      }).then((result) => {
+        if (result.isConfirmed) {
+          executeAdd();
+        }
+      }).catch(() => {
+        executeAdd();
+      });
+    } catch {
+      executeAdd();
+    }
   };
 
   // Pre-calculate per-model packaged stock sums and unpackaged quantities dynamically
