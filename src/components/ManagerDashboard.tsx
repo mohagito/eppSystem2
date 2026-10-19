@@ -888,7 +888,7 @@ export default function ManagerDashboard({
                         <span className="text-xs font-bold text-slate-800 font-mono bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-md">
                           {e.modelId}
                         </span>
-                        <span className="text-[10px] text-slate-600 font-extrabold">{e.workerName.split(' ')[0]}</span>
+                        <span className="text-[10px] text-slate-600 font-extrabold">{(e.workerName || 'Operator').split(' ')[0]}</span>
                       </div>
                       <div className="text-[9px] text-slate-400 font-bold font-mono">
                         Date: {e.date}

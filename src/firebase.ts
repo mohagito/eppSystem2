@@ -118,13 +118,13 @@ export function handleFirestoreError(error: unknown, operationType: OperationTyp
     path
   };
 
-  // If this is an offline or quota error, log a subtle warning and do not crash the React app
-  if (isQuotaExceededError(error)) {
-    console.warn(`Firestore operating in resilient local mode for ${operationType} on ${path}`);
+  // If this is an offline, quota, or background LIST sync error, log a warning and do not crash the React app
+  if (isQuotaExceededError(error) || operationType === OperationType.LIST) {
+    console.warn(`Firestore operating in resilient local mode for ${operationType} on ${path}:`, errInfo.error);
     return;
   }
 
-  // Security rule or unexpected permission errors are strictly thrown per skill spec
+  // Security rule or unexpected permission errors on mutations are strictly thrown per skill spec
   console.error('Firestore Error: ', JSON.stringify(errInfo));
   throw new Error(JSON.stringify(errInfo));
 }

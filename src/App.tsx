@@ -25,7 +25,8 @@ import {
   ShieldCheck,
   Lock,
   CircleDollarSign,
-  Coins
+  Coins,
+  TrendingUp
 } from 'lucide-react';
 import { 
   UserProfile, 
@@ -51,6 +52,7 @@ import DeliveryModule from './components/DeliveryModule';
 import RollsModule from './components/RollsModule';
 import FinancialEvaluation from './components/FinancialEvaluation';
 import ProfitDashboard from './components/ProfitDashboard';
+import EfficiencyAnalytics from './components/EfficiencyAnalytics';
 import SecurityVaultModal from './components/SecurityVaultModal';
 import { recordVaultSnapshot, restoreBaselineReserveRolls, getBaselineFactoryRolls, ROLL_2600056310_CLOSED } from './utils/dataProtection';
 import { db, handleFirestoreError, OperationType, isQuotaExceededError } from './firebase';
@@ -2455,6 +2457,18 @@ export default function App() {
           />
         );
 
+      case 'efficiency_analytics':
+        return (
+          <EfficiencyAnalytics
+            currentUser={currentUser}
+            rolls={rolls}
+            stockEntries={stockEntries}
+            deliveries={deliveries}
+            piecePrices={piecePrices}
+            expectedYields={expectedYields}
+          />
+        );
+
       case 'financial':
         if (currentUser.role !== 'manager') {
           return (
@@ -2522,9 +2536,12 @@ export default function App() {
     ...(currentUser?.role === 'manager'
       ? [
           { id: 'financial', label: 'Financial Evaluation', icon: CircleDollarSign },
-          { id: 'profit', label: 'PROFIT DASHBOARD', icon: Coins }
+          { id: 'profit', label: 'PROFIT DASHBOARD', icon: Coins },
+          { id: 'efficiency_analytics', label: 'Efficiency Analytics', icon: TrendingUp }
         ]
-      : [])
+      : [
+          { id: 'efficiency_analytics', label: 'Efficiency Analytics', icon: TrendingUp }
+        ])
   ];
 
   return (

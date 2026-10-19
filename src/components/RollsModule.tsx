@@ -763,9 +763,7 @@ export default function RollsModule({
             <h1 className="text-xl font-extrabold text-slate-900 flex items-center gap-2">
               Material Rolls Traceability
             </h1>
-            <p className="text-xs text-slate-500 font-semibold mt-0.5">
-              Secure digital log for fabric coils & trace-back barcode tracking.
-            </p>
+            
           </div>
         </div>
 
@@ -997,7 +995,7 @@ export default function RollsModule({
               Factory Reserve Stock Status
             </h2>
             <p className="text-[11px] text-slate-500 font-semibold mt-0.5 flex items-center gap-2 flex-wrap">
-              <span>Available factory warehouse stock: <span className="font-extrabold text-slate-800">{totalUnopenedCount} unopened rolls ({totalUnopenedMeters.toLocaleString()} m)</span></span>
+              <span> <span className="font-extrabold text-slate-800">{totalUnopenedCount} unopened rolls ({totalUnopenedMeters.toLocaleString()} m)</span></span>
               {isManager && (
                 <>
                   <span className="text-slate-300">•</span>
@@ -1029,18 +1027,18 @@ export default function RollsModule({
           </div>
         </div>
 
-        {totalUnopenedCount === 0 && onRecoverRolls && (
-          <div className="mx-4 my-3 p-4 bg-amber-50 border border-amber-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-            <div className="flex items-center gap-2 text-amber-900 text-xs font-bold">
-              <AlertCircle size={18} className="text-amber-600 shrink-0" />
-              <span>Rolls database is currently at zero. Click Recover to restore factory spreadsheet stock (6 Yellow Huesker, 2 Kuga, 3 White Huesker).</span>
+        {rolls.length === 0 && onRecoverRolls && (
+          <div className="mx-4 my-3 p-4 bg-slate-50 border border-slate-200 rounded-xl flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+            <div className="flex items-center gap-2 text-slate-700 text-xs font-bold">
+              <AlertCircle size={18} className="text-slate-500 shrink-0" />
+              <span>No material rolls found in database. Restore baseline spreadsheet stock?</span>
             </div>
             <button
               onClick={onRecoverRolls}
-              className="px-4 py-2 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-extrabold shadow-xs transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
+              className="px-4 py-2 bg-slate-900 hover:bg-slate-800 text-white rounded-xl text-xs font-extrabold shadow-xs transition-all flex items-center justify-center gap-1.5 shrink-0 cursor-pointer"
             >
               <RotateCcw size={14} />
-              Restore Now
+              Restore Baseline
             </button>
           </div>
         )}
@@ -1527,6 +1525,7 @@ export default function RollsModule({
         currentUser={currentUser}
         expectedYields={expectedYields}
         piecePrices={piecePrices}
+        stockEntries={stockEntries}
         onClose={() => setInspectedRoll(null)}
         onMarkFinished={async (rollId, waste, notes) => {
           if (onMarkFinished) {

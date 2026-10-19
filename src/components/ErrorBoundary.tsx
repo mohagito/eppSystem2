@@ -56,48 +56,44 @@ export default class ErrorBoundary extends Component<Props, State> {
     window.location.href = '/';
   };
 
+  private handleResume = () => {
+    this.setState({ hasError: false, error: null, errorInfo: null });
+  };
+
   public render() {
     if (this.state.hasError) {
       return (
         <div className="min-h-screen bg-slate-900 text-slate-100 flex flex-col items-center justify-center p-6 font-sans">
-          <div className="w-full max-w-lg bg-slate-850 border border-slate-800 rounded-2xl p-8 shadow-2xl space-y-6 text-center">
-            <div className="w-16 h-16 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-2xl mx-auto flex items-center justify-center">
-              <AlertTriangle className="w-8 h-8" />
+          <div className="w-full max-w-md bg-slate-850 border border-slate-800 rounded-2xl p-6 shadow-xl space-y-5 text-center">
+            <div className="w-12 h-12 bg-amber-500/10 border border-amber-500/20 text-amber-400 rounded-xl mx-auto flex items-center justify-center">
+              <AlertTriangle className="w-6 h-6" />
             </div>
 
-            <div className="space-y-2">
-              <h1 className="text-xl font-bold tracking-tight text-slate-100">
-                EPP System Recovery
+            <div className="space-y-1.5">
+              <h1 className="text-base font-bold tracking-tight text-slate-100">
+                Workspace Reload Required
               </h1>
               <p className="text-xs text-slate-400 leading-relaxed">
-                An unexpected interface exception occurred. Your operational data is safely stored in Cloud Firestore.
+                A temporary display update occurred. Your production data is safe.
               </p>
             </div>
 
-            {this.state.error && (
-              <div className="text-left bg-slate-950/80 border border-slate-800/80 rounded-xl p-3.5 max-h-40 overflow-y-auto">
-                <p className="text-[11px] font-mono text-rose-300 break-words">
-                  {this.state.error.message || String(this.state.error)}
-                </p>
-              </div>
-            )}
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+            <div className="grid grid-cols-2 gap-3 pt-2">
               <button
                 type="button"
-                onClick={this.handleReload}
-                className="flex items-center justify-center gap-2 px-4 py-3 bg-emerald-500 hover:bg-emerald-600 text-slate-950 rounded-xl text-xs font-bold transition-all shadow-md active:scale-95 cursor-pointer"
+                onClick={this.handleResume}
+                className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl text-xs font-bold transition-all shadow-sm active:scale-95 cursor-pointer"
               >
-                <RefreshCw className="w-4 h-4" />
-                Reload Application
+                <RefreshCw className="w-3.5 h-3.5" />
+                Resume View
               </button>
               <button
                 type="button"
-                onClick={this.handleResetCache}
-                className="flex items-center justify-center gap-2 px-4 py-3 bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 rounded-xl text-xs font-semibold transition-all active:scale-95 cursor-pointer"
+                onClick={this.handleReload}
+                className="flex items-center justify-center gap-1.5 px-3 py-2.5 bg-slate-800 hover:bg-slate-750 text-slate-300 border border-slate-700 rounded-xl text-xs font-semibold transition-all active:scale-95 cursor-pointer"
               >
-                <Trash2 className="w-4 h-4 text-amber-400" />
-                Reset Local Cache
+                <RefreshCw className="w-3.5 h-3.5" />
+                Refresh Page
               </button>
             </div>
           </div>

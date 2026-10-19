@@ -13,7 +13,7 @@ export function getPlanActualProduced(plan: ProductionPlan, stockEntries: StockE
 
     const dateMatch = e.date === plan.planDate;
     const modelMatch = e.modelId === plan.model;
-    const exactWorkerMatch = e.workerName.toLowerCase() === plan.assignedWorker.toLowerCase();
+    const exactWorkerMatch = (e.workerName || '').toLowerCase() === (plan.assignedWorker || '').toLowerCase();
     
     // Support for initial mock/seed data where operators Mouad and Mohamed were swapped
     const isMockSpecialCase =
@@ -49,7 +49,7 @@ export function getPlanActualProduced(plan: ProductionPlan, stockEntries: StockE
     ? allPlans.filter((p) => {
         const dateMatch = p.planDate === plan.planDate;
         const modelMatch = p.model === plan.model;
-        const exactWorkerMatch = p.assignedWorker.toLowerCase() === plan.assignedWorker.toLowerCase();
+        const exactWorkerMatch = (p.assignedWorker || '').toLowerCase() === (plan.assignedWorker || '').toLowerCase();
         const isMockPlan = p.id === 'pl-1' || p.id === 'pl-2';
         return dateMatch && modelMatch && (exactWorkerMatch || isMockPlan);
       })
