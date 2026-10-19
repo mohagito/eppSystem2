@@ -6,31 +6,31 @@
 import { useState, useEffect } from 'react';
 
 export const MOROCCO_TIMEZONE = 'Africa/Casablanca';
-export const MOROCCO_TZ_LABEL = 'GMT+1 (Maroc)';
+export const MOROCCO_TZ_LABEL = 'GMT+0 (Maroc)';
 
-const TZ_STORAGE_KEY = 'epp_factory_tz_mode';
+const TZ_STORAGE_KEY = 'epp_factory_tz_mode_v2';
 const TZ_CUSTOM_OFFSET_KEY = 'epp_factory_tz_offset';
 
-export type TimezoneMode = 'morocco_gmt1' | 'morocco_gmt0' | 'device';
+export type TimezoneMode = 'morocco_gmt0' | 'morocco_gmt1' | 'device';
 
 /**
  * Gets currently active timezone mode.
- * Default is 'morocco_gmt1' (UTC+1, Morocco Standard Time).
+ * Default is 'morocco_gmt0' (UTC+0, Morocco Standard Time).
  */
 export function getActiveTimezoneMode(): TimezoneMode {
   try {
     const saved = localStorage.getItem(TZ_STORAGE_KEY) as TimezoneMode | null;
-    if (saved === 'morocco_gmt1' || saved === 'morocco_gmt0' || saved === 'device') {
+    if (saved === 'morocco_gmt0' || saved === 'morocco_gmt1' || saved === 'device') {
       return saved;
     }
   } catch {
     // Local storage unavailable
   }
-  return 'morocco_gmt1';
+  return 'morocco_gmt0';
 }
 
 /**
- * Gets the custom numeric hour offset applied to Morocco GMT+1.
+ * Gets the custom numeric hour offset applied to Morocco GMT+0.
  */
 export function getCustomHourOffset(): number {
   try {
@@ -63,16 +63,16 @@ export function getEffectiveOffsetHours(): number {
   const mode = getActiveTimezoneMode();
   const custom = getCustomHourOffset();
 
-  if (mode === 'morocco_gmt0') {
-    return 0 + custom; // Ramadan period GMT+0
+  if (mode === 'morocco_gmt1') {
+    return 1 + custom;
   }
   if (mode === 'device') {
     // Invert browser's getTimezoneOffset (which is in minutes, UTC - local)
     const deviceMinutes = -new Date().getTimezoneOffset();
     return (deviceMinutes / 60) + custom;
   }
-  // Default: Standard Morocco Time GMT+1
-  return 1 + custom;
+  // Default: Morocco Standard Time GMT+0
+  return 0 + custom;
 }
 
 /**
@@ -187,11 +187,11 @@ export function useMoroccoClock() {
   const customOffset = getCustomHourOffset();
 
   const tzShortLabel = offsetHours >= 0 ? `GMT+${offsetHours}` : `GMT${offsetHours}`;
-  const tzLabel = activeMode === 'morocco_gmt0' 
-    ? 'GMT+0 (Ramadan Maroc)' 
+  const tzLabel = activeMode === 'morocco_gmt1' 
+    ? 'GMT+1 (Maroc)' 
     : activeMode === 'device'
       ? `Local (${tzShortLabel})`
-      : `GMT+1 (Maroc Hub)`;
+      : `GMT+0 (Maroc Hub)`;
 
   return {
     timeWithSeconds: time24WithSec, // e.g. "16:44:35"

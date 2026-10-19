@@ -53,7 +53,7 @@ export default function FactoryClock({ variant = 'desktop', className = '' }: Fa
   };
 
   const handleReset = () => {
-    setActiveTimezoneMode('morocco_gmt1', 0);
+    setActiveTimezoneMode('morocco_gmt0', 0);
   };
 
   if (variant === 'mobile') {
@@ -165,27 +165,6 @@ export default function FactoryClock({ variant = 'desktop', className = '' }: Fa
 
             <button
               type="button"
-              onClick={() => handleSelectMode('morocco_gmt1')}
-              className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs font-semibold transition-all ${
-                activeMode === 'morocco_gmt1' && customOffset === 0
-                  ? 'bg-emerald-50 text-emerald-900 border border-emerald-300/80 shadow-xs'
-                  : 'bg-slate-50 text-slate-700 border border-transparent hover:bg-slate-100'
-              }`}
-            >
-              <div className="flex items-center gap-2">
-                <Sun size={14} className="text-amber-500" />
-                <div>
-                  <div className="font-bold">Maroc Standard (GMT+1)</div>
-                  <div className="text-[10px] text-slate-500 font-normal">Heure officielle en vigueur au Maroc (Casablanca)</div>
-                </div>
-              </div>
-              {activeMode === 'morocco_gmt1' && customOffset === 0 && (
-                <Check size={14} className="text-emerald-600 shrink-0" />
-              )}
-            </button>
-
-            <button
-              type="button"
               onClick={() => handleSelectMode('morocco_gmt0')}
               className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs font-semibold transition-all ${
                 activeMode === 'morocco_gmt0' && customOffset === 0
@@ -194,13 +173,34 @@ export default function FactoryClock({ variant = 'desktop', className = '' }: Fa
               }`}
             >
               <div className="flex items-center gap-2">
-                <Moon size={14} className="text-indigo-500" />
+                <Sun size={14} className="text-amber-500" />
                 <div>
-                  <div className="font-bold">Maroc Ramadan (GMT+0)</div>
-                  <div className="text-[10px] text-slate-500 font-normal">Retour temporaire GMT+0 pendant le mois sacré</div>
+                  <div className="font-bold">Maroc Standard (GMT+0)</div>
+                  <div className="text-[10px] text-slate-500 font-normal">Heure en vigueur au Maroc (GMT+0)</div>
                 </div>
               </div>
               {activeMode === 'morocco_gmt0' && customOffset === 0 && (
+                <Check size={14} className="text-emerald-600 shrink-0" />
+              )}
+            </button>
+
+            <button
+              type="button"
+              onClick={() => handleSelectMode('morocco_gmt1')}
+              className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs font-semibold transition-all ${
+                activeMode === 'morocco_gmt1' && customOffset === 0
+                  ? 'bg-emerald-50 text-emerald-900 border border-emerald-300/80 shadow-xs'
+                  : 'bg-slate-50 text-slate-700 border border-transparent hover:bg-slate-100'
+              }`}
+            >
+              <div className="flex items-center gap-2">
+                <Moon size={14} className="text-indigo-500" />
+                <div>
+                  <div className="font-bold">Maroc (GMT+1)</div>
+                  <div className="text-[10px] text-slate-500 font-normal">Décalage +1 heure</div>
+                </div>
+              </div>
+              {activeMode === 'morocco_gmt1' && customOffset === 0 && (
                 <Check size={14} className="text-emerald-600 shrink-0" />
               )}
             </button>
