@@ -130,6 +130,11 @@ export interface RollEntry {
   profitPercent?: number; // (grossProfit / rollCost) * 100
   productionRecords?: RollProductionRecord[]; // Independent log of production batches
 
+  // NOK Defective Formats Adjustment (India / Delcotex rolls only)
+  nokFormats?: number; // Count of defective formats found in the roll (70cm x 90cm)
+  nokEquivalentPieces?: number; // nokFormats * 15
+  adjustedExpectedPieces?: number; // max(0, originalExpectedPieces - nokEquivalentPieces)
+
   // Reconciliation & Stock Snapshots (ROLLS + FINISHED PIECE STOCK + PRODUCTION + UNPACKAGED PIECES + ROLL CLOSING)
   openingStockSnapshot?: Record<string, number>; // Reference -> Opening stock quantity at roll activation
   rollOpeningStock?: Record<string, number>; // Immutable snapshot of reference stock at roll open
@@ -210,6 +215,9 @@ export interface RollReconciliationData {
   profitPercent: number;
   expectedPieces?: number;
   materialEfficiency?: number; // Material Efficiency % = Produced PCS ÷ Expected PCS × 100
+  nokFormats?: number;
+  nokEquivalentPieces?: number;
+  adjustedExpectedPieces?: number;
   closedAt: string;
   closedBy: string;
 }
@@ -227,7 +235,11 @@ export interface RollFinancialRecord {
   totalProductionValue: number; // Sum of productionValue of all items
   grossProfit: number; // totalProductionValue - rollCost
   profitPercentage: number; // (grossProfit / rollCost) * 100
+  expectedPieces?: number;
   materialEfficiency?: number; // (totalPieces / expectedPieces) * 100
+  nokFormats?: number;
+  nokEquivalentPieces?: number;
+  adjustedExpectedPieces?: number;
   evaluatedAt: string; // YYYY-MM-DD or ISO timestamp
   evaluatedBy: string; // Manager name or ID
   notes?: string;

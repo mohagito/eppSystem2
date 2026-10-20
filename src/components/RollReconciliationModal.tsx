@@ -353,7 +353,7 @@ export default function RollReconciliationModal({
                     {formatEfficiencyPercent(metrics.materialEfficiency)}
                   </span>
                   <span className="text-[10px] text-slate-400 font-mono">
-                    {metrics.producedPieces} ÷ {metrics.expectedPieces}
+                    {metrics.producedPieces} ÷ {metrics.adjustedExpectedPieces || metrics.expectedPieces}{metrics.nokFormats ? ` (NOK: ${metrics.nokFormats})` : ''}
                   </span>
                 </div>
 
@@ -417,7 +417,7 @@ export default function RollReconciliationModal({
                     {formatEfficiencyPercent(metrics.materialEfficiency)}
                   </span>
                   <span className="text-[10px] text-slate-400 font-mono">
-                    {metrics.producedPieces} ÷ {metrics.expectedPieces}
+                    {metrics.producedPieces} ÷ {metrics.adjustedExpectedPieces || metrics.expectedPieces}{metrics.nokFormats ? ` (NOK: ${metrics.nokFormats})` : ''}
                   </span>
                 </div>
 

@@ -1990,7 +1990,8 @@ export default function App() {
   const handleCloseRoll = async (
     rollId: string, 
     closingUnpackaged: Record<string, number>, 
-    notes?: string
+    notes?: string,
+    nokFormats?: number
   ) => {
     const roll = rolls.find((r) => r.id === rollId);
     if (!roll) throw new Error('Roll not found');
@@ -2006,7 +2007,8 @@ export default function App() {
       stockEntries,
       deliveries,
       piecePrices,
-      currentUser?.name || 'Operator'
+      currentUser?.name || 'Operator',
+      nokFormats
     );
 
     const batch = writeBatch(db);

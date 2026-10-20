@@ -631,7 +631,8 @@ export function reconcileRollClosing(
   stockEntries: StockEntry[] = [],
   deliveries: DeliveryEntry[] = [],
   piecePrices: FinishedPiecePrice[] = DEFAULT_PIECE_PRICES,
-  closedBy: string = 'Operator'
+  closedBy: string = 'Operator',
+  nokFormatsInput?: number
 ): {
   reconciliation: RollReconciliationData;
   closingEntriesToCreate: Omit<StockEntry, 'id' | 'createdAt'>[];
@@ -692,12 +693,7 @@ export function reconcileRollClosing(
     totalActualPieces += actualProduction;
     totalProductionValue += prodValue;
 
-    // 5. In factory inventory, only packaged pieces are counted.
-    // Remaining unpackaged rest pieces from a roll are used strictly for roll yield & material efficiency evaluation,
-    // and must NOT be added as stock entries to finished inventory.
-    // (closingEntriesToCreate remains empty)
-
-    // 6. Final available stock counts only finished packaged pieces
+    // 5. Final available stock counts only finished packaged pieces
     const finalStock = openStock + loggedFromRoll;
 
     reconciliations.push({
@@ -736,7 +732,22 @@ export function reconcileRollClosing(
   if (isCrafter && (targetYield === 2600 || targetYield === 1800 || !targetYield || targetYield < 5000)) {
     targetYield = 8675;
   }
-  const materialEfficiency = targetYield > 0 ? Math.round((totalActualPieces / targetYield) * 10000) / 100 : 0;
+
+  // NOK Formats Adjustment (INDIA / DELCOTEX rolls ONLY)
+  // Each NOK format = 70cm x 90cm = 15 finished pieces
+  const isIndia = material === 'Delcotex India';
+  const cleanNok = (isIndia && nokFormatsInput !== undefined && !isNaN(Number(nokFormatsInput)))
+    ? Math.max(0, Math.floor(Number(nokFormatsInput)))
+    : (isIndia && roll.nokFormats ? Math.max(0, Math.floor(Number(roll.nokFormats))) : 0);
+  const nokEquivalent = cleanNok * 15;
+  const adjustedExpected = isIndia && cleanNok > 0
+    ? Math.max(0, targetYield - nokEquivalent)
+    : targetYield;
+
+  // Material Efficiency % = Produced PCS ÷ Adjusted Expected PCS × 100
+  const materialEfficiency = adjustedExpected > 0
+    ? Math.round((totalActualPieces / adjustedExpected) * 10000) / 100
+    : (targetYield > 0 ? Math.round((totalActualPieces / targetYield) * 10000) / 100 : 0);
 
   const reconciliationData: RollReconciliationData = {
     references: reconciliations,
@@ -747,6 +758,9 @@ export function reconcileRollClosing(
     profitPercent,
     expectedPieces: targetYield,
     materialEfficiency,
+    nokFormats: cleanNok > 0 ? cleanNok : undefined,
+    nokEquivalentPieces: cleanNok > 0 ? nokEquivalent : undefined,
+    adjustedExpectedPieces: cleanNok > 0 ? adjustedExpected : undefined,
     closedAt,
     closedBy
   };
@@ -764,9 +778,14 @@ export function reconcileRollClosing(
     totalProductionValue,
     grossProfit,
     profitPercentage: profitPercent,
+    expectedPieces: targetYield,
+    materialEfficiency: materialEfficiency,
+    nokFormats: cleanNok > 0 ? cleanNok : undefined,
+    nokEquivalentPieces: cleanNok > 0 ? nokEquivalent : undefined,
+    adjustedExpectedPieces: cleanNok > 0 ? adjustedExpected : undefined,
     evaluatedAt: getMoroccoDateStr(),
     evaluatedBy: closedBy,
-    notes: `Reconciled & closed by ${closedBy}. Actual produced: ${totalActualPieces} pcs.`,
+    notes: `Reconciled & closed by ${closedBy}. Actual produced: ${totalActualPieces} pcs.${cleanNok > 0 ? ` (NOK: ${cleanNok} fmt = -${nokEquivalent} pcs)` : ''}`,
     openingStockSnapshot: openingSnapshot,
     rollOpeningStock: openingSnapshot,
     closingUnpackaged: closingUnpackagedInput,
@@ -783,6 +802,9 @@ export function reconcileRollClosing(
     remainingPieces: 0,
     expectedPieces: targetYield,
     materialEfficiency,
+    nokFormats: cleanNok > 0 ? cleanNok : undefined,
+    nokEquivalentPieces: cleanNok > 0 ? nokEquivalent : undefined,
+    adjustedExpectedPieces: cleanNok > 0 ? adjustedExpected : undefined,
     productionValue: totalProductionValue,
     grossProfit,
     profitPercent,
@@ -895,7 +917,14 @@ export function calculateRollProductionMetrics(
     if (isCrafterRoll && (recExp === 2600 || recExp === 1800 || !recExp || recExp < 5000)) {
       recExp = 8675;
     }
-    const recEff = recExp > 0 ? Math.round((rec.totalActualPieces / recExp) * 10000) / 100 : 0;
+    const isIndiaRoll = material === 'Delcotex India';
+    const nokF = isIndiaRoll ? (roll.nokFormats ?? rec.nokFormats ?? 0) : 0;
+    const nokEquiv = nokF * 15;
+    const adjustedExp = isIndiaRoll && nokF > 0 ? Math.max(0, recExp - nokEquiv) : recExp;
+
+    const recEff = rec.materialEfficiency !== undefined
+      ? rec.materialEfficiency
+      : (adjustedExp > 0 ? Math.round((rec.totalActualPieces / adjustedExp) * 10000) / 100 : 0);
 
     return {
       material,
@@ -903,6 +932,9 @@ export function calculateRollProductionMetrics(
       actualLength,
       rollCost: rec.rollCost,
       expectedPieces: recExp,
+      adjustedExpectedPieces: adjustedExp,
+      nokFormats: nokF > 0 ? nokF : undefined,
+      nokEquivalentPieces: nokF > 0 ? nokEquiv : undefined,
       producedPieces: rec.totalActualPieces,
       remainingPieces: 0,
       materialEfficiency: recEff,

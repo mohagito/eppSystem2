@@ -75,7 +75,7 @@ interface RollsModuleProps {
   ) => void;
   onRecordProduction?: (rollId: string, quantity: number, machine?: MachineType | string, notes?: string, referenceId?: string) => Promise<void>;
   onMarkFinished?: (rollId: string, wasteMeters?: number, notes?: string) => Promise<void>;
-  onCloseRoll?: (rollId: string, closingUnpackaged: Record<string, number>, notes?: string) => Promise<void>;
+  onCloseRoll?: (rollId: string, closingUnpackaged: Record<string, number>, notes?: string, nokFormats?: number) => Promise<void>;
   onConsumeRoll: (id: string, consumedMeters: number, notes?: string) => void;
   onDeleteRoll: (id: string) => void;
   onUpdateRoll?: (id: string, updates: Partial<RollEntry>) => void;
@@ -1545,9 +1545,9 @@ export default function RollsModule({
           isOpen={Boolean(closingRoll)}
           roll={closingRoll}
           onClose={() => setClosingRoll(null)}
-          onConfirmClose={async (rollId, unpackaged, notes) => {
+          onConfirmClose={async (rollId, unpackaged, notes, nokFormats) => {
             if (onCloseRoll) {
-              await onCloseRoll(rollId, unpackaged, notes);
+              await onCloseRoll(rollId, unpackaged, notes, nokFormats);
             }
             setClosingRoll(null);
             setSubTab('history');

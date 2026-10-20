@@ -11,7 +11,7 @@ interface CloseRollModalProps {
   isOpen: boolean;
   roll: RollEntry | null;
   onClose: () => void;
-  onConfirmClose: (rollId: string, closingUnpackaged: Record<string, number>, notes?: string) => Promise<void>;
+  onConfirmClose: (rollId: string, closingUnpackaged: Record<string, number>, notes?: string, nokFormats?: number) => Promise<void>;
 }
 
 export default function CloseRollModal({
@@ -25,6 +25,7 @@ export default function CloseRollModal({
   const normMat = normalizeRollMaterial(roll.materialName);
   const family = getMaterialFamily(normMat);
   const activeRefs = getMaterialActiveReferences(roll.materialName);
+  const isIndia = normMat === 'Delcotex India' || family.includes('INDIA');
 
   // Remaining unpackaged pieces inputs per reference
   const [unpackagedInputs, setUnpackagedInputs] = useState<Record<string, string>>(() => {
@@ -35,6 +36,7 @@ export default function CloseRollModal({
     return initial;
   });
 
+  const [nokFormatsInput, setNokFormatsInput] = useState<string>('0');
   const [notes, setNotes] = useState<string>('');
   const [submitting, setSubmitting] = useState<boolean>(false);
   const [errorMsg, setErrorMsg] = useState<string>('');
@@ -45,6 +47,7 @@ export default function CloseRollModal({
       initial[ref] = '0';
     });
     setUnpackagedInputs(initial);
+    setNokFormatsInput('0');
     setErrorMsg('');
     setNotes('');
   }, [roll?.id]);
@@ -71,9 +74,19 @@ export default function CloseRollModal({
       parsedData[ref] = num;
     }
 
+    let parsedNok: number | undefined = undefined;
+    if (isIndia) {
+      const numNok = parseInt(nokFormatsInput || '0', 10);
+      if (isNaN(numNok) || numNok < 0) {
+        setErrorMsg('Please enter a valid non-negative whole number for NOK Formats.');
+        return;
+      }
+      parsedNok = numNok;
+    }
+
     setSubmitting(true);
     try {
-      await onConfirmClose(roll.id, parsedData, notes.trim());
+      await onConfirmClose(roll.id, parsedData, notes.trim(), parsedNok);
       onClose();
     } catch (err: any) {
       console.error('Failed to close roll:', err);
@@ -166,6 +179,36 @@ export default function CloseRollModal({
                 </div>
               </div>
             ))}
+
+            {/* NOK Formats (INDIA / DELCOTEX rolls only) */}
+            {isIndia && (
+              <div className="p-3.5 bg-slate-50 border border-slate-200/80 rounded-2xl flex items-center justify-between gap-3">
+                <div className="min-w-0">
+                  <span className="text-xs font-black text-slate-800 uppercase block truncate">
+                    NOK Formats
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-bold block">
+                    Defective formats (70×90 cm = 15 pcs)
+                  </span>
+                </div>
+
+                <div className="relative w-28 shrink-0">
+                  <input
+                    type="number"
+                    min="0"
+                    step="1"
+                    value={nokFormatsInput}
+                    onChange={(e) => setNokFormatsInput(e.target.value)}
+                    className="w-full bg-white border border-slate-300 text-slate-900 text-sm font-mono font-black py-2 pl-3 pr-8 rounded-xl focus:outline-hidden focus:ring-2 focus:ring-indigo-500 text-right"
+                    placeholder="0"
+                    disabled={submitting}
+                  />
+                  <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[10px] text-slate-400 font-bold pointer-events-none">
+                    fmt
+                  </span>
+                </div>
+              </div>
+            )}
           </div>
 
           {/* Optional Closing Notes */}

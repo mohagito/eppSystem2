@@ -65,7 +65,7 @@ interface FinancialEvaluationProps {
     notes?: string
   ) => Promise<void>;
   onMarkFinished?: (rollId: string, wasteMeters?: number, notes?: string) => Promise<void>;
-  onCloseRoll?: (rollId: string, closingUnpackaged: Record<string, number>, notes?: string) => Promise<void>;
+  onCloseRoll?: (rollId: string, closingUnpackaged: Record<string, number>, notes?: string, nokFormats?: number) => Promise<void>;
 }
 
 export default function FinancialEvaluation({
@@ -806,9 +806,9 @@ export default function FinancialEvaluation({
           isOpen={Boolean(closingRoll)}
           roll={closingRoll}
           onClose={() => setClosingRoll(null)}
-          onConfirmClose={async (rollId, unpackaged, notes) => {
+          onConfirmClose={async (rollId, unpackaged, notes, nokFormats) => {
             if (onCloseRoll) {
-              await onCloseRoll(rollId, unpackaged, notes);
+              await onCloseRoll(rollId, unpackaged, notes, nokFormats);
             }
             setClosingRoll(null);
           }}

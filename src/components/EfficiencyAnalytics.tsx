@@ -55,6 +55,8 @@ interface ClosedRollMetrics {
   material: string;
   family: MaterialFamily;
   expected: number;
+  adjustedExpected?: number;
+  nokFormats?: number;
   produced: number;
   efficiency: number;
   closedDate: string;
@@ -81,8 +83,12 @@ export default function EfficiencyAnalytics({
         const family = getMaterialFamily(material);
         const barcode = roll.barcode || roll.rollNumber || roll.id;
 
-        // Material Efficiency % = Produced PCS ÷ Expected PCS × 100
-        const expected = roll.expectedPieces || metrics.expectedPieces || 0;
+        // Material Efficiency % = Produced PCS ÷ Adjusted Expected PCS × 100
+        const isIndia = material === 'Delcotex India' || family === 'INDIA / DELCOTEX';
+        const nokF = isIndia ? (roll.nokFormats ?? roll.reconciliation?.nokFormats ?? 0) : 0;
+        const nokEquiv = nokF * 15;
+        const originalExpected = roll.expectedPieces || metrics.expectedPieces || 0;
+        const adjustedExpected = isIndia && nokF > 0 ? Math.max(0, originalExpected - nokEquiv) : originalExpected;
         const produced = roll.producedPieces !== undefined ? roll.producedPieces : metrics.producedPieces;
 
         let efficiency = 0;
@@ -90,8 +96,8 @@ export default function EfficiencyAnalytics({
           efficiency = roll.reconciliation.materialEfficiency;
         } else if (roll.materialEfficiency !== undefined && roll.materialEfficiency > 0) {
           efficiency = roll.materialEfficiency;
-        } else if (expected > 0) {
-          efficiency = Math.round((produced / expected) * 10000) / 100;
+        } else if (adjustedExpected > 0) {
+          efficiency = Math.round((produced / adjustedExpected) * 10000) / 100;
         } else if (metrics.materialEfficiency > 0) {
           efficiency = metrics.materialEfficiency;
         }
@@ -103,7 +109,9 @@ export default function EfficiencyAnalytics({
           barcode,
           material,
           family,
-          expected,
+          expected: originalExpected,
+          adjustedExpected: isIndia && nokF > 0 ? adjustedExpected : undefined,
+          nokFormats: isIndia && nokF > 0 ? nokF : undefined,
           produced,
           efficiency,
           closedDate
@@ -148,7 +156,9 @@ export default function EfficiencyAnalytics({
       efficiency: r.efficiency,
       family: r.family,
       produced: r.produced,
-      expected: r.expected
+      expected: r.expected,
+      adjustedExpected: r.adjustedExpected,
+      nokFormats: r.nokFormats
     }));
   }, [closedRolls, selectedFilter]);
 
@@ -346,7 +356,7 @@ export default function EfficiencyAnalytics({
                                 {data.efficiency.toFixed(1)}% Efficiency
                               </div>
                               <div className="text-[10px] text-slate-400 font-mono">
-                                Produced: {data.produced} / Expected: {data.expected} pcs
+                                Produced: {data.produced} / Expected: {data.adjustedExpected ? `${data.adjustedExpected} (Orig: ${data.expected}, NOK: ${data.nokFormats})` : data.expected} pcs
                               </div>
                             </div>
                           );
