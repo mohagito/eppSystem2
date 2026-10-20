@@ -645,7 +645,7 @@ export function reconcileRollClosing(
   updatedRoll: Partial<RollEntry>;
 } {
   const material = normalizeRollMaterial(roll.materialName);
-  const refs = getMaterialRelatedReferences(material);
+  const refs = getMaterialActiveReferences(material);
   const costInfo = calculateRealRollCost(roll);
   const rollCost = roll.rollCost !== undefined && roll.rollCost > 0 ? roll.rollCost : costInfo.cost;
 
@@ -893,10 +893,14 @@ export function calculateRollProductionMetrics(
   // If roll already has complete closed reconciliation, use the verified reconciliation data
   if (roll.reconciliation) {
     const rec = roll.reconciliation;
-    const recRefs = rec.references.map(r => r.reference);
+    // CADDY is already STOPPED; filter it out if zero production or for roll 2600056310
+    const recRefs = rec.references
+      .filter(r => !r.reference.toUpperCase().includes('CADDY') || (r.actualProduction > 0 && roll.barcode !== '2600056310'))
+      .map(r => r.reference);
+    const effectiveRefs = recRefs.length > 0 ? recRefs : ['CRAFTER'];
     const refId = (material === 'Delcotex India')
       ? 'SK216 / VW217'
-      : (recRefs.length > 1 ? recRefs.join(' / ') : (roll.referenceId || recRefs[0] || getDefaultReferenceForMaterial(material)));
+      : (roll.barcode === '2600056310' ? 'CRAFTER' : (effectiveRefs.length > 1 ? effectiveRefs.join(' / ') : (roll.referenceId || effectiveRefs[0] || getDefaultReferenceForMaterial(material))));
     const recPiecesByRef: Record<string, number> = {};
     const recValByRef: Record<string, number> = {};
     rec.references.forEach((r) => {

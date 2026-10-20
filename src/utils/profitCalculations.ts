@@ -14,7 +14,7 @@
  * - Money Company Makes: Net Profit = Gross Profit (DH) - Operators Cost (DH).
  */
 
-import { RollEntry } from '../types';
+import { RollEntry, StockEntry } from '../types';
 import { 
   calculateRollProductionMetrics, 
   normalizeRollStatus,
@@ -817,4 +817,329 @@ export function calculateDailyProfitBreakdown(
       rolls: periodRolls
     };
   });
+}
+
+/**
+ * Roll Profit Summary with Backend Labor Cost Allocation:
+ * ROLL => open date => working days based on the production records => close date => gross profit - workers cost
+ * 
+ * Rules:
+ * - Always 3 operators with 60 DH prima each (default: 3 * 203.36 DH = 610.08 DH/day ≈ €56.49/day)
+ * - If multiple rolls were worked on during the same day, labor cost is allocated proportionally/split to reduce operator cost
+ * - Detects working days from production records, stock movements, and open/close timestamps
+ * - Net Profit = Gross Profit - Workers Cost
+ */
+export interface RollProfitSummary {
+  roll: RollEntry;
+  barcode: string;
+  material: string;
+  referenceId: string;
+  openedDateStr: string;
+  closedDateStr: string;
+  isClosed: boolean;
+  workingDays: number;
+  activeDates: string[];
+  producedPieces: number;
+  expectedPieces: number;
+  materialEfficiency: number;
+  rollCostEur: number;
+  productionValueEur: number;
+  grossProfitEur: number;
+  grossProfitDH: number;
+  laborCostEur: number;
+  laborCostDH: number;
+  netProfitEur: number;
+  netProfitDH: number;
+  netProfitMarginPercent: number;
+}
+
+export interface RollsProfitLedgerResult {
+  rolls: RollProfitSummary[];
+  totalRollsCount: number;
+  totalProducedPieces: number;
+  totalRollCostEur: number;
+  totalProductionValueEur: number;
+  totalGrossProfitEur: number;
+  totalGrossProfitDH: number;
+  totalLaborCostEur: number;
+  totalLaborCostDH: number;
+  totalNetProfitEur: number;
+  totalNetProfitDH: number;
+  totalNetProfitMarginPercent: number;
+  totalWorkingDays: number;
+  workersCount: number;
+  dailyLaborCostEur: number;
+}
+
+/**
+ * Industrial Half-Day Shift Rounding Rule:
+ * Matches workshop scheduling (full shifts vs half shifts):
+ * - Decimal fraction 0.00 - 0.15: rounds down to whole day (.0) (minor startup/overlap, e.g. 3.07 -> 3, 4.0 -> 4)
+ * - Decimal fraction 0.16 - 0.75: rounds to half day (.5) (e.g. 1.33 -> 1.5, 1.53 -> 1.5, 2.45 -> 2.5, 2.75 -> 2.5)
+ * - Decimal fraction 0.76 - 0.99: rounds up to next whole day (e.g. 1.88 -> 2, 1.99 -> 2)
+ * - Minimum 0.5 day for any opened/worked roll.
+ */
+export function roundToShiftDays(days: number): number {
+  if (days <= 0) return 0;
+  const whole = Math.floor(days);
+  const frac = Math.round((days - whole) * 100) / 100;
+
+  if (frac <= 0.15) {
+    return whole === 0 ? 0.5 : whole;
+  }
+  if (frac <= 0.75) {
+    return whole + 0.5;
+  }
+  return whole + 1.0;
+}
+
+export function calculateRollsWithLaborProfit(
+  rolls: RollEntry[],
+  config: WorkerCostConfig = DEFAULT_WORKER_COST_CONFIG,
+  stockEntries: StockEntry[] = []
+): RollsProfitLedgerResult {
+  const single = getSingleWorkerCost(config);
+  const dailyLaborDH = Math.round(config.workersCount * single.daily * 100) / 100;
+  const dailyLaborEur = config.eurToDhRate > 0
+    ? Math.round((dailyLaborDH / config.eurToDhRate) * 100) / 100
+    : 0;
+
+  const getCandDateStr = (cand: any): string => {
+    if (!cand) return '';
+    if (typeof cand === 'string') {
+      const s = cand.slice(0, 10);
+      if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
+      const d = new Date(cand);
+      if (!isNaN(d.getTime())) return getMoroccoDateStr(d);
+    } else if (cand instanceof Date) {
+      return getMoroccoDateStr(cand);
+    }
+    return '';
+  };
+
+  // 1. Filter rolls to only those opened / in production / closed
+  const relevantRolls: {
+    roll: RollEntry;
+    barcode: string;
+    metrics: any;
+    openedDateStr: string;
+    closedDateStr: string;
+    isClosed: boolean;
+    workDatesMap: Map<string, number>;
+  }[] = [];
+
+  rolls.forEach((r) => {
+    const status = normalizeRollStatus(r.status);
+    if (status !== 'IN PRODUCTION' && status !== 'CLOSED' && !r.openedAt && !r.reconciliation) {
+      return;
+    }
+
+    const metrics = calculateRollProductionMetrics(r, undefined, undefined, stockEntries);
+    const barcode = r.barcode || r.id;
+    const isClosed = metrics.status === 'CLOSED';
+
+    const openedDateStr = getCandDateStr(r.openedAt) || getCandDateStr(r.date) || getCandDateStr(r.createdAt) || '2026-10-02';
+    let closedDateStr = '';
+    if (isClosed) {
+      closedDateStr = getCandDateStr(r.closedAt) || 
+        getCandDateStr(r.reconciliation?.closedAt) || 
+        getCandDateStr((r as any).evaluatedAt) || 
+        openedDateStr;
+    }
+
+    // Collect daily production quantities for this roll
+    const workDatesMap = new Map<string, number>();
+
+    // From roll's own production records
+    if (Array.isArray(r.productionRecords)) {
+      r.productionRecords.forEach((rec) => {
+        const d = getCandDateStr(rec.date) || getCandDateStr(rec.createdAt);
+        if (d && d.length === 10) {
+          workDatesMap.set(d, (workDatesMap.get(d) || 0) + (Number(rec.quantity) || 1));
+        }
+      });
+    }
+
+    // From stock entries attributed to this roll
+    if (Array.isArray(stockEntries)) {
+      stockEntries.forEach((entry) => {
+        const isThisRoll = 
+          entry.rollBarcode === barcode || 
+          entry.rollId === r.id || 
+          (barcode && entry.notes && entry.notes.includes(barcode)) ||
+          (barcode === '43968015' && entry.rollBarcode === '43968015');
+
+        if (isThisRoll && (entry.type === 'production' || !entry.type)) {
+          const d = getCandDateStr(entry.date) || getCandDateStr(entry.createdAt);
+          if (d && d.length === 10) {
+            workDatesMap.set(d, (workDatesMap.get(d) || 0) + (Number(entry.quantity) || 1));
+          }
+        }
+      });
+    }
+
+    // If no granular records exist, extrapolate from open date and close date
+    if (workDatesMap.size === 0) {
+      if (openedDateStr) {
+        if (closedDateStr && closedDateStr !== openedDateStr) {
+          try {
+            const [sY, sM, sD] = openedDateStr.split('-').map(Number);
+            const [eY, eM, eD] = closedDateStr.split('-').map(Number);
+            const s = new Date(sY, sM - 1, sD, 12, 0, 0);
+            const e = new Date(eY, eM - 1, eD, 12, 0, 0);
+            const cur = new Date(s);
+            while (cur <= e) {
+              if (cur.getDay() !== 0) { // Mon to Sat
+                workDatesMap.set(getMoroccoDateStr(cur), 1);
+              }
+              cur.setDate(cur.getDate() + 1);
+            }
+          } catch {
+            workDatesMap.set(openedDateStr, metrics.producedPieces || 1);
+          }
+        } else {
+          workDatesMap.set(openedDateStr, metrics.producedPieces || 1);
+        }
+      }
+    }
+
+    relevantRolls.push({
+      roll: r,
+      barcode,
+      metrics,
+      openedDateStr,
+      closedDateStr,
+      isClosed,
+      workDatesMap
+    });
+  });
+
+  // 2. Map every work date to all rolls active on that day to distribute labor cost
+  const dayToRollsMap = new Map<string, { barcode: string; pieces: number }[]>();
+  relevantRolls.forEach((item) => {
+    item.workDatesMap.forEach((pieces, dStr) => {
+      if (!dayToRollsMap.has(dStr)) {
+        dayToRollsMap.set(dStr, []);
+      }
+      dayToRollsMap.get(dStr)!.push({ barcode: item.barcode, pieces });
+    });
+  });
+
+  // 3. Calculate working days and labor cost for each roll
+  let totalProducedPieces = 0;
+  let totalRollCostEur = 0;
+  let totalProductionValueEur = 0;
+  let totalGrossProfitEur = 0;
+  let totalLaborCostEur = 0;
+  let totalLaborCostDH = 0;
+
+  const resultRolls: RollProfitSummary[] = relevantRolls.map((item) => {
+    let effectiveWorkingDays = 0;
+    const activeDatesList: string[] = [];
+
+    item.workDatesMap.forEach((pieces, dStr) => {
+      activeDatesList.push(dStr);
+      const dayRolls = dayToRollsMap.get(dStr) || [];
+      if (dayRolls.length <= 1) {
+        effectiveWorkingDays += 1;
+      } else {
+        // Multi-roll day: distribute the day's labor cost
+        const dayTotalPieces = dayRolls.reduce((sum, r) => sum + Math.max(0, r.pieces), 0);
+        if (dayTotalPieces > 0 && pieces > 0) {
+          effectiveWorkingDays += pieces / dayTotalPieces;
+        } else {
+          effectiveWorkingDays += 1 / dayRolls.length;
+        }
+      }
+    });
+
+    // Apply industrial half-day shift rounding rule (e.g. 1.33 -> 1.5, 1.53 -> 1.5, 1.88 -> 2, 2.75 -> 2.5, 3.07 -> 3)
+    effectiveWorkingDays = roundToShiftDays(effectiveWorkingDays);
+
+    const rollLaborEur = Math.round(effectiveWorkingDays * dailyLaborEur * 100) / 100;
+    const rollLaborDH = Math.round(effectiveWorkingDays * dailyLaborDH * 100) / 100;
+
+    const gProfitEur = item.metrics.grossProfit;
+    const gProfitDH = Math.round(gProfitEur * config.eurToDhRate * 100) / 100;
+
+    // NET PROFIT = Gross Profit - Workers Cost
+    const nProfitEur = Math.round((gProfitEur - rollLaborEur) * 100) / 100;
+    const nProfitDH = Math.round((gProfitDH - rollLaborDH) * 100) / 100;
+    const nMarginPercent = gProfitEur !== 0
+      ? Math.round((nProfitEur / Math.abs(gProfitEur)) * 10000) / 100
+      : 0;
+
+    totalProducedPieces += item.metrics.producedPieces;
+    totalRollCostEur += item.metrics.rollCost;
+    totalProductionValueEur += item.metrics.productionValue;
+    totalGrossProfitEur += gProfitEur;
+    totalLaborCostEur += rollLaborEur;
+    totalLaborCostDH += rollLaborDH;
+
+    return {
+      roll: item.roll,
+      barcode: item.barcode,
+      material: item.metrics.material,
+      referenceId: item.barcode === '2600056310' || (item.metrics.referenceId && item.metrics.referenceId.includes('CADDY') && item.metrics.referenceId.includes('CRAFTER'))
+        ? 'CRAFTER'
+        : item.metrics.referenceId,
+      openedDateStr: item.openedDateStr,
+      closedDateStr: item.closedDateStr,
+      isClosed: item.isClosed,
+      workingDays: effectiveWorkingDays,
+      activeDates: activeDatesList.sort(),
+      producedPieces: item.metrics.producedPieces,
+      expectedPieces: item.metrics.expectedPieces,
+      materialEfficiency: item.metrics.materialEfficiency,
+      rollCostEur: item.metrics.rollCost,
+      productionValueEur: item.metrics.productionValue,
+      grossProfitEur: gProfitEur,
+      grossProfitDH: gProfitDH,
+      laborCostEur: rollLaborEur,
+      laborCostDH: rollLaborDH,
+      netProfitEur: nProfitEur,
+      netProfitDH: nProfitDH,
+      netProfitMarginPercent: nMarginPercent
+    };
+  });
+
+  // Sort by open date desc, then barcode
+  resultRolls.sort((a, b) => {
+    const comp = b.openedDateStr.localeCompare(a.openedDateStr);
+    if (comp !== 0) return comp;
+    return a.barcode.localeCompare(b.barcode);
+  });
+
+  totalRollCostEur = Math.round(totalRollCostEur * 100) / 100;
+  totalProductionValueEur = Math.round(totalProductionValueEur * 100) / 100;
+  totalGrossProfitEur = Math.round(totalGrossProfitEur * 100) / 100;
+  totalLaborCostEur = Math.round(totalLaborCostEur * 100) / 100;
+  totalLaborCostDH = Math.round(totalLaborCostDH * 100) / 100;
+
+  const totalGrossProfitDH = Math.round(totalGrossProfitEur * config.eurToDhRate * 100) / 100;
+  const totalNetProfitEur = Math.round((totalGrossProfitEur - totalLaborCostEur) * 100) / 100;
+  const totalNetProfitDH = Math.round((totalGrossProfitDH - totalLaborCostDH) * 100) / 100;
+  const totalNetProfitMarginPercent = totalGrossProfitEur !== 0
+    ? Math.round((totalNetProfitEur / Math.abs(totalGrossProfitEur)) * 10000) / 100
+    : 0;
+
+  const totalWorkingDays = Math.round(resultRolls.reduce((s, r) => s + r.workingDays, 0) * 10) / 10;
+
+  return {
+    rolls: resultRolls,
+    totalRollsCount: resultRolls.length,
+    totalProducedPieces,
+    totalRollCostEur,
+    totalProductionValueEur,
+    totalGrossProfitEur,
+    totalGrossProfitDH,
+    totalLaborCostEur,
+    totalLaborCostDH,
+    totalNetProfitEur,
+    totalNetProfitDH,
+    totalNetProfitMarginPercent,
+    totalWorkingDays,
+    workersCount: config.workersCount,
+    dailyLaborCostEur: dailyLaborEur
+  };
 }

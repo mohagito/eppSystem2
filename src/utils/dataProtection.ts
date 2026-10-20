@@ -243,7 +243,7 @@ export const ROLL_2600056310_CLOSED: RollEntry = {
   closedAt: '2026-10-14T10:30:00.000Z',
   operator: 'Mouad',
   referenceId: 'CRAFTER',
-  relatedReferences: ['CRAFTER', 'CADDY'],
+  relatedReferences: ['CRAFTER'],
   expectedPieces: 8675,
   producedPieces: 4320,
   productionValue: 2678.40,
