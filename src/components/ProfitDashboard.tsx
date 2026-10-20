@@ -215,7 +215,7 @@ export default function ProfitDashboard({
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs">
           <div className="flex items-center justify-between">
             <span className="text-[11px] font-bold uppercase tracking-wider text-slate-400">
-              Operators Labor
+              Operators Cost
             </span>
             <span className="text-[10.5px] font-mono font-bold px-2 py-0.5 rounded-md bg-amber-50 text-amber-700 border border-amber-200">
               {profitLedger.totalWorkingDays} Days
