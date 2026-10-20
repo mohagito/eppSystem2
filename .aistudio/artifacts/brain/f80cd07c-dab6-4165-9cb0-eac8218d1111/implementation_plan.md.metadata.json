@@ -1,6 +1,0 @@
-{
-  "summary": "Implementation plan for rounding roll working days to clean half-day shifts (0.5 day increments) and updating labor cost and net profit calculations.",
-  "updatedAt": "2026-10-20T09:55:33.333826712Z",
-  "requestFeedback": true,
-  "userFacing": true
-}

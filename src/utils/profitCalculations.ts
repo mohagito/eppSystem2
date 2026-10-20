@@ -25,7 +25,9 @@ import { getMoroccoDateStr, formatMoroccoDate } from './timeZone';
 export interface WorkerCostConfig {
   workersCount: number;         // default: 3
   hoursPerDay: number;          // default: 8
-  baseWageDailyDH: number;      // default: 143.36 DH
+  ratePerMinuteEur: number;     // default: 0.055 (€/min: comprehensive company rate including base salary, tax, prima, transport & overhead)
+  hourlyRateEur?: number;       // default: 3.30 (€/hour: 0.055 * 60)
+  baseWageDailyDH: number;      // equivalent: 225.12 DH
   primaDailyDH: number;         // default: 60.00 DH
   workingDaysPerWeek: number;   // default: 6 (Mon-Sat)
   eurToDhRate: number;          // default: 10.80 DH / EUR
@@ -34,7 +36,9 @@ export interface WorkerCostConfig {
 export const DEFAULT_WORKER_COST_CONFIG: WorkerCostConfig = {
   workersCount: 3,
   hoursPerDay: 8,
-  baseWageDailyDH: 143.36,
+  ratePerMinuteEur: 0.055,      // 0.055 € per minute
+  hourlyRateEur: 3.30,          // 0.055 * 60 = 3.30 € per hour
+  baseWageDailyDH: 225.12,      // 285.12 DH - 60 DH prima
   primaDailyDH: 60.00,
   workingDaysPerWeek: 6,
   eurToDhRate: 10.80
@@ -47,9 +51,27 @@ export function getSavedWorkerCostConfig(): WorkerCostConfig {
     const raw = localStorage.getItem(STORAGE_KEY_PROFIT_CONFIG);
     if (raw) {
       const parsed = JSON.parse(raw);
+      // Upgrade from old legacy settings (143.36 DH / ~55.41 EUR) to the updated general settings (0.055 €/min = 79.20 €/day)
+      const isLegacy = parsed.ratePerMinuteEur === undefined || parsed.baseWageDailyDH === 143.36;
+      if (isLegacy) {
+        const upgraded: WorkerCostConfig = {
+          ...DEFAULT_WORKER_COST_CONFIG,
+          workersCount: Number(parsed.workersCount) || 3,
+          hoursPerDay: Number(parsed.hoursPerDay) || 8,
+          ratePerMinuteEur: 0.055,
+          hourlyRateEur: 3.30,
+          primaDailyDH: 60.00,
+          workingDaysPerWeek: Number(parsed.workingDaysPerWeek) || 6,
+          eurToDhRate: Number(parsed.eurToDhRate) || 10.80
+        };
+        saveWorkerCostConfig(upgraded);
+        return upgraded;
+      }
       return {
         workersCount: Number(parsed.workersCount) || DEFAULT_WORKER_COST_CONFIG.workersCount,
         hoursPerDay: Number(parsed.hoursPerDay) || DEFAULT_WORKER_COST_CONFIG.hoursPerDay,
+        ratePerMinuteEur: Number(parsed.ratePerMinuteEur) !== undefined ? Number(parsed.ratePerMinuteEur) : DEFAULT_WORKER_COST_CONFIG.ratePerMinuteEur,
+        hourlyRateEur: Number(parsed.hourlyRateEur) || 3.30,
         baseWageDailyDH: Number(parsed.baseWageDailyDH) || DEFAULT_WORKER_COST_CONFIG.baseWageDailyDH,
         primaDailyDH: Number(parsed.primaDailyDH) !== undefined ? Number(parsed.primaDailyDH) : DEFAULT_WORKER_COST_CONFIG.primaDailyDH,
         workingDaysPerWeek: Number(parsed.workingDaysPerWeek) || DEFAULT_WORKER_COST_CONFIG.workingDaysPerWeek,
@@ -97,26 +119,51 @@ export function saveWorkingDaysOverride(periodId: string, days: number): void {
 }
 
 /**
- * Calculates single worker daily and weekly cost
+ * Calculates single worker daily and weekly cost based on comprehensive rate
+ * Rate: 0.055 €/min * 60 min = 3.30 €/h * 8h = 26.40 €/operator/day
  */
 export function getSingleWorkerCost(config: WorkerCostConfig) {
-  const daily = Math.round((config.baseWageDailyDH + config.primaDailyDH) * 100) / 100;
-  const weekly = Math.round(daily * config.workingDaysPerWeek * 100) / 100;
-  return { daily, weekly };
+  const ratePerMin = config.ratePerMinuteEur !== undefined ? Number(config.ratePerMinuteEur) : 0.055;
+  const hours = config.hoursPerDay || 8;
+  const hourlyEur = Math.round(ratePerMin * 60 * 100) / 100; // 0.055 * 60 = 3.30 €
+  const dailyEur = Math.round(hourlyEur * hours * 100) / 100; // 3.30 * 8 = 26.40 €
+  const weeklyEur = Math.round(dailyEur * (config.workingDaysPerWeek || 6) * 100) / 100;
+
+  const rate = config.eurToDhRate || 10.80;
+  const dailyDH = Math.round(dailyEur * rate * 100) / 100; // 26.40 * 10.80 = 285.12 DH
+  const weeklyDH = Math.round(weeklyEur * rate * 100) / 100;
+
+  return {
+    ratePerMin,
+    hourlyEur,
+    dailyEur,
+    weeklyEur,
+    daily: dailyDH,
+    weekly: weeklyDH
+  };
 }
 
 /**
  * Calculates total workforce daily and weekly cost
+ * Total for 3 operators: 3 * 26.40 € = 79.20 €/day
  */
 export function getTotalWorkforceCost(config: WorkerCostConfig) {
   const single = getSingleWorkerCost(config);
-  const daily = Math.round(single.daily * config.workersCount * 100) / 100;
-  const weekly = Math.round(single.weekly * config.workersCount * 100) / 100;
+  const workers = config.workersCount || 3;
+  const totalDailyEur = Math.round(single.dailyEur * workers * 100) / 100; // 79.20 €
+  const totalWeeklyEur = Math.round(single.weeklyEur * workers * 100) / 100; // 475.20 €
+  const totalDailyDH = Math.round(single.daily * workers * 100) / 100; // 855.36 DH
+  const totalWeeklyDH = Math.round(single.weekly * workers * 100) / 100;
+
   return {
     singleWorkerDaily: single.daily,
     singleWorkerWeekly: single.weekly,
-    totalDaily: daily,
-    totalWeekly: weekly
+    singleWorkerDailyEur: single.dailyEur,
+    singleWorkerWeeklyEur: single.weeklyEur,
+    totalDaily: totalDailyDH,
+    totalWeekly: totalWeeklyDH,
+    totalDailyEur,
+    totalWeeklyEur
   };
 }
 
@@ -512,13 +559,10 @@ export function calculatePeriodProfit(
   config: WorkerCostConfig,
   stockEntries: any[] = []
 ): PeriodProfitResult {
-  const single = getSingleWorkerCost(config);
   const workforce = getTotalWorkforceCost(config);
   
+  const totalLaborCostEur = Math.round(workingDays * workforce.totalDailyEur * 100) / 100;
   const totalLaborCostDH = Math.round(workingDays * workforce.totalDaily * 100) / 100;
-  const totalLaborCostEur = config.eurToDhRate > 0 
-    ? Math.round((totalLaborCostDH / config.eurToDhRate) * 100) / 100 
-    : 0;
 
   const startMs = startDate.getTime();
   const endMs = endDate.getTime();
@@ -612,7 +656,7 @@ export function calculatePeriodProfit(
     endDate,
     workingDays,
     workersCount: config.workersCount,
-    operatorDailyCostDH: single.daily,
+    operatorDailyCostDH: workforce.singleWorkerDaily,
     workforceDailyCostDH: workforce.totalDaily,
     workforceWeeklyCostDH: workforce.totalWeekly,
     totalLaborCostDH,
@@ -705,11 +749,9 @@ export function calculateDailyProfitBreakdown(
   config: WorkerCostConfig,
   stockEntries: any[] = []
 ): DailyProfitDetail[] {
-  const single = getSingleWorkerCost(config);
-  const dailyLaborDH = Math.round(config.workersCount * single.daily * 100) / 100;
-  const dailyLaborEur = config.eurToDhRate > 0
-    ? Math.round((dailyLaborDH / config.eurToDhRate) * 100) / 100
-    : 0;
+  const workforce = getTotalWorkforceCost(config);
+  const dailyLaborDH = workforce.totalDaily;
+  const dailyLaborEur = workforce.totalDailyEur;
 
   const dateMap = new Map<string, RollEntry[]>();
   const todayStr = getMoroccoDateStr();
@@ -898,11 +940,9 @@ export function calculateRollsWithLaborProfit(
   config: WorkerCostConfig = DEFAULT_WORKER_COST_CONFIG,
   stockEntries: StockEntry[] = []
 ): RollsProfitLedgerResult {
-  const single = getSingleWorkerCost(config);
-  const dailyLaborDH = Math.round(config.workersCount * single.daily * 100) / 100;
-  const dailyLaborEur = config.eurToDhRate > 0
-    ? Math.round((dailyLaborDH / config.eurToDhRate) * 100) / 100
-    : 0;
+  const workforce = getTotalWorkforceCost(config);
+  const dailyLaborEur = workforce.totalDailyEur;
+  const dailyLaborDH = workforce.totalDaily;
 
   const getCandDateStr = (cand: any): string => {
     if (!cand) return '';

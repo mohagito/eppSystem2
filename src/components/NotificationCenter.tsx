@@ -644,7 +644,7 @@ export default function NotificationCenter({ currentUser, setActiveTab }: Notifi
                               )}
                             </div>
                             <span className="text-[10px] text-slate-450 font-bold font-mono">
-                              {formatMoroccoDateTime(notif.createdAt, true)} <span className="text-emerald-500/80">GMT+0</span>
+                              {formatMoroccoDateTime(notif.createdAt, true)}
                             </span>
                           </div>
                           

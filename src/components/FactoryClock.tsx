@@ -53,7 +53,7 @@ export default function FactoryClock({ variant = 'desktop', className = '' }: Fa
   };
 
   const handleReset = () => {
-    setActiveTimezoneMode('morocco_gmt0', 0);
+    setActiveTimezoneMode('morocco_sync', 0);
   };
 
   if (variant === 'mobile') {
@@ -121,7 +121,9 @@ export default function FactoryClock({ variant = 'desktop', className = '' }: Fa
             <div className="flex items-center gap-1 text-[10px] font-medium text-slate-500">
               <span>{dateFormatted}</span>
               <span className="text-slate-300">•</span>
-              <span className="text-emerald-600 font-semibold">Maroc Hub</span>
+              <span className="text-emerald-600 font-semibold">
+                Maroc (24h)
+              </span>
             </div>
           </div>
         </div>
@@ -165,21 +167,24 @@ export default function FactoryClock({ variant = 'desktop', className = '' }: Fa
 
             <button
               type="button"
-              onClick={() => handleSelectMode('morocco_gmt0')}
+              onClick={() => handleSelectMode('morocco_sync')}
               className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs font-semibold transition-all ${
-                activeMode === 'morocco_gmt0' && customOffset === 0
+                activeMode === 'morocco_sync' && customOffset === 0
                   ? 'bg-emerald-50 text-emerald-900 border border-emerald-300/80 shadow-xs'
                   : 'bg-slate-50 text-slate-700 border border-transparent hover:bg-slate-100'
               }`}
             >
               <div className="flex items-center gap-2">
-                <Sun size={14} className="text-amber-500" />
+                <Clock size={14} className="text-emerald-600" />
                 <div>
-                  <div className="font-bold">Maroc Standard (GMT+0)</div>
-                  <div className="text-[10px] text-slate-500 font-normal">Heure en vigueur au Maroc (GMT+0)</div>
+                  <div className="font-bold flex items-center gap-1.5">
+                    <span>Heure Maroc Synchronisée</span>
+                    <span className="text-[9px] bg-emerald-100 text-emerald-800 px-1.5 py-0.2 rounded font-mono font-bold">Standard</span>
+                  </div>
+                  <div className="text-[10px] text-slate-500 font-normal">Calque exact de l'horloge réelle Maroc 24h ({tzShortLabel})</div>
                 </div>
               </div>
-              {activeMode === 'morocco_gmt0' && customOffset === 0 && (
+              {activeMode === 'morocco_sync' && customOffset === 0 && (
                 <Check size={14} className="text-emerald-600 shrink-0" />
               )}
             </button>
@@ -196,8 +201,8 @@ export default function FactoryClock({ variant = 'desktop', className = '' }: Fa
               <div className="flex items-center gap-2">
                 <Moon size={14} className="text-indigo-500" />
                 <div>
-                  <div className="font-bold">Maroc (GMT+1)</div>
-                  <div className="text-[10px] text-slate-500 font-normal">Décalage +1 heure</div>
+                  <div className="font-bold">Maroc Standard (GMT+1)</div>
+                  <div className="text-[10px] text-slate-500 font-normal">Décalage standard UTC+1</div>
                 </div>
               </div>
               {activeMode === 'morocco_gmt1' && customOffset === 0 && (
@@ -207,21 +212,21 @@ export default function FactoryClock({ variant = 'desktop', className = '' }: Fa
 
             <button
               type="button"
-              onClick={() => handleSelectMode('device')}
+              onClick={() => handleSelectMode('morocco_gmt0')}
               className={`w-full flex items-center justify-between p-2 rounded-xl text-left text-xs font-semibold transition-all ${
-                activeMode === 'device' && customOffset === 0
+                activeMode === 'morocco_gmt0' && customOffset === 0
                   ? 'bg-emerald-50 text-emerald-900 border border-emerald-300/80 shadow-xs'
                   : 'bg-slate-50 text-slate-700 border border-transparent hover:bg-slate-100'
               }`}
             >
               <div className="flex items-center gap-2">
-                <Clock size={14} className="text-sky-500" />
+                <Sun size={14} className="text-amber-500" />
                 <div>
-                  <div className="font-bold">Heure Système Appareil</div>
-                  <div className="text-[10px] text-slate-500 font-normal">Calque exact de l'horloge de votre ordinateur / téléphone</div>
+                  <div className="font-bold">Temps Universel (GMT+0)</div>
+                  <div className="text-[10px] text-slate-500 font-normal">Temps Universel Coordonné (UTC)</div>
                 </div>
               </div>
-              {activeMode === 'device' && customOffset === 0 && (
+              {activeMode === 'morocco_gmt0' && customOffset === 0 && (
                 <Check size={14} className="text-emerald-600 shrink-0" />
               )}
             </button>

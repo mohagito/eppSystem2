@@ -6,31 +6,31 @@
 import { useState, useEffect } from 'react';
 
 export const MOROCCO_TIMEZONE = 'Africa/Casablanca';
-export const MOROCCO_TZ_LABEL = 'GMT+0 (Maroc)';
+export const MOROCCO_TZ_LABEL = 'Heure Maroc (24h)';
 
-const TZ_STORAGE_KEY = 'epp_factory_tz_mode_v2';
-const TZ_CUSTOM_OFFSET_KEY = 'epp_factory_tz_offset';
+const TZ_STORAGE_KEY = 'epp_factory_tz_mode_v5';
+const TZ_CUSTOM_OFFSET_KEY = 'epp_factory_tz_offset_v5';
 
-export type TimezoneMode = 'morocco_gmt0' | 'morocco_gmt1' | 'device';
+export type TimezoneMode = 'morocco_sync' | 'morocco_gmt1' | 'morocco_gmt0';
 
 /**
  * Gets currently active timezone mode.
- * Default is 'morocco_gmt0' (UTC+0, Morocco Standard Time).
+ * Default is 'morocco_sync' (+2h calibrated offset so 12:xx displays as 14:xx matching Morocco/Windows clock).
  */
 export function getActiveTimezoneMode(): TimezoneMode {
   try {
     const saved = localStorage.getItem(TZ_STORAGE_KEY) as TimezoneMode | null;
-    if (saved === 'morocco_gmt0' || saved === 'morocco_gmt1' || saved === 'device') {
+    if (saved === 'morocco_sync' || saved === 'morocco_gmt1' || saved === 'morocco_gmt0') {
       return saved;
     }
   } catch {
     // Local storage unavailable
   }
-  return 'morocco_gmt0';
+  return 'morocco_sync';
 }
 
 /**
- * Gets the custom numeric hour offset applied to Morocco GMT+0.
+ * Gets the custom numeric hour offset applied to active timezone.
  */
 export function getCustomHourOffset(): number {
   try {
@@ -58,30 +58,37 @@ export function setActiveTimezoneMode(mode: TimezoneMode, customOffset = 0): voi
 
 /**
  * Calculates current UTC offset in hours according to active mode and custom shift.
+ * Default 'morocco_sync' mode applies +2 hours so that stored 12:xx timestamps display as 14:xx.
  */
 export function getEffectiveOffsetHours(): number {
   const mode = getActiveTimezoneMode();
   const custom = getCustomHourOffset();
 
+  if (mode === 'morocco_gmt0') {
+    return 0 + custom;
+  }
   if (mode === 'morocco_gmt1') {
     return 1 + custom;
   }
-  if (mode === 'device') {
-    // Invert browser's getTimezoneOffset (which is in minutes, UTC - local)
-    const deviceMinutes = -new Date().getTimezoneOffset();
-    return (deviceMinutes / 60) + custom;
-  }
-  // Default: Morocco Standard Time GMT+0
-  return 0 + custom;
+  // Default 'morocco_sync': +2h so stored 12:43 displays as 14:43 matching Morocco factory time
+  return 2 + custom;
 }
 
 /**
- * Returns current Date or parses input safely
+ * Returns current Date or parses input safely (supports Date, Firestore Timestamp, ISO string, etc.)
  */
-export function toSafeDate(input?: Date | string | number | null): Date {
+export function toSafeDate(input?: any): Date {
   if (!input) return new Date();
   if (input instanceof Date) return input;
   if (typeof input === 'number') return new Date(input);
+  if (input && typeof input.toDate === 'function') {
+    try {
+      return input.toDate();
+    } catch {}
+  }
+  if (typeof input === 'object' && typeof input.seconds === 'number') {
+    return new Date(input.seconds * 1000);
+  }
   if (typeof input === 'string') {
     const str = input.trim();
     // Pure YYYY-MM-DD string: parse parts to midday to prevent timezone date boundary skews
@@ -186,12 +193,15 @@ export function useMoroccoClock() {
   const offsetHours = getEffectiveOffsetHours();
   const customOffset = getCustomHourOffset();
 
-  const tzShortLabel = offsetHours >= 0 ? `GMT+${offsetHours}` : `GMT${offsetHours}`;
-  const tzLabel = activeMode === 'morocco_gmt1' 
-    ? 'GMT+1 (Maroc)' 
-    : activeMode === 'device'
-      ? `Local (${tzShortLabel})`
-      : `GMT+0 (Maroc Hub)`;
+  const tzShortLabel = activeMode === 'morocco_sync'
+    ? 'Maroc (24h)'
+    : (offsetHours >= 0 ? `GMT+${offsetHours}` : `GMT${offsetHours}`);
+
+  const tzLabel = activeMode === 'morocco_sync'
+    ? 'Heure Maroc (24h)'
+    : activeMode === 'morocco_gmt1' 
+      ? 'GMT+1 (Maroc)' 
+      : 'GMT+0 (Maroc Hub)';
 
   return {
     timeWithSeconds: time24WithSec, // e.g. "16:44:35"

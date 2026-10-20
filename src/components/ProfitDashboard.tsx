@@ -56,12 +56,13 @@ export default function ProfitDashboard({
   const [config, setConfig] = useState<WorkerCostConfig>(getSavedWorkerCostConfig);
   const [isConfigOpen, setIsConfigOpen] = useState(false);
 
-  // Form draft state for configuration modal (DH inputs configured here)
-  const [draftWorkersCount, setDraftWorkersCount] = useState<number>(config.workersCount);
-  const [draftBaseWage, setDraftBaseWage] = useState<number>(config.baseWageDailyDH);
-  const [draftPrima, setDraftPrima] = useState<number>(config.primaDailyDH);
-  const [draftWorkingDays, setDraftWorkingDays] = useState<number>(config.workingDaysPerWeek);
-  const [draftRate, setDraftRate] = useState<number>(config.eurToDhRate);
+  // Form draft state for configuration modal (comprehensive rate per minute)
+  const [draftRatePerMin, setDraftRatePerMin] = useState<number>(config.ratePerMinuteEur !== undefined ? config.ratePerMinuteEur : 0.055);
+  const [draftHoursPerDay, setDraftHoursPerDay] = useState<number>(config.hoursPerDay || 8);
+  const [draftWorkersCount, setDraftWorkersCount] = useState<number>(config.workersCount || 3);
+  const [draftPrima, setDraftPrima] = useState<number>(config.primaDailyDH !== undefined ? config.primaDailyDH : 60);
+  const [draftWorkingDays, setDraftWorkingDays] = useState<number>(config.workingDaysPerWeek || 6);
+  const [draftRate, setDraftRate] = useState<number>(config.eurToDhRate || 10.80);
   const [configSaveSuccess, setConfigSaveSuccess] = useState(false);
 
   // Expanded roll details in table
@@ -75,23 +76,36 @@ export default function ProfitDashboard({
 
   // Handle configuration open
   const openConfigModal = () => {
-    setDraftWorkersCount(config.workersCount);
-    setDraftBaseWage(config.baseWageDailyDH);
-    setDraftPrima(config.primaDailyDH);
-    setDraftWorkingDays(config.workingDaysPerWeek);
-    setDraftRate(config.eurToDhRate);
+    setDraftRatePerMin(config.ratePerMinuteEur !== undefined ? config.ratePerMinuteEur : 0.055);
+    setDraftHoursPerDay(config.hoursPerDay || 8);
+    setDraftWorkersCount(config.workersCount || 3);
+    setDraftPrima(config.primaDailyDH !== undefined ? config.primaDailyDH : 60);
+    setDraftWorkingDays(config.workingDaysPerWeek || 6);
+    setDraftRate(config.eurToDhRate || 10.80);
     setConfigSaveSuccess(false);
     setIsConfigOpen(true);
   };
 
   const handleSaveConfig = () => {
+    const ratePerMin = Math.max(0.001, Number(draftRatePerMin) || 0.055);
+    const hours = Math.max(1, Number(draftHoursPerDay) || 8);
+    const workers = Math.max(1, Math.round(Number(draftWorkersCount) || 3));
+    const eurRate = Math.max(0.1, Number(draftRate) || 10.80);
+    const hourlyEur = Math.round(ratePerMin * 60 * 100) / 100;
+    const operatorDailyEur = Math.round(hourlyEur * hours * 100) / 100;
+    const operatorDailyDH = Math.round(operatorDailyEur * eurRate * 100) / 100;
+    const prima = Math.max(0, Number(draftPrima) || 60);
+    const baseWageDH = Math.max(0, Math.round((operatorDailyDH - prima) * 100) / 100);
+
     const newConfig: WorkerCostConfig = {
-      workersCount: Math.max(1, Math.round(Number(draftWorkersCount) || 3)),
-      hoursPerDay: 8,
-      baseWageDailyDH: Math.max(0, Number(draftBaseWage) || 143.36),
-      primaDailyDH: Math.max(0, Number(draftPrima) || 60),
+      workersCount: workers,
+      hoursPerDay: hours,
+      ratePerMinuteEur: ratePerMin,
+      hourlyRateEur: hourlyEur,
+      baseWageDailyDH: baseWageDH,
+      primaDailyDH: prima,
       workingDaysPerWeek: Math.max(1, Math.min(7, Math.round(Number(draftWorkingDays) || 6))),
-      eurToDhRate: Math.max(0.1, Number(draftRate) || 10.80)
+      eurToDhRate: eurRate
     };
     saveWorkerCostConfig(newConfig);
     setConfig(newConfig);
@@ -105,8 +119,9 @@ export default function ProfitDashboard({
   const handleResetConfig = () => {
     saveWorkerCostConfig(DEFAULT_WORKER_COST_CONFIG);
     setConfig(DEFAULT_WORKER_COST_CONFIG);
+    setDraftRatePerMin(DEFAULT_WORKER_COST_CONFIG.ratePerMinuteEur);
+    setDraftHoursPerDay(DEFAULT_WORKER_COST_CONFIG.hoursPerDay);
     setDraftWorkersCount(DEFAULT_WORKER_COST_CONFIG.workersCount);
-    setDraftBaseWage(DEFAULT_WORKER_COST_CONFIG.baseWageDailyDH);
     setDraftPrima(DEFAULT_WORKER_COST_CONFIG.primaDailyDH);
     setDraftWorkingDays(DEFAULT_WORKER_COST_CONFIG.workingDaysPerWeek);
     setDraftRate(DEFAULT_WORKER_COST_CONFIG.eurToDhRate);
@@ -227,7 +242,7 @@ export default function ProfitDashboard({
               {formatEuroCurrency(profitLedger.totalLaborCostEur)}
             </div>
             <p className="text-xs text-slate-400 mt-1 font-mono">
-              {config.workersCount} operators ({profitLedger.totalWorkingDays} {profitLedger.totalWorkingDays === 1 ? 'day' : 'days'})
+              {config.workersCount} operators • {formatEuroCurrency(profitLedger.dailyLaborCostEur)}/day ({profitLedger.totalWorkingDays} {profitLedger.totalWorkingDays === 1 ? 'day' : 'days'})
             </p>
           </div>
         </div>
@@ -401,7 +416,7 @@ export default function ProfitDashboard({
                                   Financial & Production Ledger Breakdown — Roll {r.barcode}
                                 </div>
                                 <span className="text-slate-500 text-[11px]">
-                                  Workforce: {config.workersCount} operators @ 60 DH prima/day ({formatEuroCurrency(profitLedger.dailyLaborCostEur)}/day)
+                                  Workforce: {config.workersCount} operators @ {formatEuroCurrency(profitLedger.dailyLaborCostEur)}/day ({config.ratePerMinuteEur ?? 0.055} €/min)
                                 </span>
                               </div>
 
@@ -482,102 +497,128 @@ export default function ProfitDashboard({
             className="fixed inset-0" 
             onClick={() => setIsConfigOpen(false)} 
           />
-          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-lg p-6 sm:p-8 shadow-2xl relative z-10 space-y-6">
+          <div className="bg-white border border-slate-200 rounded-3xl w-full max-w-xl p-6 sm:p-8 shadow-2xl relative z-10 space-y-6">
+            
+            {/* Modal Header */}
             <div className="flex items-center justify-between border-b border-slate-100 pb-4">
               <div className="flex items-center gap-2.5">
-                <div className="w-10 h-10 rounded-2xl bg-amber-500/15 border border-amber-500/30 text-amber-600 flex items-center justify-center">
+                <div className="w-10 h-10 rounded-2xl bg-emerald-500/15 border border-emerald-500/30 text-emerald-600 flex items-center justify-center shrink-0">
                   <SlidersHorizontal size={20} />
                 </div>
                 <div>
-                  <h3 className="text-base font-black text-slate-900 font-mono">
-                    OPERATOR LABOR RATES & EXCHANGE CONFIG
+                  <h3 className="text-sm sm:text-base font-black text-slate-900 font-mono tracking-tight">
+                    WORKSHOP LABOR RATES & GENERAL SETTINGS
                   </h3>
-                  <p className="text-xs text-slate-500">
-                    Wages configured in Moroccan Dirhams (DH) & converted to EUR (€)
-                  </p>
                 </div>
               </div>
               <button
                 onClick={() => setIsConfigOpen(false)}
-                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition"
+                className="text-slate-400 hover:text-slate-600 p-1.5 rounded-xl hover:bg-slate-100 transition cursor-pointer"
               >
                 <X size={18} />
               </button>
             </div>
 
+            {/* General Settings Formula Callout Banner */}
+            <div className="bg-emerald-50/70 border border-emerald-200/80 rounded-2xl p-3.5 space-y-1.5">
+              <div className="flex items-center justify-between flex-wrap gap-2 text-2xs font-mono font-bold text-emerald-950">
+                <span className="flex items-center gap-1.5 text-emerald-800">
+                  <span className="w-2 h-2 rounded-full bg-emerald-500 inline-block" />
+                  GENERAL WORKSHOP FORMULA:
+                </span>
+                <span className="px-2 py-0.5 rounded-md bg-emerald-600 text-white font-black text-2xs shadow-2xs">
+                  {(Number(draftRatePerMin) * 60 * Number(draftHoursPerDay) * Number(draftWorkersCount)).toFixed(2)} € / day total
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-2xs font-mono pt-1 text-slate-700">
+                <div className="bg-white/80 rounded-lg p-2 border border-emerald-100">
+                  <span className="text-slate-400 block text-[10px]">STEP 1 • RATE / HOUR</span>
+                  <span className="font-bold text-slate-900">
+                    {Number(draftRatePerMin).toFixed(3)} €/min × 60 = <span className="text-emerald-700">{(Number(draftRatePerMin) * 60).toFixed(2)} €/h</span>
+                  </span>
+                </div>
+                <div className="bg-white/80 rounded-lg p-2 border border-emerald-100">
+                  <span className="text-slate-400 block text-[10px]">STEP 2 • 1 OPERATOR / DAY</span>
+                  <span className="font-bold text-slate-900">
+                    {draftHoursPerDay}h × {(Number(draftRatePerMin) * 60).toFixed(2)} € = <span className="text-emerald-700">{(Number(draftRatePerMin) * 60 * Number(draftHoursPerDay)).toFixed(2)} €</span>
+                  </span>
+                </div>
+                <div className="bg-white/80 rounded-lg p-2 border border-emerald-100">
+                  <span className="text-slate-400 block text-[10px]">STEP 3 • SHIFT WORKFORCE</span>
+                  <span className="font-bold text-slate-900">
+                    {draftWorkersCount} ops × {(Number(draftRatePerMin) * 60 * Number(draftHoursPerDay)).toFixed(2)} € = <span className="text-emerald-700 font-black">{(Number(draftRatePerMin) * 60 * Number(draftHoursPerDay) * Number(draftWorkersCount)).toFixed(2)} €</span>
+                  </span>
+                </div>
+              </div>
+            </div>
+
             {/* Form Fields */}
-            <div className="space-y-4 text-xs">
+            <div className="space-y-4 text-xs font-sans">
               
-              {/* Workers Count */}
-              <div>
-                <label className="block font-bold text-slate-700 mb-1">
-                  Active Operators Count (Shift Workforce)
-                </label>
-                <input
-                  type="number"
-                  min="1"
-                  max="50"
-                  value={draftWorkersCount}
-                  onChange={(e) => setDraftWorkersCount(Number(e.target.value))}
-                  className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                />
-                <p className="text-[11px] text-slate-400 mt-1">
-                  Factory default: 3 workers (daily total: {(draftWorkersCount * (draftBaseWage + draftPrima)).toFixed(2)} DH ≈ {formatEuroCurrency((draftWorkersCount * (draftBaseWage + draftPrima)) / draftRate)})
-                </p>
-              </div>
-
-              {/* Wage Breakdown: Base Wage & Prima */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Row 1: Comprehensive Rate per Minute & Working Hours */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    1 Worker Base Wage (8h)
+                    Comprehensive Rate (€ / min)
                   </label>
                   <div className="relative">
                     <input
                       type="number"
-                      step="0.01"
-                      value={draftBaseWage}
-                      onChange={(e) => setDraftBaseWage(Number(e.target.value))}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 pr-12"
+                      step="0.001"
+                      min="0.001"
+                      value={draftRatePerMin}
+                      onChange={(e) => setDraftRatePerMin(Number(e.target.value))}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 pr-16"
                     />
-                    <span className="absolute right-3 top-2.5 text-xs font-mono font-bold text-slate-400">DH</span>
+                    <span className="absolute right-3 top-2.5 text-xs font-mono font-bold text-slate-400">€ / min</span>
                   </div>
-                  <p className="text-[10.5px] text-slate-400 mt-1">Default: 143.36 DH (≈ {formatEuroCurrency(draftBaseWage / draftRate)})</p>
+                  <p className="text-[10.5px] text-slate-400 mt-1">
+                    Standard: 0.055 €/min (includes tax, prima, transport)
+                  </p>
                 </div>
 
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    1 Worker Prima (Daily)
+                    Working Hours per Shift
                   </label>
                   <div className="relative">
                     <input
                       type="number"
-                      step="0.01"
-                      value={draftPrima}
-                      onChange={(e) => setDraftPrima(Number(e.target.value))}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 pr-12"
+                      step="0.5"
+                      min="1"
+                      max="24"
+                      value={draftHoursPerDay}
+                      onChange={(e) => setDraftHoursPerDay(Number(e.target.value))}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 pr-14"
                     />
-                    <span className="absolute right-3 top-2.5 text-xs font-mono font-bold text-slate-400">DH</span>
+                    <span className="absolute right-3 top-2.5 text-xs font-mono font-bold text-slate-400">Hours</span>
                   </div>
-                  <p className="text-[10.5px] text-slate-400 mt-1">Default: 60.00 DH (≈ {formatEuroCurrency(draftPrima / draftRate)})</p>
+                  <p className="text-[10.5px] text-slate-400 mt-1">
+                    Factory standard: 8 hours per operator shift
+                  </p>
                 </div>
               </div>
 
-              {/* Working Days per Week & EUR/DH Exchange Rate */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Row 2: Operators Count & EUR to DH Rate */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
                 <div>
                   <label className="block font-bold text-slate-700 mb-1">
-                    Working Days / Week
+                    Active Operators Count (Workforce)
                   </label>
-                  <input
-                    type="number"
-                    min="1"
-                    max="7"
-                    value={draftWorkingDays}
-                    onChange={(e) => setDraftWorkingDays(Number(e.target.value))}
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500"
-                  />
-                  <p className="text-[10.5px] text-slate-400 mt-1">Default: 6 days (Mon to Sat)</p>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={draftWorkersCount}
+                      onChange={(e) => setDraftWorkersCount(Number(e.target.value))}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 pr-14"
+                    />
+                    <span className="absolute right-3 top-2.5 text-xs font-mono font-bold text-slate-400">Workers</span>
+                  </div>
+                  <p className="text-[10.5px] text-slate-400 mt-1">
+                    Factory standard: 3 operators cutting
+                  </p>
                 </div>
 
                 <div>
@@ -588,40 +629,62 @@ export default function ProfitDashboard({
                     <input
                       type="number"
                       step="0.01"
+                      min="0.1"
                       value={draftRate}
                       onChange={(e) => setDraftRate(Number(e.target.value))}
-                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 pr-12"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 pr-14"
                     />
                     <span className="absolute right-3 top-2.5 text-xs font-mono font-bold text-slate-400">DH/€</span>
                   </div>
-                  <p className="text-[10.5px] text-slate-400 mt-1">Default: 10.80 DH per 1 €</p>
+                  <p className="text-[10.5px] text-slate-400 mt-1">
+                    Conversion rate for MAD records (default: 10.80 DH/€)
+                  </p>
                 </div>
               </div>
 
-              {/* Formula & Live Preview */}
-              <div className="bg-slate-50 border border-slate-200 rounded-2xl p-4 space-y-2 text-2xs font-mono">
-                <div className="font-bold text-slate-700 uppercase tracking-wider font-sans">
-                  Calculated Cost Preview (DH & Converted EUR):
+              {/* Row 3: Daily Prima & Working Days / Week */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    1 Worker Prima (Daily)
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      step="1"
+                      min="0"
+                      value={draftPrima}
+                      onChange={(e) => setDraftPrima(Number(e.target.value))}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 pr-12"
+                    />
+                    <span className="absolute right-3 top-2.5 text-xs font-mono font-bold text-slate-400">DH</span>
+                  </div>
+                  <p className="text-[10.5px] text-slate-400 mt-1">
+                    60 DH prima / day (already factored into comprehensive rate)
+                  </p>
                 </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>1 Worker / Day:</span>
-                  <span className="font-bold text-slate-900 font-mono">
-                    {(draftBaseWage + draftPrima).toFixed(2)} DH <span className="text-emerald-700 font-black">({formatEuroCurrency((draftBaseWage + draftPrima) / draftRate)})</span>
-                  </span>
-                </div>
-                <div className="flex justify-between text-slate-600">
-                  <span>1 Worker / Week ({draftWorkingDays} days):</span>
-                  <span className="font-bold text-slate-900 font-mono">
-                    {((draftBaseWage + draftPrima) * draftWorkingDays).toFixed(2)} DH <span className="text-emerald-700 font-black">({formatEuroCurrency(((draftBaseWage + draftPrima) * draftWorkingDays) / draftRate)})</span>
-                  </span>
-                </div>
-                <div className="flex justify-between text-slate-600 border-t border-slate-200 pt-1.5">
-                  <span>{draftWorkersCount} Workers / Day:</span>
-                  <span className="font-bold text-amber-700 font-mono">
-                    {(draftWorkersCount * (draftBaseWage + draftPrima)).toFixed(2)} DH <span className="text-emerald-700 font-black">({formatEuroCurrency((draftWorkersCount * (draftBaseWage + draftPrima)) / draftRate)})</span>
-                  </span>
+
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">
+                    Working Days / Week
+                  </label>
+                  <div className="relative">
+                    <input
+                      type="number"
+                      min="1"
+                      max="7"
+                      value={draftWorkingDays}
+                      onChange={(e) => setDraftWorkingDays(Number(e.target.value))}
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-xl font-mono font-bold text-slate-900 focus:outline-none focus:ring-2 focus:ring-emerald-500 pr-14"
+                    />
+                    <span className="absolute right-3 top-2.5 text-xs font-mono font-bold text-slate-400">Days</span>
+                  </div>
+                  <p className="text-[10.5px] text-slate-400 mt-1">
+                    Default: 6 days (Mon to Sat)
+                  </p>
                 </div>
               </div>
+
             </div>
 
             {/* Modal Actions */}
@@ -629,16 +692,16 @@ export default function ProfitDashboard({
               <button
                 type="button"
                 onClick={handleResetConfig}
-                className="text-xs text-slate-500 hover:text-slate-800 font-medium underline cursor-pointer"
+                className="text-xs text-slate-500 hover:text-emerald-700 font-medium underline cursor-pointer transition"
               >
-                Reset to Company Defaults
+                Reset to Company Defaults (0.055 €/min → 79.20 €/day)
               </button>
               
               <div className="flex items-center gap-2">
                 <button
                   type="button"
                   onClick={() => setIsConfigOpen(false)}
-                  className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer"
+                  className="px-4 py-2 border border-slate-200 rounded-xl text-xs font-bold text-slate-700 hover:bg-slate-50 cursor-pointer transition"
                 >
                   Cancel
                 </button>
