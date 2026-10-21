@@ -26,7 +26,8 @@ import {
   Lock,
   CircleDollarSign,
   Coins,
-  TrendingUp
+  TrendingUp,
+  FileSpreadsheet
 } from 'lucide-react';
 import { 
   UserProfile, 
@@ -53,6 +54,7 @@ import RollsModule from './components/RollsModule';
 import FinancialEvaluation from './components/FinancialEvaluation';
 import ProfitDashboard from './components/ProfitDashboard';
 import EfficiencyAnalytics from './components/EfficiencyAnalytics';
+import RollsReportModule from './components/RollsReportModule';
 import SecurityVaultModal from './components/SecurityVaultModal';
 import { recordVaultSnapshot, restoreBaselineReserveRolls, getBaselineFactoryRolls, ROLL_2600056310_CLOSED } from './utils/dataProtection';
 import { db, handleFirestoreError, OperationType, isQuotaExceededError } from './firebase';
@@ -669,10 +671,14 @@ export default function App() {
             materialName = 'Delcotex India';
           }
 
-          const isRoll43968015 = raw.barcode === '43968015' || raw.id === '43968015' || docSnap.id === 'roll-1790235617489';
-          if (isRoll43968015) {
+          const isIndiaRoll = [
+            '43966820', '43966801', '43966802', '43968018', '43968017', 
+            '43968015', '43968016', '43968019', '43966803'
+          ].includes(raw.barcode) || raw.barcode === '43968015' || raw.id === '43968015' || docSnap.id === 'roll-1790235617489';
+          if (isIndiaRoll) {
             materialName = 'Delcotex India';
           }
+          const isRoll43968015 = raw.barcode === '43968015' || raw.id === '43968015' || docSnap.id === 'roll-1790235617489';
 
           let status = raw.status || 'Unopened';
           const norm = normalizeRollStatus(status);
@@ -752,6 +758,10 @@ export default function App() {
             rollOpeningStock: openingSnapshot,
             openingStockDetails: openingDetails,
             totalOpeningStock: isRoll43968015 ? 17786 : raw.totalOpeningStock,
+            nokFormats: raw.nokFormats !== undefined ? Number(raw.nokFormats) : (isRoll43968015 ? 17 : undefined),
+            nokWidthCm: raw.nokWidthCm !== undefined ? Number(raw.nokWidthCm) : (isRoll43968015 ? 73 : undefined),
+            nokHeightCm: raw.nokHeightCm !== undefined ? Number(raw.nokHeightCm) : (isRoll43968015 ? 90 : undefined),
+            nokTotalAreaCm2: raw.nokTotalAreaCm2 !== undefined ? Number(raw.nokTotalAreaCm2) : (isRoll43968015 ? 111690 : undefined),
             createdBy: raw.createdBy || 'system'
           } as RollEntry);
         });
@@ -1991,7 +2001,9 @@ export default function App() {
     rollId: string, 
     closingUnpackaged: Record<string, number>, 
     notes?: string,
-    nokFormats?: number
+    nokFormats?: number,
+    nokWidthCm?: number,
+    nokHeightCm?: number
   ) => {
     const roll = rolls.find((r) => r.id === rollId);
     if (!roll) throw new Error('Roll not found');
@@ -2008,7 +2020,9 @@ export default function App() {
       deliveries,
       piecePrices,
       currentUser?.name || 'Operator',
-      nokFormats
+      nokFormats,
+      nokWidthCm,
+      nokHeightCm
     );
 
     const batch = writeBatch(db);
@@ -2471,6 +2485,17 @@ export default function App() {
           />
         );
 
+      case 'rolls_report':
+        return (
+          <RollsReportModule
+            currentUser={currentUser}
+            rolls={rolls}
+            financialRecords={financialRecords}
+            piecePrices={piecePrices}
+            expectedYields={expectedYields}
+          />
+        );
+
       case 'financial':
         if (currentUser.role !== 'manager') {
           return (
@@ -2539,10 +2564,12 @@ export default function App() {
       ? [
           { id: 'financial', label: 'Financial Evaluation', icon: CircleDollarSign },
           { id: 'profit', label: 'PROFIT DASHBOARD', icon: Coins },
-          { id: 'efficiency_analytics', label: 'Efficiency Analytics', icon: TrendingUp }
+          { id: 'efficiency_analytics', label: 'Efficiency Analytics', icon: TrendingUp },
+          { id: 'rolls_report', label: 'Rolls Report', icon: FileSpreadsheet }
         ]
       : [
-          { id: 'efficiency_analytics', label: 'Efficiency Analytics', icon: TrendingUp }
+          { id: 'efficiency_analytics', label: 'Efficiency Analytics', icon: TrendingUp },
+          { id: 'rolls_report', label: 'Rolls Report', icon: FileSpreadsheet }
         ])
   ];
 

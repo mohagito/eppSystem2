@@ -632,7 +632,9 @@ export function reconcileRollClosing(
   deliveries: DeliveryEntry[] = [],
   piecePrices: FinishedPiecePrice[] = DEFAULT_PIECE_PRICES,
   closedBy: string = 'Operator',
-  nokFormatsInput?: number
+  nokFormatsInput?: number,
+  nokWidthInput?: number,
+  nokHeightInput?: number
 ): {
   reconciliation: RollReconciliationData;
   closingEntriesToCreate: Omit<StockEntry, 'id' | 'createdAt'>[];
@@ -733,14 +735,23 @@ export function reconcileRollClosing(
     targetYield = 8675;
   }
 
-  // NOK Formats Adjustment (INDIA / DELCOTEX rolls ONLY)
-  // Each NOK format = 70cm x 90cm = 15 finished pieces
-  const isIndia = material === 'Delcotex India';
-  const cleanNok = (isIndia && nokFormatsInput !== undefined && !isNaN(Number(nokFormatsInput)))
+  // Universal NOK Formats & Dimensions Adjustment for all rolls references
+  const isIndia = material === 'Delcotex India' || getMaterialFamily(material).includes('INDIA');
+  const cleanNok = (nokFormatsInput !== undefined && !isNaN(Number(nokFormatsInput)))
     ? Math.max(0, Math.floor(Number(nokFormatsInput)))
-    : (isIndia && roll.nokFormats ? Math.max(0, Math.floor(Number(roll.nokFormats))) : 0);
-  const nokEquivalent = cleanNok * 15;
-  const adjustedExpected = isIndia && cleanNok > 0
+    : (roll.nokFormats ? Math.max(0, Math.floor(Number(roll.nokFormats))) : 0);
+
+  const defaultWidth = (isIndia || material.includes('70')) ? 70 : 73;
+  const cleanWidth = (nokWidthInput !== undefined && !isNaN(Number(nokWidthInput)) && Number(nokWidthInput) > 0)
+    ? Number(nokWidthInput)
+    : (roll.nokWidthCm || defaultWidth);
+  const cleanHeight = (nokHeightInput !== undefined && !isNaN(Number(nokHeightInput)) && Number(nokHeightInput) > 0)
+    ? Number(nokHeightInput)
+    : (roll.nokHeightCm || 90);
+  const totalArea = cleanNok > 0 ? Math.round(cleanNok * cleanWidth * cleanHeight) : 0;
+
+  const nokEquivalent = cleanNok > 0 ? cleanNok * 15 : 0;
+  const adjustedExpected = cleanNok > 0
     ? Math.max(0, targetYield - nokEquivalent)
     : targetYield;
 
@@ -759,6 +770,9 @@ export function reconcileRollClosing(
     expectedPieces: targetYield,
     materialEfficiency,
     nokFormats: cleanNok > 0 ? cleanNok : undefined,
+    nokWidthCm: cleanNok > 0 ? cleanWidth : undefined,
+    nokHeightCm: cleanNok > 0 ? cleanHeight : undefined,
+    nokTotalAreaCm2: cleanNok > 0 ? totalArea : undefined,
     nokEquivalentPieces: cleanNok > 0 ? nokEquivalent : undefined,
     adjustedExpectedPieces: cleanNok > 0 ? adjustedExpected : undefined,
     closedAt,
@@ -781,11 +795,14 @@ export function reconcileRollClosing(
     expectedPieces: targetYield,
     materialEfficiency: materialEfficiency,
     nokFormats: cleanNok > 0 ? cleanNok : undefined,
+    nokWidthCm: cleanNok > 0 ? cleanWidth : undefined,
+    nokHeightCm: cleanNok > 0 ? cleanHeight : undefined,
+    nokTotalAreaCm2: cleanNok > 0 ? totalArea : undefined,
     nokEquivalentPieces: cleanNok > 0 ? nokEquivalent : undefined,
     adjustedExpectedPieces: cleanNok > 0 ? adjustedExpected : undefined,
     evaluatedAt: getMoroccoDateStr(),
     evaluatedBy: closedBy,
-    notes: `Reconciled & closed by ${closedBy}. Actual produced: ${totalActualPieces} pcs.${cleanNok > 0 ? ` (NOK: ${cleanNok} fmt = -${nokEquivalent} pcs)` : ''}`,
+    notes: `Reconciled & closed by ${closedBy}. Actual produced: ${totalActualPieces} pcs.${cleanNok > 0 ? ` (NOK: ${cleanNok} NOK parts @ ${cleanWidth}x${cleanHeight}cm = ${totalArea.toLocaleString()} cm²)` : ''}`,
     openingStockSnapshot: openingSnapshot,
     rollOpeningStock: openingSnapshot,
     closingUnpackaged: closingUnpackagedInput,
@@ -803,6 +820,9 @@ export function reconcileRollClosing(
     expectedPieces: targetYield,
     materialEfficiency,
     nokFormats: cleanNok > 0 ? cleanNok : undefined,
+    nokWidthCm: cleanNok > 0 ? cleanWidth : undefined,
+    nokHeightCm: cleanNok > 0 ? cleanHeight : undefined,
+    nokTotalAreaCm2: cleanNok > 0 ? totalArea : undefined,
     nokEquivalentPieces: cleanNok > 0 ? nokEquivalent : undefined,
     adjustedExpectedPieces: cleanNok > 0 ? adjustedExpected : undefined,
     productionValue: totalProductionValue,

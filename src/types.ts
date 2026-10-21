@@ -130,9 +130,12 @@ export interface RollEntry {
   profitPercent?: number; // (grossProfit / rollCost) * 100
   productionRecords?: RollProductionRecord[]; // Independent log of production batches
 
-  // NOK Defective Formats Adjustment (India / Delcotex rolls only)
-  nokFormats?: number; // Count of defective formats found in the roll (70cm x 90cm)
-  nokEquivalentPieces?: number; // nokFormats * 15
+  // NOK Defective Formats Adjustment (Universal for all roll references)
+  nokFormats?: number; // Count of defective formats found in the roll
+  nokWidthCm?: number; // Defective format width in cm (e.g. 70, 73)
+  nokHeightCm?: number; // Defective format height in cm (e.g. 90)
+  nokTotalAreaCm2?: number; // Total NOK area in cm2 (nokFormats * nokWidthCm * nokHeightCm)
+  nokEquivalentPieces?: number; // Equivalent finished pieces
   adjustedExpectedPieces?: number; // max(0, originalExpectedPieces - nokEquivalentPieces)
 
   // Reconciliation & Stock Snapshots (ROLLS + FINISHED PIECE STOCK + PRODUCTION + UNPACKAGED PIECES + ROLL CLOSING)
@@ -216,6 +219,9 @@ export interface RollReconciliationData {
   expectedPieces?: number;
   materialEfficiency?: number; // Material Efficiency % = Produced PCS ÷ Expected PCS × 100
   nokFormats?: number;
+  nokWidthCm?: number;
+  nokHeightCm?: number;
+  nokTotalAreaCm2?: number;
   nokEquivalentPieces?: number;
   adjustedExpectedPieces?: number;
   closedAt: string;
@@ -238,6 +244,9 @@ export interface RollFinancialRecord {
   expectedPieces?: number;
   materialEfficiency?: number; // (totalPieces / expectedPieces) * 100
   nokFormats?: number;
+  nokWidthCm?: number;
+  nokHeightCm?: number;
+  nokTotalAreaCm2?: number;
   nokEquivalentPieces?: number;
   adjustedExpectedPieces?: number;
   evaluatedAt: string; // YYYY-MM-DD or ISO timestamp
