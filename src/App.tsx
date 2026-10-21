@@ -2486,6 +2486,13 @@ export default function App() {
         );
 
       case 'rolls_report':
+        if (currentUser.role !== 'manager') {
+          return (
+            <div className="p-8 text-center text-slate-500 font-bold">
+              Access Restricted. Rolls reports are only accessible to Managers.
+            </div>
+          );
+        }
         return (
           <RollsReportModule
             currentUser={currentUser}
@@ -2568,8 +2575,7 @@ export default function App() {
           { id: 'rolls_report', label: 'Rolls Report', icon: FileSpreadsheet }
         ]
       : [
-          { id: 'efficiency_analytics', label: 'Efficiency Analytics', icon: TrendingUp },
-          { id: 'rolls_report', label: 'Rolls Report', icon: FileSpreadsheet }
+          { id: 'efficiency_analytics', label: 'Efficiency Analytics', icon: TrendingUp }
         ])
   ];
 
