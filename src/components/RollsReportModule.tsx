@@ -626,9 +626,6 @@ export default function RollsReportModule({
                   ROLLS REPORT
                 </h1>
               </div>
-              <p className="text-xs font-semibold text-slate-500 mt-0.5">
-                Universal fabric roll defect analytics, NOK measurements & yield reporting
-              </p>
             </div>
           </div>
         </div>
