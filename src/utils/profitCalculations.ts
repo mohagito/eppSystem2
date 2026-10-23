@@ -1143,9 +1143,9 @@ export function calculateRollsWithLaborProfit(
     };
   });
 
-  // Sort by open date desc, then barcode
+  // Sort from OLD to NEW (chronological: oldest open date first, up to newest)
   resultRolls.sort((a, b) => {
-    const comp = b.openedDateStr.localeCompare(a.openedDateStr);
+    const comp = a.openedDateStr.localeCompare(b.openedDateStr);
     if (comp !== 0) return comp;
     return a.barcode.localeCompare(b.barcode);
   });

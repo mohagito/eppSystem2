@@ -30,7 +30,8 @@ import {
   Scroll, 
   Check, 
   X, 
-  Coins
+  Coins,
+  ArrowUpDown
 } from 'lucide-react';
 
 interface ProfitDashboardProps {
@@ -68,11 +69,25 @@ export default function ProfitDashboard({
   // Expanded roll details in table
   const [expandedRollBarcode, setExpandedRollBarcode] = useState<string | null>(null);
 
+  // Sorting order for rolls table (default: Oldest to Newest)
+  const [sortOrder, setSortOrder] = useState<'oldest' | 'newest'>('oldest');
+
   // Backend calculation engine:
   // ROLL => open date => working days based on the production records => close date => gross profit - the workers cost
   const profitLedger = useMemo(() => {
     return calculateRollsWithLaborProfit(rolls, config, stockEntries);
   }, [rolls, config, stockEntries]);
+
+  // Sorted rolls from old to new (chronological) or toggled
+  const sortedRolls = useMemo(() => {
+    return [...profitLedger.rolls].sort((a, b) => {
+      const comp = a.openedDateStr.localeCompare(b.openedDateStr);
+      if (comp !== 0) {
+        return sortOrder === 'oldest' ? comp : -comp;
+      }
+      return a.barcode.localeCompare(b.barcode);
+    });
+  }, [profitLedger.rolls, sortOrder]);
 
   // Handle configuration open
   const openConfigModal = () => {
@@ -272,11 +287,19 @@ export default function ProfitDashboard({
       {/* ROLLS IN THIS PERIOD TABLE */}
       <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3.5" id="profit-rolls-period-table">
         <div className="flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <Scroll size={15} className="text-emerald-600" />
             <h3 className="text-xs sm:text-sm font-bold text-slate-900 font-mono">
               Rolls in this Period ({profitLedger.rolls.length})
             </h3>
+            <button
+              onClick={() => setSortOrder(prev => prev === 'oldest' ? 'newest' : 'oldest')}
+              className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md text-[10px] font-mono font-bold bg-slate-100 hover:bg-slate-200/80 text-slate-700 border border-slate-200 cursor-pointer transition-colors"
+              title="Toggle sort order between Oldest → Newest and Newest → Oldest"
+            >
+              <ArrowUpDown size={11} className="text-slate-500" />
+              <span>{sortOrder === 'oldest' ? 'Oldest → Newest' : 'Newest → Oldest'}</span>
+            </button>
           </div>
 
           {onNavigateToRolls && (
@@ -300,7 +323,16 @@ export default function ProfitDashboard({
               <thead>
                 <tr className="bg-slate-50 border-b border-slate-200 text-[10.5px] font-bold text-slate-400 uppercase tracking-wider font-mono">
                   <th className="py-3 px-4">Roll Barcode</th>
-                  <th className="py-3 px-4">Open Date</th>
+                  <th 
+                    className="py-3 px-4 cursor-pointer hover:text-slate-700 select-none"
+                    onClick={() => setSortOrder(prev => prev === 'oldest' ? 'newest' : 'oldest')}
+                    title="Click to toggle sorting order"
+                  >
+                    <div className="flex items-center gap-1">
+                      <span>Open Date</span>
+                      <ArrowUpDown size={11} className={sortOrder === 'oldest' ? 'text-emerald-600' : 'text-slate-400'} />
+                    </div>
+                  </th>
                   <th className="py-3 px-4">Close Date</th>
                   <th className="py-3 px-4 text-center">Working Days</th>
                   <th className="py-3 px-4">Material / Family</th>
@@ -314,7 +346,7 @@ export default function ProfitDashboard({
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 font-sans">
-                {profitLedger.rolls.map((r: RollProfitSummary) => {
+                {sortedRolls.map((r: RollProfitSummary) => {
                   const isExpanded = expandedRollBarcode === r.barcode;
                   return (
                     <React.Fragment key={r.barcode}>
