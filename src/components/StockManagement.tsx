@@ -83,11 +83,11 @@ export default function StockManagement({
 
   // Find plans that match the current selection (date, model, and worker)
   const activeMatchingPlans = useMemo(() => {
-    const finalWorkerName = currentUser.role === 'manager' ? workerName : currentUser.name;
+    const finalWorkerName = String(currentUser.role === 'manager' ? workerName : currentUser.name || '');
     return plans.filter((p) => {
       const dateMatch = p.planDate === entryDate;
       const modelMatch = p.model === selectedModel;
-      const workerMatch = p.assignedWorker.toLowerCase() === finalWorkerName.toLowerCase();
+      const workerMatch = String(p.assignedWorker || '').toLowerCase() === finalWorkerName.toLowerCase();
       return dateMatch && modelMatch && workerMatch;
     });
   }, [plans, entryDate, selectedModel, workerName, currentUser]);
@@ -535,13 +535,13 @@ export default function StockManagement({
         (e) => (e.workerName || '').toLowerCase().trim() === (currentUser?.name || '').toLowerCase().trim()
       );
     }
-    return source.sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || '')).filter((e) => {
+    return source.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || ''))).filter((e) => {
       const matchModel = filterModel === 'ALL' || e.modelId === filterModel;
       const matchWorker = filterWorker === 'ALL' || e.workerName === filterWorker;
       const searchLower = (filterSearch || '').toLowerCase();
       const matchSearch = filterSearch === '' || 
-        (e.workerName || '').toLowerCase().includes(searchLower) || 
-        (e.modelId || '').toLowerCase().includes(searchLower);
+        String(e.workerName || '').toLowerCase().includes(searchLower) || 
+        String(e.modelId || '').toLowerCase().includes(searchLower);
       return matchModel && matchWorker && matchSearch;
     });
   }, [entries, currentUser, filterModel, filterWorker, filterSearch]);

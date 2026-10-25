@@ -875,7 +875,7 @@ export default function RollsReportModule({
             <div className="bg-[#0D1726] border-b-2 border-[#FF6B00] py-3 px-5 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <img 
-                  src="/assets/aistudio/image_966e4dda.png" 
+                  src={EPP_NATUR_LOGO_BASE64} 
                   className="h-8 w-auto object-contain rounded-md" 
                   alt="E.P.P. Natur" 
                 />

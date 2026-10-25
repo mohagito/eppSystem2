@@ -27,10 +27,48 @@ export default class ErrorBoundary extends Component<Props, State> {
 
   public componentDidCatch(error: Error, errorInfo: ErrorInfo) {
     console.error('Uncaught error caught by ErrorBoundary:', error, errorInfo);
+    this.cleanupStorageBloat();
     this.setState({ errorInfo });
   }
 
+  private cleanupStorageBloat = () => {
+    try {
+      if (typeof window === 'undefined') return;
+      if (window.localStorage) {
+        const keysToRemove: string[] = [];
+        for (let i = 0; i < window.localStorage.length; i++) {
+          const k = window.localStorage.key(i);
+          if (
+            k &&
+            (k.startsWith('firestore_') ||
+              k === '_epp_emergency_vault_cache_v1_' ||
+              k === 'epp_security_vault_snapshots_v1')
+          ) {
+            keysToRemove.push(k);
+          }
+        }
+        keysToRemove.forEach((k) => {
+          try {
+            window.localStorage.removeItem(k);
+          } catch {}
+        });
+      }
+      if (window.indexedDB && typeof window.indexedDB.databases === 'function') {
+        window.indexedDB.databases().then((dbs) => {
+          dbs.forEach((dbInfo) => {
+            if (dbInfo.name && dbInfo.name.startsWith('firestore/')) {
+              try {
+                window.indexedDB.deleteDatabase(dbInfo.name);
+              } catch {}
+            }
+          });
+        }).catch(() => {});
+      }
+    } catch {}
+  };
+
   private handleReload = () => {
+    this.cleanupStorageBloat();
     window.location.reload();
   };
 
@@ -57,6 +95,7 @@ export default class ErrorBoundary extends Component<Props, State> {
   };
 
   private handleResume = () => {
+    this.cleanupStorageBloat();
     this.setState({ hasError: false, error: null, errorInfo: null });
   };
 

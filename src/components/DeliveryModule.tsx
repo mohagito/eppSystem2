@@ -230,9 +230,9 @@ export default function DeliveryModule({
         const matchDate = filterDate === '' || d.date === filterDate;
         
         const matchSearch = filterSearch === '' || 
-          d.workerName.toLowerCase().includes(filterSearch.toLowerCase()) || 
+          (d.workerName || '').toLowerCase().includes(filterSearch.toLowerCase()) || 
           (d.loadedBy && d.loadedBy.toLowerCase().includes(filterSearch.toLowerCase())) ||
-          d.modelId.toLowerCase().includes(filterSearch.toLowerCase()) ||
+          (d.modelId || '').toLowerCase().includes(filterSearch.toLowerCase()) ||
           (d.invoiceNumber && d.invoiceNumber.toLowerCase().includes(filterSearch.toLowerCase())) ||
           (d.createdBy && d.createdBy.toLowerCase().includes(filterSearch.toLowerCase()));
           

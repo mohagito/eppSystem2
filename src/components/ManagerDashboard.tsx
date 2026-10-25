@@ -446,7 +446,7 @@ export default function ManagerDashboard({
   // 5. Short recent stock entries list
   const recentEntries = useMemo(() => {
     return [...entries]
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
       .slice(0, 4);
   }, [entries]);
 
@@ -454,7 +454,7 @@ export default function ManagerDashboard({
   const imminentPlans = useMemo(() => {
     return [...plans]
       .filter((p) => p.status === 'Pending' || p.planDate >= todayStr)
-      .sort((a, b) => a.planDate.localeCompare(b.planDate))
+      .sort((a, b) => (a.planDate || '').localeCompare(b.planDate || ''))
       .slice(0, 4);
   }, [plans, todayStr]);
 
@@ -465,14 +465,14 @@ export default function ManagerDashboard({
   const totalPlannedOverall = useMemo(() => {
     const targetPlans = operatorFilter === 'all' 
       ? plans 
-      : plans.filter(p => p.assignedWorker.toLowerCase() === operatorFilter.toLowerCase());
+      : plans.filter(p => (p.assignedWorker || '').toLowerCase() === operatorFilter.toLowerCase());
     return targetPlans.reduce((sum, p) => sum + p.quantityPlanned, 0);
   }, [plans, operatorFilter]);
 
   const totalActualOverall = useMemo(() => {
     const targetPlans = operatorFilter === 'all' 
       ? plans 
-      : plans.filter(p => p.assignedWorker.toLowerCase() === operatorFilter.toLowerCase());
+      : plans.filter(p => (p.assignedWorker || '').toLowerCase() === operatorFilter.toLowerCase());
     return targetPlans.reduce((sum, p) => sum + getPlanActualProduced(p, entries, plans), 0);
   }, [plans, entries, operatorFilter]);
 
@@ -492,7 +492,7 @@ export default function ManagerDashboard({
     return AIRBAG_MODELS.map((model) => {
       const modelPlans = plans.filter((p) => {
         const matchesModel = p.model === model;
-        const matchesOperator = operatorFilter === 'all' || p.assignedWorker.toLowerCase() === operatorFilter.toLowerCase();
+        const matchesOperator = operatorFilter === 'all' || (p.assignedWorker || '').toLowerCase() === operatorFilter.toLowerCase();
         return matchesModel && matchesOperator;
       });
       const planned = modelPlans.reduce((sum, p) => sum + p.quantityPlanned, 0);

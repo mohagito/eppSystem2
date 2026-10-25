@@ -27,11 +27,9 @@ export default function CloseRollModal({
   onClose,
   onConfirmClose
 }: CloseRollModalProps) {
-  if (!isOpen || !roll) return null;
-
-  const normMat = normalizeRollMaterial(roll.materialName);
+  const normMat = normalizeRollMaterial(roll?.materialName || 'White Huesker');
   const family = getMaterialFamily(normMat);
-  const activeRefs = getMaterialActiveReferences(roll.materialName);
+  const activeRefs = getMaterialActiveReferences(roll?.materialName || 'White Huesker');
   const isIndia = normMat === 'Delcotex India' || family.includes('INDIA');
   
   // Default width based on roll material family width
@@ -49,13 +47,13 @@ export default function CloseRollModal({
 
   // Universal NOK defect format inputs
   const [nokFormatsInput, setNokFormatsInput] = useState<string>(() => 
-    roll.nokFormats !== undefined ? String(roll.nokFormats) : '0'
+    roll?.nokFormats !== undefined ? String(roll.nokFormats) : '0'
   );
   const [nokWidthInput, setNokWidthInput] = useState<string>(() => 
-    String(roll.nokWidthCm || defaultWidth)
+    String(roll?.nokWidthCm || defaultWidth)
   );
   const [nokHeightInput, setNokHeightInput] = useState<string>(() => 
-    String(roll.nokHeightCm || defaultHeight)
+    String(roll?.nokHeightCm || defaultHeight)
   );
 
   const [notes, setNotes] = useState<string>('');
@@ -63,6 +61,7 @@ export default function CloseRollModal({
   const [errorMsg, setErrorMsg] = useState<string>('');
 
   useEffect(() => {
+    if (!roll) return;
     const initial: Record<string, string> = {};
     activeRefs.forEach((ref) => {
       initial[ref] = '0';
@@ -77,6 +76,8 @@ export default function CloseRollModal({
     setErrorMsg('');
     setNotes('');
   }, [roll?.id]);
+
+  if (!isOpen || !roll) return null;
 
   const handleInputChange = (ref: string, val: string) => {
     setUnpackagedInputs((prev) => ({

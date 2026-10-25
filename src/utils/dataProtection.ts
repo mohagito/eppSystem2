@@ -28,7 +28,22 @@ export interface DataVaultSnapshot {
 
 const VAULT_STORAGE_KEY = 'epp_security_vault_snapshots_v1';
 const LAST_SAFE_BACKUP_KEY = 'epp_last_known_safe_state';
-const MAX_SNAPSHOTS = 15;
+const MAX_SNAPSHOTS = 2;
+
+function safeSetLocalStorage(key: string, value: string): void {
+  try {
+    localStorage.setItem(key, value);
+  } catch {
+    // If localStorage quota is reached, prune older snapshot history and retry once
+    try {
+      localStorage.removeItem('_epp_emergency_vault_cache_v1_');
+      localStorage.removeItem(VAULT_STORAGE_KEY);
+      localStorage.setItem(key, value);
+    } catch {
+      // Ignore if browser storage remains full
+    }
+  }
+}
 
 /**
  * Saves a timestamped snapshot of all factory data into the local vault
@@ -85,7 +100,7 @@ export function recordVaultSnapshot(
 
     // Save as last known safe backup if it contains meaningful data
     if ((data.rolls?.length || 0) > 0 || (data.stockEntries?.length || 0) > 0) {
-      localStorage.setItem(LAST_SAFE_BACKUP_KEY, JSON.stringify(snapshot));
+      safeSetLocalStorage(LAST_SAFE_BACKUP_KEY, JSON.stringify(snapshot));
     }
 
     // Load existing history
@@ -102,7 +117,7 @@ export function recordVaultSnapshot(
 
     // Prepend new snapshot, limit to MAX_SNAPSHOTS
     const updated = [snapshot, ...existingList.filter(s => s.id !== snapshot.id)].slice(0, MAX_SNAPSHOTS);
-    localStorage.setItem(VAULT_STORAGE_KEY, JSON.stringify(updated));
+    safeSetLocalStorage(VAULT_STORAGE_KEY, JSON.stringify(updated));
 
     return snapshot;
   } catch (err) {

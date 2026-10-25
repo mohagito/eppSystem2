@@ -256,7 +256,7 @@ export default function NotificationCenter({ currentUser, setActiveTab }: Notifi
         readBy: updatedReadBy
       });
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, `notifications/${id}`);
+      console.warn('Could not mark notification as read:', err);
     }
   };
 
@@ -274,7 +274,7 @@ export default function NotificationCenter({ currentUser, setActiveTab }: Notifi
         });
       }
     } catch (err) {
-      handleFirestoreError(err, OperationType.UPDATE, 'notifications (batch mark as read)');
+      console.warn('Could not mark all notifications as read:', err);
     }
   };
 
@@ -286,14 +286,14 @@ export default function NotificationCenter({ currentUser, setActiveTab }: Notifi
           icon: <Truck size={14} className="text-sky-400" />,
           bg: 'bg-sky-500/10 border-sky-500/25',
           label: 'Delivery Shipped',
-          tab: 'deliveries'
+          tab: 'delivery'
         };
       case 'stock':
         return {
           icon: <Package size={14} className="text-amber-400" />,
           bg: 'bg-amber-500/10 border-amber-500/25',
           label: 'Inventory Change',
-          tab: 'inventory'
+          tab: 'stock'
         };
       case 'target':
         return {
@@ -307,7 +307,7 @@ export default function NotificationCenter({ currentUser, setActiveTab }: Notifi
           icon: <Calendar size={14} className="text-indigo-400" />,
           bg: 'bg-indigo-500/10 border-indigo-500/25',
           label: 'Production Plan',
-          tab: 'planning'
+          tab: 'plans'
         };
       default:
         return {

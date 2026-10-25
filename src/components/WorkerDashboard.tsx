@@ -86,7 +86,7 @@ export default function WorkerDashboard({
   const workerEntries = useMemo(() => {
     return entries
       .filter((e) => e.workerName === currentUser.name)
-      .sort((a, b) => b.createdAt.localeCompare(a.createdAt))
+      .sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''))
       .slice(0, 5);
   }, [entries, currentUser.name]);
 

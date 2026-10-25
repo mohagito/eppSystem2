@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { 
   X, 
   Scroll, 
@@ -59,16 +59,12 @@ export default function RollDetailsModal({
   onMarkFinished,
   onOpenCloseRoll
 }: RollDetailsModalProps) {
-  if (!isOpen || !roll) return null;
+  const normMat = normalizeRollMaterial(roll?.materialName || 'White Huesker');
+  const allowedRefs = MATERIAL_FAMILY_RELATIONSHIPS[normMat]?.activeReferences || [roll?.referenceId || 'BCB-FRA'];
 
-  const isManager = currentUser.role === 'manager';
-  const metrics = calculateRollProductionMetrics(roll, expectedYields, piecePrices, stockEntries);
-  const normMat = normalizeRollMaterial(roll.materialName);
-  const allowedRefs = MATERIAL_FAMILY_RELATIONSHIPS[normMat]?.activeReferences || [roll.referenceId || 'BCB-FRA'];
-
-  // Quick Production Log form state
+  // Quick Production Log form state (MUST be declared before any early return)
   const [showAddProduction, setShowAddProduction] = useState<boolean>(false);
-  const [prodReference, setProdReference] = useState<string>(roll.referenceId || allowedRefs[0] || 'BCB-FRA');
+  const [prodReference, setProdReference] = useState<string>(roll?.referenceId || allowedRefs[0] || 'BCB-FRA');
   const [prodQty, setProdQty] = useState<string>('');
   const [prodMachine, setProdMachine] = useState<MachineType>('Big Machine');
   const [prodNotes, setProdNotes] = useState<string>('');
@@ -78,6 +74,25 @@ export default function RollDetailsModal({
   const [showFinishConfirm, setShowFinishConfirm] = useState<boolean>(false);
   const [wasteLength, setWasteLength] = useState<string>('0');
   const [finishNotes, setFinishNotes] = useState<string>('');
+
+  useEffect(() => {
+    if (roll) {
+      const mat = normalizeRollMaterial(roll.materialName);
+      const refs = MATERIAL_FAMILY_RELATIONSHIPS[mat]?.activeReferences || [roll.referenceId || 'BCB-FRA'];
+      setProdReference(roll.referenceId || refs[0] || 'BCB-FRA');
+      setShowAddProduction(false);
+      setShowFinishConfirm(false);
+      setProdQty('');
+      setProdNotes('');
+      setWasteLength('0');
+      setFinishNotes('');
+    }
+  }, [roll?.id]);
+
+  if (!isOpen || !roll) return null;
+
+  const isManager = currentUser.role === 'manager';
+  const metrics = calculateRollProductionMetrics(roll, expectedYields, piecePrices, stockEntries);
 
   const handleAddProductionSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

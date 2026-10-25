@@ -244,7 +244,7 @@ export default function PlanningModule({
   // Filter implementation
   const filteredPlans = useMemo(() => {
     return [...plans]
-      .sort((a, b) => a.planDate.localeCompare(b.planDate))
+      .sort((a, b) => (a.planDate || '').localeCompare(b.planDate || ''))
       .filter((plan) => {
         const isToday = plan.planDate === todayStr;
         const isUpcoming = plan.planDate > todayStr;

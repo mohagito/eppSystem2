@@ -50,16 +50,10 @@ export function syncDataProtectionVault(data: {
         payload.deliveries = data.deliveries;
       }
 
-      // 1. Silent persistent storage redundancy in browser
+      // 1. Keep browser localStorage lean (epp_last_known_safe_state already stores full snapshot)
       try {
         if (typeof window !== 'undefined' && window.localStorage) {
-          window.localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify({
-            updatedAt: payload.updatedAt,
-            rolls: data.rolls || [],
-            stockEntries: data.stockEntries || [],
-            financialRecords: data.financialRecords || [],
-            deliveries: data.deliveries || []
-          }));
+          window.localStorage.removeItem(LOCAL_STORAGE_KEY);
         }
       } catch (err) {
         // Silently ignore storage quota or private browsing constraints

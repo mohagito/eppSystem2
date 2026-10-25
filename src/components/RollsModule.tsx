@@ -689,11 +689,12 @@ export default function RollsModule({
       } else {
         matchesTab = canonical === 'CLOSED';
       }
+      const q = (searchQuery || '').toLowerCase();
       const matchesSearch = 
-        r.materialName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (r.barcode || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (r.operator || '').toLowerCase().includes(searchQuery.toLowerCase()) ||
-        (r.referenceId || '').toLowerCase().includes(searchQuery.toLowerCase());
+        String(r.materialName || '').toLowerCase().includes(q) ||
+        String(r.barcode || '').toLowerCase().includes(q) ||
+        String(r.operator || '').toLowerCase().includes(q) ||
+        String(r.referenceId || '').toLowerCase().includes(q);
       return matchesTab && matchesSearch;
     });
 
@@ -1527,13 +1528,14 @@ export default function RollsModule({
 
       {/* Roll Details Modal */}
       <RollDetailsModal
-        roll={inspectedRoll}
+        roll={inspectedRoll ? (rolls.find((r) => r.id === inspectedRoll.id) || inspectedRoll) : null}
         isOpen={Boolean(inspectedRoll)}
         currentUser={currentUser}
         expectedYields={expectedYields}
         piecePrices={piecePrices}
         stockEntries={stockEntries}
         onClose={() => setInspectedRoll(null)}
+        onRecordProduction={onRecordProduction}
         onMarkFinished={async (rollId, waste, notes) => {
           if (onMarkFinished) {
             await onMarkFinished(rollId, waste, notes);

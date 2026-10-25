@@ -773,7 +773,7 @@ export default function App() {
         }
 
         // Sort descending by registration ID (timestamp)
-        list.sort((a, b) => b.id.localeCompare(a.id));
+        list.sort((a, b) => String(b.id || '').localeCompare(String(a.id || '')));
         setRolls(list);
         try { localStorage.setItem('epp_cached_rolls', JSON.stringify(list)); } catch {}
       }, (err) => {
@@ -2399,6 +2399,7 @@ export default function App() {
         );
 
       case 'stock':
+      case 'inventory':
         return (
           <StockManagement
             currentUser={currentUser}
@@ -2416,6 +2417,7 @@ export default function App() {
         );
 
       case 'plans':
+      case 'planning':
         return (
           <PlanningModule
             currentUser={currentUser}
@@ -2434,6 +2436,7 @@ export default function App() {
         );
 
       case 'delivery':
+      case 'deliveries':
         return (
           <DeliveryModule
             currentUser={currentUser}
