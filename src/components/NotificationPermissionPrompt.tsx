@@ -18,29 +18,50 @@ export default function NotificationPermissionPrompt({ currentUser }: Notificati
   useEffect(() => {
     if (!currentUser) return;
 
-    // Check if the user has already made a choice by loading their profile state from database
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let cancelled = false;
+
+    // Check if the user has already made a choice locally or in their profile state
     const checkUserPreference = async () => {
       try {
+        const localPref = typeof window !== 'undefined'
+          ? window.localStorage.getItem(`epp_notif_pref_${currentUser.id}`)
+          : null;
+        if (localPref !== null) {
+          return;
+        }
+
+        if ((currentUser as any).notificationEnabled !== undefined && (currentUser as any).notificationEnabled !== null) {
+          return;
+        }
+
         const profileRef = doc(db, 'profiles', currentUser.id);
         const profileSnap = await getDoc(profileRef);
-        
+        if (cancelled) return;
+
         if (profileSnap.exists()) {
           const data = profileSnap.data();
-          // Ask if notificationEnabled is undefined or null (i.e. has not made a decision yet)
           if (data.notificationEnabled === undefined || data.notificationEnabled === null) {
-            // Wait 2.5 seconds after mounting (after login completes) to present a polite prompt
-            const timer = setTimeout(() => {
-              setShowPrompt(true);
+            timer = setTimeout(() => {
+              if (!cancelled) setShowPrompt(true);
             }, 2500);
-            return () => clearTimeout(timer);
+          } else if (typeof window !== 'undefined') {
+            try {
+              window.localStorage.setItem(`epp_notif_pref_${currentUser.id}`, String(data.notificationEnabled));
+            } catch (_) {}
           }
         }
-      } catch (err) {
-        console.error('Permission check failure', err);
+      } catch (_) {
+        // Ignore transient offline / network errors when checking notification prompt preference
       }
     };
 
     checkUserPreference();
+
+    return () => {
+      cancelled = true;
+      if (timer) clearTimeout(timer);
+    };
   }, [currentUser]);
 
   const handleEnableNotifications = async () => {
@@ -64,6 +85,9 @@ export default function NotificationPermissionPrompt({ currentUser }: Notificati
     setShowPrompt(false);
 
     if (result.success) {
+      try {
+        window.localStorage.setItem(`epp_notif_pref_${currentUser.id}`, 'true');
+      } catch (_) {}
       Swal.fire({
         icon: 'success',
         title: 'Push Alerts Enabled!',
@@ -82,6 +106,9 @@ export default function NotificationPermissionPrompt({ currentUser }: Notificati
   const handleDeclineNotifications = async () => {
     // If user clicks "Not Now" / declining, we set notificationEnabled which blocks showing this card again.
     try {
+      window.localStorage.setItem(`epp_notif_pref_${currentUser.id}`, 'false');
+    } catch (_) {}
+    try {
       await updateDoc(doc(db, 'profiles', currentUser.id), {
         notificationEnabled: false,
         lastTokenUpdate: new Date().toISOString()
@@ -96,8 +123,8 @@ export default function NotificationPermissionPrompt({ currentUser }: Notificati
         confirmButtonColor: '#64748b',
         timer: 3000
       });
-    } catch (err) {
-      console.error('Decline persisting error', err);
+    } catch (_) {
+      // Silently ignore if offline; localStorage already saved preference
     }
     setShowPrompt(false);
   };

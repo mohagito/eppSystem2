@@ -85,6 +85,7 @@ interface RollsModuleProps {
   ) => Promise<void>;
   onConsumeRoll: (id: string, consumedMeters: number, notes?: string) => void;
   onDeleteRoll: (id: string) => void;
+  onUndoRoll?: (id: string) => void;
   onUpdateRoll?: (id: string, updates: Partial<RollEntry>) => void;
   onRecoverRolls?: () => void;
   onOpenRecordProduction?: (rollId: string) => void;
@@ -219,6 +220,7 @@ export default function RollsModule({
   onCloseRoll,
   onConsumeRoll,
   onDeleteRoll,
+  onUndoRoll,
   onUpdateRoll,
   onRecoverRolls,
   onOpenRecordProduction
@@ -300,25 +302,30 @@ export default function RollsModule({
     } as any);
     const price = getPiecePriceForReference(referenceId, piecePrices);
 
-    onAddRoll({
+    const rollPayload: Omit<RollEntry, 'id'> = {
       materialName,
       date: todayStr,
-      barcode: barcode.trim() || undefined,
+      barcode: barcode.trim(),
       operator: operator.trim(),
       createdBy: currentUser.id,
       status: initialStatus,
       metersTotal: Number(metersTotal),
-      referenceId: initialStatus === 'Active' ? referenceId : undefined,
-      expectedPieces: initialStatus === 'Active' ? expPieces : undefined,
-      producedPieces: initialStatus === 'Active' ? 0 : undefined,
-      remainingPieces: initialStatus === 'Active' ? expPieces : undefined,
-      rollCost: initialStatus === 'Active' ? costInfo.cost : undefined,
-      pricePerPiece: initialStatus === 'Active' ? price : undefined,
-      productionValue: initialStatus === 'Active' ? 0 : undefined,
-      grossProfit: initialStatus === 'Active' ? -costInfo.cost : undefined,
-      profitPercent: initialStatus === 'Active' ? -100 : undefined,
       productionRecords: []
-    });
+    };
+
+    if (initialStatus === 'Active') {
+      rollPayload.referenceId = referenceId;
+      rollPayload.expectedPieces = expPieces;
+      rollPayload.producedPieces = 0;
+      rollPayload.remainingPieces = expPieces;
+      rollPayload.rollCost = costInfo.cost;
+      rollPayload.pricePerPiece = price;
+      rollPayload.productionValue = 0;
+      rollPayload.grossProfit = -costInfo.cost;
+      rollPayload.profitPercent = -100;
+    }
+
+    onAddRoll(rollPayload);
 
     // Reset Form
     setBarcode('');
@@ -647,16 +654,24 @@ export default function RollsModule({
           return false;
         }
 
-        return {
+        const editUpdates: Partial<RollEntry> = {
           materialName: materialVal,
           status: statusVal,
           metersTotal: metersVal,
-          barcode: barcodeVal || undefined,
           operator: operatorVal,
           date: dateVal,
-          consumedMeters: statusVal === 'Consumed' ? consumedVal : undefined,
           notes: notesVal
         };
+
+        if (barcodeVal) {
+          editUpdates.barcode = barcodeVal;
+        }
+
+        if (statusVal === 'Consumed') {
+          editUpdates.consumedMeters = consumedVal;
+        }
+
+        return editUpdates;
       }
     }).then((result) => {
       if (result.isConfirmed && result.value) {
@@ -1452,6 +1467,15 @@ export default function RollsModule({
                             >
                               <CheckCircle2 size={11} className="text-emerald-400" /> Close Roll
                             </button>
+                            {isManager && onUndoRoll && (
+                              <button
+                                onClick={() => onUndoRoll(roll.id)}
+                                className="px-2 py-1 bg-amber-50 hover:bg-amber-100 text-amber-800 border border-amber-200 rounded-lg text-[10.5px] font-black transition-all cursor-pointer flex items-center gap-1 shadow-2xs active:scale-95"
+                                title="Undo: return roll to unopened stock"
+                              >
+                                <RotateCcw size={11} className="text-amber-700" /> Undo
+                              </button>
+                            )}
                           </>
                         ) : null}
 
@@ -1477,11 +1501,11 @@ export default function RollsModule({
                           <Pencil size={13} />
                         </button>
 
-                        {isManager && normalizeRollStatus(roll.status) === 'NEW' && (
+                        {isManager && (normalizeRollStatus(roll.status) === 'NEW' || (subTab === 'active' && metrics.status !== 'CLOSED')) && (
                           <button
                             onClick={() => onDeleteRoll(roll.id)}
                             className="p-1.5 text-slate-400 hover:text-rose-500 hover:bg-rose-50 rounded-lg transition-all cursor-pointer"
-                            title="Delete unopened roll record"
+                            title={normalizeRollStatus(roll.status) === 'NEW' ? "Delete unopened roll record" : "Delete roll (opened by mistake)"}
                           >
                             <Trash2 size={13} />
                           </button>

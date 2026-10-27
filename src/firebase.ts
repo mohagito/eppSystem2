@@ -1,7 +1,12 @@
 import { initializeApp } from 'firebase/app';
 import { getAuth, GoogleAuthProvider } from 'firebase/auth';
-import { initializeFirestore, memoryLocalCache, getFirestore } from 'firebase/firestore';
+import { initializeFirestore, memoryLocalCache, getFirestore, setLogLevel } from 'firebase/firestore';
 import firebaseConfig from '../firebase-applet-config.json';
+
+// Silence internal @firebase/firestore connection/offline console logs in proxied environments
+try {
+  setLogLevel('silent');
+} catch (_) {}
 
 // Clean up any stale Firestore multi-tab keys in localStorage and corrupted Firestore IndexedDB caches BEFORE Firestore initializes
 function sanitizeLocalStorageQuota() {
@@ -33,18 +38,22 @@ function sanitizeLocalStorageQuota() {
     } catch (_) {}
   }
 
-  // Purge corrupted local browser Firestore IndexedDB databases (e.g. orphaned batchId: 145 causing ID: b7de / b815)
+  // Purge corrupted local browser Firestore IndexedDB databases once per session
   try {
-    if (window.indexedDB && typeof window.indexedDB.databases === 'function') {
-      window.indexedDB.databases().then((dbs) => {
-        dbs.forEach((dbInfo) => {
-          if (dbInfo.name && dbInfo.name.startsWith('firestore/')) {
-            try {
-              window.indexedDB.deleteDatabase(dbInfo.name);
-            } catch (_) {}
-          }
-        });
-      }).catch(() => {});
+    const cleanedKey = '__epp_idb_sanitized_v2__';
+    if (window.sessionStorage && !window.sessionStorage.getItem(cleanedKey)) {
+      window.sessionStorage.setItem(cleanedKey, '1');
+      if (window.indexedDB && typeof window.indexedDB.databases === 'function') {
+        window.indexedDB.databases().then((dbs) => {
+          dbs.forEach((dbInfo) => {
+            if (dbInfo.name && dbInfo.name.startsWith('firestore/')) {
+              try {
+                window.indexedDB.deleteDatabase(dbInfo.name);
+              } catch (_) {}
+            }
+          });
+        }).catch(() => {});
+      }
     }
   } catch (_) {}
 }
@@ -54,13 +63,13 @@ sanitizeLocalStorageQuota();
 // Initialize Firebase SDK
 export const app = initializeApp(firebaseConfig);
 
-// Initialize Firestore with in-memory cache and auto-detect long polling
-// Avoids corrupted browser IndexedDB mutation queues (ID: b7de / b815) and proxy WebChannel timeouts
+// Initialize Firestore with in-memory cache and forced long polling
+// Avoids corrupted browser IndexedDB mutation queues (ID: b7de / b815) and 10s WebChannel timeouts
 let dbInstance;
 try {
   dbInstance = initializeFirestore(app, {
     localCache: memoryLocalCache(),
-    experimentalAutoDetectLongPolling: true,
+    experimentalForceLongPolling: true,
   }, firebaseConfig.firestoreDatabaseId);
 } catch (e) {
   dbInstance = getFirestore(app, firebaseConfig.firestoreDatabaseId);
@@ -69,6 +78,33 @@ try {
 export const db = dbInstance;
 export const auth = getAuth(app);
 export const googleProvider = new GoogleAuthProvider();
+
+/**
+ * Recursively cleans any undefined values from an object before writing to Firestore.
+ * Firestore strictly forbids `undefined` in setDoc and updateDoc payloads.
+ */
+export function cleanFirestoreData<T>(obj: T): T {
+  if (obj === null || obj === undefined) {
+    return obj;
+  }
+  if (Array.isArray(obj)) {
+    return obj.map(item => cleanFirestoreData(item)) as unknown as T;
+  }
+  if (typeof obj === 'object') {
+    const proto = Object.getPrototypeOf(obj);
+    if (proto !== null && proto !== Object.prototype) {
+      return obj;
+    }
+    const result: Record<string, any> = {};
+    for (const [key, value] of Object.entries(obj)) {
+      if (value !== undefined) {
+        result[key] = cleanFirestoreData(value);
+      }
+    }
+    return result as T;
+  }
+  return obj;
+}
 
 export enum OperationType {
   CREATE = 'create',

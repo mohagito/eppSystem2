@@ -57,8 +57,8 @@ import EfficiencyAnalytics from './components/EfficiencyAnalytics';
 import RollsReportModule from './components/RollsReportModule';
 import SecurityVaultModal from './components/SecurityVaultModal';
 import { recordVaultSnapshot, restoreBaselineReserveRolls, getBaselineFactoryRolls, ROLL_2600056310_CLOSED } from './utils/dataProtection';
-import { db, handleFirestoreError, OperationType, isQuotaExceededError } from './firebase';
-import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDoc, getDocs, serverTimestamp } from 'firebase/firestore';
+import { db, handleFirestoreError, OperationType, isQuotaExceededError, cleanFirestoreData } from './firebase';
+import { collection, doc, setDoc, updateDoc, deleteDoc, onSnapshot, writeBatch, getDoc, getDocs, serverTimestamp, deleteField } from 'firebase/firestore';
 import NotificationCenter, { playNotificationSound } from './components/NotificationCenter';
 import NotificationPermissionPrompt from './components/NotificationPermissionPrompt';
 import { onForegroundMessage } from './fcm';
@@ -1672,23 +1672,35 @@ export default function App() {
       ? getOpeningStockSnapshotForMaterial(roll.materialName, stockEntries, deliveries)
       : undefined;
 
+    const barcodeVal = (roll.barcode && typeof roll.barcode === 'string' && roll.barcode.trim()) ? roll.barcode.trim() : '';
+
     const newRoll: RollEntry = {
       ...roll,
       id: `roll-${Date.now()}`,
-      openedAt: isActive ? new Date().toISOString() : undefined,
-      openingStockSnapshot: openingSnapshot,
-      rollOpeningStock: openingSnapshot
+      barcode: barcodeVal,
+      productionRecords: roll.productionRecords || []
     };
 
-    setDoc(doc(db, 'rolls', newRoll.id), newRoll)
+    if (isActive) {
+      newRoll.openedAt = new Date().toISOString();
+      if (openingSnapshot) {
+        newRoll.openingStockSnapshot = openingSnapshot;
+        newRoll.rollOpeningStock = openingSnapshot;
+      }
+    }
+
+    const payload = cleanFirestoreData(newRoll);
+
+    setDoc(doc(db, 'rolls', newRoll.id), payload)
       .then(() => {
+        const displayBarcode = barcodeVal || 'Pending Barcode';
         const statusMsg = roll.status === 'Active' ? 'opened and registered' : 'added to unopened stock';
         addToast(`Successfully ${statusMsg} material roll: ${roll.materialName}!`, 'success');
         triggerNotification(
           roll.status === 'Active' ? '🧵 Fabric Roll Opened' : '📦 New Roll in Stock',
           roll.status === 'Active' 
-            ? `Operator ${roll.operator} has opened a new roll of ${roll.materialName} (Barcode: ${roll.barcode}).`
-            : `Operator ${roll.operator} has registered an unopened roll of ${roll.materialName} (Barcode: ${roll.barcode}) into factory reserve.`,
+            ? `Operator ${roll.operator || 'Operator'} has opened a new roll of ${roll.materialName} (Barcode: ${displayBarcode}).`
+            : `Operator ${roll.operator || 'Operator'} has registered an unopened roll of ${roll.materialName} (Barcode: ${displayBarcode}) into factory reserve.`,
           'system',
           'all'
         );
@@ -1749,7 +1761,7 @@ export default function App() {
     setRolls(updatedRollList);
     try { localStorage.setItem('epp_cached_rolls', JSON.stringify(updatedRollList)); } catch {}
 
-    updateDoc(doc(db, 'rolls', id), updates)
+    updateDoc(doc(db, 'rolls', id), cleanFirestoreData(updates))
       .then(() => {
         addToast(`Roll ${roll.materialName} (${barcode}) opened: ${expPieces} ${ref} pieces expected!`, 'success');
         triggerNotification(
@@ -1854,7 +1866,7 @@ export default function App() {
     try { localStorage.setItem('epp_cached_rolls', JSON.stringify(updatedRollList)); } catch {}
 
     try {
-      await updateDoc(doc(db, 'rolls', rollId), rollUpdates);
+      await updateDoc(doc(db, 'rolls', rollId), cleanFirestoreData(rollUpdates));
     } catch (err) {
       if (isQuotaExceededError(err)) {
         console.warn('Quota limit reached during record production; roll changes preserved locally.');
@@ -1887,7 +1899,7 @@ export default function App() {
     try { localStorage.setItem('epp_cached_stock', JSON.stringify(updatedStock)); } catch {}
 
     try {
-      await setDoc(doc(db, 'stock_entries', newStockEntry.id), newStockEntry);
+      await setDoc(doc(db, 'stock_entries', newStockEntry.id), cleanFirestoreData(newStockEntry));
     } catch (err) {
       if (isQuotaExceededError(err)) {
         console.warn('Quota limit reached during stock entry save; preserved locally.');
@@ -1923,7 +1935,7 @@ export default function App() {
       rollOpeningStock: roll.rollOpeningStock || (isRoll43968015 ? ROLL_43968015_OPENING_STOCK.snapshot : undefined),
       status: 'IN PRODUCTION'
     };
-    setDoc(doc(db, 'financial_evaluations', evalRecord.id), evalRecord).catch(() => {});
+    setDoc(doc(db, 'financial_evaluations', evalRecord.id), cleanFirestoreData(evalRecord)).catch(() => {});
 
     addToast(`+${quantity} ${ref} pieces produced & added to stock! Remaining: ${newRemaining}`, 'success');
     triggerNotification(
@@ -1962,7 +1974,7 @@ export default function App() {
       notes: notes ? (roll.notes ? `${roll.notes} | ${notes}` : notes) : roll.notes
     };
 
-    await updateDoc(doc(db, 'rolls', rollId), updates);
+    await updateDoc(doc(db, 'rolls', rollId), cleanFirestoreData(updates));
 
     // Sync financial evaluation
     const evalRecord: RollFinancialRecord = {
@@ -1986,7 +1998,7 @@ export default function App() {
       evaluatedBy: currentUser?.name || 'Operator',
       notes: `Finished roll: ${metrics.producedPieces} produced, profit: €${metrics.grossProfit.toFixed(2)} (${metrics.profitPercent}%)`
     };
-    setDoc(doc(db, 'financial_evaluations', evalRecord.id), evalRecord).catch(() => {});
+    setDoc(doc(db, 'financial_evaluations', evalRecord.id), cleanFirestoreData(evalRecord)).catch(() => {});
 
     addToast(`Roll ${roll.barcode || roll.id} marked as FINISHED!`, 'success');
     triggerNotification(
@@ -2135,10 +2147,9 @@ export default function App() {
     const roll = rolls.find((r) => r.id === id);
     if (!roll) return;
 
-    // Zero-Trust Guard: Never allow deleting active rolls in production or closed rolls
     const canonical = normalizeRollStatus(roll.status);
-    if (canonical !== 'NEW') {
-      addToast('Security Guard: Active (In Production) and Closed rolls are permanent factory assets and cannot be deleted.', 'error');
+    if (canonical === 'CLOSED') {
+      addToast('Security Guard: Closed rolls have historical accounting reconciliations and cannot be deleted.', 'error');
       return;
     }
 
@@ -2149,18 +2160,126 @@ export default function App() {
       `Checkpoint before deleting roll #${roll.barcode || roll.id}`
     );
 
+    const hasProduction = (roll.producedPieces && roll.producedPieces > 0) || (roll.productionRecords && roll.productionRecords.length > 0);
+    const confirmMessage = hasProduction
+      ? `Permanently delete active roll ${roll.materialName} (${roll.barcode || roll.id})? Warning: ${roll.producedPieces || 0} pieces have been produced on this roll. This action cannot be undone.`
+      : `Permanently delete roll ${roll.materialName} (${roll.barcode || 'Pending Barcode'})? This action cannot be undone.`;
+
     triggerCustomConfirm(
       'Confirm Roll Record Removal',
-      `Are you sure you want to delete the unopened stock record for ${roll.materialName} (${roll.barcode || 'Pending Barcode'})? This action cannot be undone.`,
+      confirmMessage,
       () => {
+        // Optimistically remove roll from local memory
+        const updatedRollList = rolls.filter(r => r.id !== id);
+        setRolls(updatedRollList);
+        try { localStorage.setItem('epp_cached_rolls', JSON.stringify(updatedRollList)); } catch {}
+
         deleteDoc(doc(db, 'rolls', id))
           .then(() => {
-            addToast(`Stock record for roll ${roll.barcode || roll.materialName} has been deleted.`, 'success');
+            // Clean up financial evaluation record if any exists
+            deleteDoc(doc(db, 'financial_evaluations', `fe-${id}`)).catch(() => {});
+            addToast(`Roll ${roll.barcode || roll.materialName} has been permanently deleted.`, 'success');
+            triggerNotification(
+              '🗑️ Material Roll Deleted',
+              `Manager ${currentUser.name} deleted roll ${roll.barcode || roll.materialName}.`,
+              'system',
+              'all'
+            );
           })
           .catch((err) => {
             handleFirestoreError(err, OperationType.DELETE, `rolls/${id}`);
             addToast('Failed to delete roll record from Cloud Database.', 'error');
           });
+      }
+    );
+  };
+
+  const handleUndoRoll = (id: string) => {
+    if (!currentUser) return;
+    if (currentUser.role !== 'manager') {
+      addToast('Security Guard: Only Managers are authorized to undo rolls.', 'error');
+      return;
+    }
+    const roll = rolls.find((r) => r.id === id);
+    if (!roll) return;
+
+    const canonical = normalizeRollStatus(roll.status);
+    if (canonical !== 'IN PRODUCTION') {
+      addToast('Only active rolls in production can be returned to unopened stock.', 'error');
+      return;
+    }
+
+    const hasProduction = (roll.producedPieces && roll.producedPieces > 0) || (roll.productionRecords && roll.productionRecords.length > 0);
+    const confirmMessage = hasProduction
+      ? `This roll has ${roll.producedPieces || 0} pieces recorded. Return roll ${roll.barcode || roll.materialName} to Unopened Stock and reset active production metrics?`
+      : `Return roll ${roll.barcode || roll.materialName} to Unopened Stock reserve?`;
+
+    triggerCustomConfirm(
+      'Return Roll to Unopened Stock',
+      confirmMessage,
+      async () => {
+        // Optimistically update local rolls state so the roll immediately returns to Rolls Stock (Unopened)
+        const updatedRoll: RollEntry = {
+          ...roll,
+          status: 'Unopened',
+          openedAt: undefined,
+          producedPieces: 0,
+          remainingPieces: undefined,
+          productionRecords: [],
+          productionValue: 0,
+          grossProfit: 0,
+          profitPercent: 0,
+          materialEfficiency: 0,
+          closedAt: undefined,
+          closedBy: undefined,
+          reconciliation: undefined,
+          rollOpeningStock: undefined,
+          openingStockSnapshot: undefined,
+          openingStockDetails: undefined,
+          updatedAt: new Date().toISOString()
+        };
+
+        const updatedList = rolls.map(r => r.id === id ? updatedRoll : r);
+        setRolls(updatedList);
+        try { localStorage.setItem('epp_cached_rolls', JSON.stringify(updatedList)); } catch {}
+
+        try {
+          const updates: any = {
+            status: 'Unopened',
+            openedAt: deleteField(),
+            producedPieces: 0,
+            remainingPieces: deleteField(),
+            productionRecords: [],
+            productionValue: 0,
+            grossProfit: 0,
+            profitPercent: 0,
+            materialEfficiency: 0,
+            closedAt: deleteField(),
+            closedBy: deleteField(),
+            reconciliation: deleteField(),
+            rollOpeningStock: deleteField(),
+            openingStockSnapshot: deleteField(),
+            openingStockDetails: deleteField(),
+            updatedAt: new Date().toISOString(),
+            updatedBy: currentUser.name
+          };
+
+          await updateDoc(doc(db, 'rolls', id), updates);
+          try {
+            await deleteDoc(doc(db, 'financial_evaluations', `fe-${id}`));
+          } catch {}
+
+          addToast(`Roll ${roll.barcode || roll.materialName} returned to Unopened Stock!`, 'success');
+          triggerNotification(
+            '🔄 Roll Returned to Stock',
+            `Manager ${currentUser.name} reverted roll ${roll.barcode || roll.materialName} to unopened factory stock reserve.`,
+            'system',
+            'all'
+          );
+        } catch (err) {
+          handleFirestoreError(err, OperationType.UPDATE, `rolls/${id}`);
+          addToast('Failed to revert roll in Cloud Database.', 'error');
+        }
       }
     );
   };
@@ -2184,7 +2303,7 @@ export default function App() {
       finalUpdates.closedBy = currentUser?.name || 'Unknown';
     }
 
-    updateDoc(doc(db, 'rolls', id), finalUpdates)
+    updateDoc(doc(db, 'rolls', id), cleanFirestoreData(finalUpdates))
       .then(() => {
         addToast(`Successfully updated roll ${roll.materialName} record!`, 'success');
         triggerNotification(
@@ -2466,6 +2585,7 @@ export default function App() {
             onCloseRoll={handleCloseRoll}
             onConsumeRoll={handleConsumeRoll}
             onDeleteRoll={handleDeleteRoll}
+            onUndoRoll={handleUndoRoll}
             onUpdateRoll={handleUpdateRoll}
             onRecoverRolls={handleRecoverRolls}
             onOpenRecordProduction={(rollId) => {

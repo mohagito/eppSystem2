@@ -1,5 +1,5 @@
 import { RollEntry, StockEntry, DeliveryEntry, ProductionPlan, UserProfile } from '../types';
-import { db } from '../firebase';
+import { db, cleanFirestoreData } from '../firebase';
 import { collection, doc, writeBatch, getDocs } from 'firebase/firestore';
 import { getMoroccoDateStr, getMoroccoTimeStr } from './timeZone';
 
@@ -386,7 +386,7 @@ export async function restoreSnapshotToFirestore(snapshotData: DataVaultSnapshot
     const batch = writeBatch(db);
     for (const roll of snapshotData.rolls) {
       if (roll.id) {
-        batch.set(doc(db, 'rolls', roll.id), roll);
+        batch.set(doc(db, 'rolls', roll.id), cleanFirestoreData(roll));
         rollsRestored++;
       }
     }
@@ -398,7 +398,7 @@ export async function restoreSnapshotToFirestore(snapshotData: DataVaultSnapshot
     const batch = writeBatch(db);
     for (const entry of snapshotData.stockEntries) {
       if (entry.id) {
-        batch.set(doc(db, 'stock_entries', entry.id), entry);
+        batch.set(doc(db, 'stock_entries', entry.id), cleanFirestoreData(entry));
         stockRestored++;
       }
     }
@@ -410,7 +410,7 @@ export async function restoreSnapshotToFirestore(snapshotData: DataVaultSnapshot
     const batch = writeBatch(db);
     for (const delivery of snapshotData.deliveries) {
       if (delivery.id) {
-        batch.set(doc(db, 'deliveries', delivery.id), delivery);
+        batch.set(doc(db, 'deliveries', delivery.id), cleanFirestoreData(delivery));
         deliveriesRestored++;
       }
     }
@@ -422,7 +422,7 @@ export async function restoreSnapshotToFirestore(snapshotData: DataVaultSnapshot
     const batch = writeBatch(db);
     for (const plan of snapshotData.plans) {
       if (plan.id) {
-        batch.set(doc(db, 'production_plans', plan.id), plan);
+        batch.set(doc(db, 'production_plans', plan.id), cleanFirestoreData(plan));
         plansRestored++;
       }
     }
@@ -432,7 +432,7 @@ export async function restoreSnapshotToFirestore(snapshotData: DataVaultSnapshot
   // 5. Restore Targets if present
   if (snapshotData.dailyTargets && Object.keys(snapshotData.dailyTargets).length > 0) {
     const batch = writeBatch(db);
-    batch.set(doc(db, 'settings', 'daily_targets'), { targets: snapshotData.dailyTargets });
+    batch.set(doc(db, 'settings', 'daily_targets'), cleanFirestoreData({ targets: snapshotData.dailyTargets }));
     await batch.commit();
   }
 
