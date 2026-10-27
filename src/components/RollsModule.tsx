@@ -22,7 +22,8 @@ import {
   RotateCcw,
   Ruler,
   Calculator,
-  Eye
+  Eye,
+  X
 } from 'lucide-react';
 import { 
   RollEntry, 
@@ -692,6 +693,64 @@ export default function RollsModule({
     }).length;
   };
 
+  // Count matching rolls for a subtab considering search query
+  const getSubTabRollCount = (targetStatus: 'Unopened' | 'Active' | 'Consumed') => {
+    const canonicalTarget = targetStatus === 'Unopened' ? 'NEW' : targetStatus === 'Active' ? 'IN PRODUCTION' : 'CLOSED';
+    const total = rolls.filter(r => normalizeRollStatus(r.status) === canonicalTarget).length;
+    const q = (searchQuery || '').trim().toLowerCase();
+    if (!q) return { count: total, total, isFiltered: false };
+
+    const matching = rolls.filter(r => {
+      const canonical = normalizeRollStatus(r.status);
+      if (canonical !== canonicalTarget) return false;
+      return (
+        String(r.materialName || '').toLowerCase().includes(q) ||
+        String(r.barcode || '').toLowerCase().includes(q) ||
+        String(r.operator || '').toLowerCase().includes(q) ||
+        String(r.referenceId || '').toLowerCase().includes(q)
+      );
+    }).length;
+
+    return { count: matching, total, isFiltered: true };
+  };
+
+  // Smart tab switch: if current search query produces 0 matches in target tab, clear it so user sees their rolls!
+  const handleSelectSubTab = (newTab: 'unopened' | 'active' | 'history') => {
+    if (newTab === subTab && searchQuery) {
+      setSearchQuery('');
+      return;
+    }
+    const targetStatus = newTab === 'unopened' ? 'Unopened' : newTab === 'active' ? 'Active' : 'Consumed';
+    const stats = getSubTabRollCount(targetStatus);
+    if (stats.count === 0 && searchQuery) {
+      setSearchQuery('');
+    }
+    setSubTab(newTab);
+  };
+
+  // Smart material filter from summary table: auto-switches to the tab where the material has rolls
+  const handleFilterByMaterial = (mat: RollMaterial) => {
+    const isCurrentFilter = searchQuery.toLowerCase() === mat.toLowerCase();
+    if (isCurrentFilter) {
+      setSearchQuery('');
+      return;
+    }
+    setSearchQuery(mat);
+    const targetStatus = subTab === 'unopened' ? 'NEW' : subTab === 'active' ? 'IN PRODUCTION' : 'CLOSED';
+    const hasInCurrent = rolls.some(r => normalizeRollStatus(r.status) === targetStatus && r.materialName === mat);
+    if (!hasInCurrent) {
+      const hasUnopened = rolls.some(r => normalizeRollStatus(r.status) === 'NEW' && r.materialName === mat);
+      const hasActive = rolls.some(r => normalizeRollStatus(r.status) === 'IN PRODUCTION' && r.materialName === mat);
+      if (hasUnopened) {
+        setSubTab('unopened');
+      } else if (hasActive) {
+        setSubTab('active');
+      } else {
+        setSubTab('history');
+      }
+    }
+  };
+
   // Filter rolls based on status and search query
   const filteredRolls = rolls
     .filter(r => {
@@ -1089,7 +1148,7 @@ export default function RollsModule({
                   return (
                     <tr 
                       key={stat.material}
-                      onClick={() => setSearchQuery(isCurrentFilter ? '' : stat.material)}
+                      onClick={() => handleFilterByMaterial(stat.material)}
                       className={`hover:bg-slate-50/80 transition-all cursor-pointer group ${
                         isCurrentFilter ? 'bg-indigo-50/40' : ''
                       }`}
@@ -1202,7 +1261,7 @@ export default function RollsModule({
           {/* Tabs */}
           <div className="flex bg-slate-100 p-1 rounded-xl max-w-md shrink-0" id="rolls-sub-tabs">
             <button
-              onClick={() => setSubTab('unopened')}
+              onClick={() => handleSelectSubTab('unopened')}
               className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 subTab === 'unopened'
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
@@ -1212,11 +1271,14 @@ export default function RollsModule({
               <Archive size={13} className={subTab === 'unopened' ? 'text-indigo-600' : ''} />
               <span>Rolls Stock (Unopened)</span>
               <span className="ml-1 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-slate-100 text-slate-700">
-                {visibleRollsCount('Unopened')}
+                {(() => {
+                  const s = getSubTabRollCount('Unopened');
+                  return s.isFiltered ? `${s.count} / ${s.total}` : s.total;
+                })()}
               </span>
             </button>
             <button
-              onClick={() => setSubTab('active')}
+              onClick={() => handleSelectSubTab('active')}
               className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 subTab === 'active'
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
@@ -1226,11 +1288,14 @@ export default function RollsModule({
               <CheckCircle2 size={13} className={subTab === 'active' ? 'text-amber-600' : ''} />
               <span>In Production (Active)</span>
               <span className="ml-1 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-amber-100 text-amber-800">
-                {visibleRollsCount('Active')}
+                {(() => {
+                  const s = getSubTabRollCount('Active');
+                  return s.isFiltered ? `${s.count} / ${s.total}` : s.total;
+                })()}
               </span>
             </button>
             <button
-              onClick={() => setSubTab('history')}
+              onClick={() => handleSelectSubTab('history')}
               className={`flex-1 flex items-center justify-center gap-1.5 px-3 py-2 rounded-lg text-xs font-bold transition-all cursor-pointer ${
                 subTab === 'history'
                   ? 'bg-white text-slate-900 shadow-xs border border-slate-200/60'
@@ -1240,7 +1305,10 @@ export default function RollsModule({
               <History size={13} className={subTab === 'history' ? 'text-slate-600' : ''} />
               <span>Closed Rolls</span>
               <span className="ml-1 text-[10px] font-black px-1.5 py-0.5 rounded-full bg-emerald-100 text-emerald-800">
-                {visibleRollsCount('Consumed')}
+                {(() => {
+                  const s = getSubTabRollCount('Consumed');
+                  return s.isFiltered ? `${s.count} / ${s.total}` : s.total;
+                })()}
               </span>
             </button>
           </div>
@@ -1254,21 +1322,76 @@ export default function RollsModule({
               type="text"
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-slate-50 border border-slate-200 text-slate-800 placeholder-slate-400 text-xs font-bold pl-9 pr-4 py-2.5 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
+              className="w-full bg-slate-50 border border-slate-200 text-slate-800 placeholder-slate-400 text-xs font-bold pl-9 pr-9 py-2.5 rounded-xl focus:outline-hidden focus:ring-1 focus:ring-indigo-500"
               placeholder="Search by material, barcode or operator..."
             />
+            {searchQuery && (
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="absolute inset-y-0 right-0 flex items-center pr-3 text-slate-400 hover:text-slate-700 cursor-pointer"
+                title="Clear search filter"
+              >
+                <X size={14} />
+              </button>
+            )}
           </div>
 
         </div>
 
+        {/* Active filter reminder if query is set */}
+        {searchQuery && (
+          <div className="flex items-center gap-2 mb-3 px-1 text-xs">
+            <span className="text-slate-500 font-medium">Filter active:</span>
+            <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 bg-indigo-50 border border-indigo-200 text-indigo-700 font-bold rounded-lg">
+              <span>"{searchQuery}"</span>
+              <button
+                type="button"
+                onClick={() => setSearchQuery('')}
+                className="hover:text-indigo-900 cursor-pointer"
+                title="Remove filter"
+              >
+                <X size={12} />
+              </button>
+            </span>
+            <button
+              type="button"
+              onClick={() => setSearchQuery('')}
+              className="text-indigo-600 hover:text-indigo-800 font-bold underline cursor-pointer text-[11px]"
+            >
+              Show all rolls
+            </button>
+          </div>
+        )}
+
         {/* List of Roll records */}
         <div className="overflow-x-auto">
           {filteredRolls.length === 0 ? (
-            <div className="py-12 text-center text-slate-400 space-y-2">
-              <Archive size={36} className="mx-auto text-slate-300 animate-bounce" />
-              <p className="text-xs font-bold">No traceability records matching filters.</p>
-              <p className="text-[11px] text-slate-400">Register rolls above to start fabric tracking.</p>
-            </div>
+            searchQuery ? (
+              <div className="py-12 text-center text-slate-500 space-y-3">
+                <Search size={32} className="mx-auto text-slate-300" />
+                <p className="text-xs font-bold text-slate-700">
+                  No {subTab === 'unopened' ? 'unopened' : subTab === 'active' ? 'active in-production' : 'closed'} rolls matching "{searchQuery}".
+                </p>
+                <p className="text-[11px] text-slate-400">
+                  There are {visibleRollsCount(subTab === 'unopened' ? 'Unopened' : subTab === 'active' ? 'Active' : 'Consumed')} total rolls in this tab.
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSearchQuery('')}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-xs font-bold transition-all cursor-pointer shadow-xs"
+                >
+                  <RotateCcw size={13} />
+                  <span>Clear filter & show all {visibleRollsCount(subTab === 'unopened' ? 'Unopened' : subTab === 'active' ? 'Active' : 'Consumed')} rolls</span>
+                </button>
+              </div>
+            ) : (
+              <div className="py-12 text-center text-slate-400 space-y-2">
+                <Archive size={36} className="mx-auto text-slate-300 animate-bounce" />
+                <p className="text-xs font-bold">No traceability records matching filters.</p>
+                <p className="text-[11px] text-slate-400">Register rolls above to start fabric tracking.</p>
+              </div>
+            )
           ) : (
               <table className="w-full text-left border-collapse">
               <thead>
