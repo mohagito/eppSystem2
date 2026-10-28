@@ -2042,35 +2042,43 @@ export default function App() {
     // 1. NO WASTE: Add remaining unpackaged pieces directly to physical reference stock
     closingEntriesToCreate.forEach((entry) => {
       const newStockDoc = doc(collection(db, 'stock_entries'));
-      batch.set(newStockDoc, {
+      batch.set(newStockDoc, cleanFirestoreData({
         ...entry,
         id: newStockDoc.id,
         createdAt: new Date().toISOString()
-      });
+      }));
     });
 
     // 2. Update roll with closing reconciliation
     const rollDocRef = doc(db, 'rolls', rollId);
-    const closedRollPayload = {
+    const resolvedNotes = (notes && typeof notes === 'string' && notes.trim())
+      ? (roll.notes ? `${roll.notes} | ${notes.trim()}` : notes.trim())
+      : (updatedRoll.notes || roll.notes || '');
+
+    const closedRollPayload = cleanFirestoreData({
       ...updatedRoll,
       status: 'CLOSED' as const,
-      notes: notes ? (roll.notes ? `${roll.notes} | ${notes}` : notes) : (updatedRoll.notes || roll.notes)
-    };
+      notes: resolvedNotes
+    });
     batch.update(rollDocRef, closedRollPayload);
 
     // 3. Save permanent financial record in financial_evaluations (Roll History)
     const finDocRef = doc(db, 'financial_evaluations', financialRecord.id);
-    batch.set(finDocRef, {
+    const resolvedFinNotes = (notes && typeof notes === 'string' && notes.trim())
+      ? (financialRecord.notes ? `${financialRecord.notes} | ${notes.trim()}` : notes.trim())
+      : (financialRecord.notes || '');
+
+    batch.set(finDocRef, cleanFirestoreData({
       ...financialRecord,
-      notes: notes ? (financialRecord.notes ? `${financialRecord.notes} | ${notes}` : notes) : financialRecord.notes
-    });
+      notes: resolvedFinNotes
+    }));
 
     // Optimistically update local rolls state so roll is immediately in Closed Rolls and removed from In Production
     const closedRollEntry: RollEntry = {
       ...roll,
       ...updatedRoll,
       status: 'Consumed',
-      notes: closedRollPayload.notes
+      notes: resolvedNotes
     } as RollEntry;
 
     const updatedRollList = rolls.map(r => r.id === rollId ? closedRollEntry : r);
@@ -2104,20 +2112,20 @@ export default function App() {
     const roll = rolls.find((r) => r.id === id);
     if (!roll) return;
 
-    const updates: Partial<RollEntry> = {
+    const updates: Partial<RollEntry> = cleanFirestoreData({
       status: 'Consumed',
       closedAt: new Date().toISOString(),
       closedBy: currentUser?.name || 'Unknown',
       consumedMeters: consumedMeters,
-      notes: notes || roll.notes || ''
-    };
+      notes: (notes && notes.trim()) || roll.notes || ''
+    });
 
     // Optimistically update local rolls state so roll is immediately moved to Closed Rolls
     const updatedRollList = rolls.map(r => r.id === id ? { ...r, ...updates } : r);
     setRolls(updatedRollList);
     try { localStorage.setItem('epp_cached_rolls', JSON.stringify(updatedRollList)); } catch {}
 
-    updateDoc(doc(db, 'rolls', id), updates)
+    updateDoc(doc(db, 'rolls', id), cleanFirestoreData(updates))
       .then(() => {
         addToast(`Roll ${roll.materialName} marked as fully consumed!`, 'success');
         triggerNotification(

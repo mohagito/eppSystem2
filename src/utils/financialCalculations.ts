@@ -769,15 +769,17 @@ export function reconcileRollClosing(
     profitPercent,
     expectedPieces: targetYield,
     materialEfficiency,
-    nokFormats: cleanNok > 0 ? cleanNok : undefined,
-    nokWidthCm: cleanNok > 0 ? cleanWidth : undefined,
-    nokHeightCm: cleanNok > 0 ? cleanHeight : undefined,
-    nokTotalAreaCm2: cleanNok > 0 ? totalArea : undefined,
-    nokEquivalentPieces: cleanNok > 0 ? nokEquivalent : undefined,
-    adjustedExpectedPieces: cleanNok > 0 ? adjustedExpected : undefined,
     closedAt,
     closedBy
   };
+  if (cleanNok > 0) {
+    reconciliationData.nokFormats = cleanNok;
+    reconciliationData.nokWidthCm = cleanWidth;
+    reconciliationData.nokHeightCm = cleanHeight;
+    reconciliationData.nokTotalAreaCm2 = totalArea;
+    reconciliationData.nokEquivalentPieces = nokEquivalent;
+    reconciliationData.adjustedExpectedPieces = adjustedExpected;
+  }
 
   const financialRecord: RollFinancialRecord = {
     id: `fe-${roll.id}`,
@@ -794,12 +796,6 @@ export function reconcileRollClosing(
     profitPercentage: profitPercent,
     expectedPieces: targetYield,
     materialEfficiency: materialEfficiency,
-    nokFormats: cleanNok > 0 ? cleanNok : undefined,
-    nokWidthCm: cleanNok > 0 ? cleanWidth : undefined,
-    nokHeightCm: cleanNok > 0 ? cleanHeight : undefined,
-    nokTotalAreaCm2: cleanNok > 0 ? totalArea : undefined,
-    nokEquivalentPieces: cleanNok > 0 ? nokEquivalent : undefined,
-    adjustedExpectedPieces: cleanNok > 0 ? adjustedExpected : undefined,
     evaluatedAt: getMoroccoDateStr(),
     evaluatedBy: closedBy,
     notes: `Reconciled & closed by ${closedBy}. Actual produced: ${totalActualPieces} pcs.${cleanNok > 0 ? ` (NOK: ${cleanNok} NOK parts @ ${cleanWidth}x${cleanHeight}cm = ${totalArea.toLocaleString()} cm²)` : ''}`,
@@ -809,6 +805,14 @@ export function reconcileRollClosing(
     reconciliation: reconciliations,
     status: 'CLOSED'
   };
+  if (cleanNok > 0) {
+    financialRecord.nokFormats = cleanNok;
+    financialRecord.nokWidthCm = cleanWidth;
+    financialRecord.nokHeightCm = cleanHeight;
+    financialRecord.nokTotalAreaCm2 = totalArea;
+    financialRecord.nokEquivalentPieces = nokEquivalent;
+    financialRecord.adjustedExpectedPieces = adjustedExpected;
+  }
 
   const updatedRoll: Partial<RollEntry> = {
     status: 'CLOSED',
@@ -819,12 +823,6 @@ export function reconcileRollClosing(
     remainingPieces: 0,
     expectedPieces: targetYield,
     materialEfficiency,
-    nokFormats: cleanNok > 0 ? cleanNok : undefined,
-    nokWidthCm: cleanNok > 0 ? cleanWidth : undefined,
-    nokHeightCm: cleanNok > 0 ? cleanHeight : undefined,
-    nokTotalAreaCm2: cleanNok > 0 ? totalArea : undefined,
-    nokEquivalentPieces: cleanNok > 0 ? nokEquivalent : undefined,
-    adjustedExpectedPieces: cleanNok > 0 ? adjustedExpected : undefined,
     productionValue: totalProductionValue,
     grossProfit,
     profitPercent,
@@ -836,6 +834,14 @@ export function reconcileRollClosing(
     updatedAt: closedAt,
     updatedBy: closedBy
   };
+  if (cleanNok > 0) {
+    updatedRoll.nokFormats = cleanNok;
+    updatedRoll.nokWidthCm = cleanWidth;
+    updatedRoll.nokHeightCm = cleanHeight;
+    updatedRoll.nokTotalAreaCm2 = totalArea;
+    updatedRoll.nokEquivalentPieces = nokEquivalent;
+    updatedRoll.adjustedExpectedPieces = adjustedExpected;
+  }
 
   return {
     reconciliation: reconciliationData,
