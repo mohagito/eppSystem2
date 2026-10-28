@@ -1087,17 +1087,6 @@ export default function RollsModule({
             </p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
-            {onRecoverRolls && (
-              <button
-                type="button"
-                onClick={onRecoverRolls}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 border border-emerald-200 rounded-xl text-xs font-extrabold transition-all cursor-pointer shadow-2xs active:scale-95"
-                title="Verify factory reserve stock (6 Yellow Huesker, 2 Kuga, 3 White Huesker)"
-              >
-                <RotateCcw size={13} className="text-emerald-600" />
-                <span>Recover Database</span>
-              </button>
-            )}
             {searchQuery && (
               <button
                 onClick={() => setSearchQuery('')}
