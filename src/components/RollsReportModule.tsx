@@ -30,7 +30,7 @@ import {
   formatProfitPercent 
 } from '../utils/financialCalculations';
 import { formatMoroccoDate, getMoroccoDateStr } from '../utils/timeZone';
-import { EPP_NATUR_LOGO_BASE64 } from '../utils/eppLogoBase64';
+import { EPP_NATUR_LOGO_BASE64, EPP_NATUR_LOGO_DATA_URI, EPP_NATUR_LOGO_LIVE_URL } from '../utils/eppLogoBase64';
 
 export interface RollsReportModuleProps {
   currentUser: UserProfile;
@@ -864,14 +864,15 @@ export default function RollsReportModule({
             <div className="bg-[#0D1726] border-b-2 border-[#FF6B00] py-3 px-5 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <img 
-                  src="/assets/aistudio/EPP_NATUR_LOGO_ef7b83ec.webp" 
+                  src={EPP_NATUR_LOGO_LIVE_URL} 
                   onError={(e) => {
-                    if (e.currentTarget.src !== EPP_NATUR_LOGO_BASE64) {
-                      e.currentTarget.src = EPP_NATUR_LOGO_BASE64;
+                    if (e.currentTarget.src !== EPP_NATUR_LOGO_DATA_URI) {
+                      e.currentTarget.src = EPP_NATUR_LOGO_DATA_URI;
                     }
                   }}
                   className="h-8 w-auto object-contain" 
                   alt="E.P.P. Natur" 
+                  referrerPolicy="no-referrer"
                 />
                 <div className="border-l border-slate-700 pl-3">
                   <span className="text-xs sm:text-sm font-black text-white tracking-wider uppercase font-mono block">
