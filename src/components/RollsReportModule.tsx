@@ -646,17 +646,6 @@ export default function RollsReportModule({
               <AlertOctagon size={14} className={reportType === 'nok' ? 'text-white' : 'text-slate-400'} />
               <span>NOK Report</span>
             </button>
-            <button
-              onClick={() => setReportType('efficiency')}
-              className={`px-4 py-2 rounded-xl text-xs font-black transition-all cursor-pointer flex items-center gap-2 ${
-                reportType === 'efficiency'
-                  ? 'bg-[#0D1726] text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900'
-              }`}
-            >
-              <TrendingUp size={14} className={reportType === 'efficiency' ? 'text-[#FF6B00]' : 'text-slate-400'} />
-              <span>Efficiency Report</span>
-            </button>
           </div>
 
           {/* Export Excel Button with E.P.P. Branding */}
@@ -875,8 +864,13 @@ export default function RollsReportModule({
             <div className="bg-[#0D1726] border-b-2 border-[#FF6B00] py-3 px-5 flex items-center justify-between">
               <div className="flex items-center gap-3">
                 <img 
-                  src={EPP_NATUR_LOGO_BASE64} 
-                  className="h-8 w-auto object-contain rounded-md" 
+                  src="/assets/aistudio/EPP_NATUR_LOGO_ef7b83ec.webp" 
+                  onError={(e) => {
+                    if (e.currentTarget.src !== EPP_NATUR_LOGO_BASE64) {
+                      e.currentTarget.src = EPP_NATUR_LOGO_BASE64;
+                    }
+                  }}
+                  className="h-8 w-auto object-contain" 
                   alt="E.P.P. Natur" 
                 />
                 <div className="border-l border-slate-700 pl-3">

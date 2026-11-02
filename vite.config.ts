@@ -14,7 +14,7 @@ export default defineConfig(() => {
         injectRegister: 'inline',
         workbox: {
           globPatterns: ['**/*.{js,css,html,svg,ico,png,webp}'],
-          maximumFileSizeToCacheInBytes: 4000000
+          maximumFileSizeToCacheInBytes: 10000000
         },
         manifest: {
           name: 'EPP Airbag MES',
