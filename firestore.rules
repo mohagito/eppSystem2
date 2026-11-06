@@ -160,5 +160,121 @@ service cloud.firestore {
         && (request.resource.data.expectedPieces is int || request.resource.data.expectedPieces is float) && request.resource.data.expectedPieces >= 0;
       allow delete: if false;
     }
+
+    // Independent Madrid Stock Collection (One document per AirbagModel reference)
+    match /madrid_stock/{modelId} {
+      allow read: if true;
+      allow create, update: if modelId is string && modelId.size() <= 100
+        && request.resource.data.reference == modelId
+        && (request.resource.data.packagedQuantity is int || request.resource.data.packagedQuantity is float)
+        && request.resource.data.packagedQuantity >= 0
+        && request.resource.data.lastUpdated is string
+        && request.resource.data.updatedBy is string;
+      allow delete: if false;
+    }
+
+    // Madrid Import History Snapshots Collection (Immutable audit trail of Madrid Excel snapshots)
+    match /madrid_import_history/{importId} {
+      allow read: if true;
+      allow create, update: if isValidId(importId)
+        && request.resource.data.id == importId
+        && request.resource.data.importedAt is string
+        && request.resource.data.importedBy is string
+        && (request.resource.data.totalPackagedQuantity is int || request.resource.data.totalPackagedQuantity is float)
+        && request.resource.data.totalPackagedQuantity >= 0;
+      allow delete: if false;
+    }
+
+    // Phase 1: Reference Catalog Collection (Active 8 references + preserved INACTIVE references like REPUESTO X87 and VW110)
+    match /catalog_references/{refId} {
+      allow read: if true;
+      allow create, update: if refId is string && refId.size() <= 100
+        && request.resource.data.id == refId
+        && request.resource.data.code is string && request.resource.data.code.size() <= 100
+        && request.resource.data.isActive is bool
+        && (request.resource.data.workflowType == 'SPAIN_TRANSFER' || request.resource.data.workflowType == 'MOROCCO_DOMESTIC')
+        && (request.resource.data.leadTimeWeeks is int || request.resource.data.leadTimeWeeks is float)
+        && request.resource.data.leadTimeWeeks >= 0
+        && request.resource.data.updatedAt is string
+        && request.resource.data.updatedBy is string;
+      allow delete: if false; // Never delete catalog references; mark isActive = false instead
+    }
+
+    // Weekly Customer Demands & Manual Production Plans Collection (W41..W52+ manual weekly planning)
+    match /weekly_customer_demands/{demandId} {
+      allow read: if true;
+      allow create, update: if demandId is string && demandId.size() <= 128
+        && request.resource.data.id == demandId
+        && (request.resource.data.year is int || request.resource.data.year is float)
+        && (request.resource.data.weekNumber is int || request.resource.data.weekNumber is float)
+        && request.resource.data.modelId is string && request.resource.data.modelId.size() <= 50
+        && (request.resource.data.workflowType == 'SPAIN_TRANSFER' || request.resource.data.workflowType == 'MOROCCO_DOMESTIC')
+        && (request.resource.data.customerRequiredQty is int || request.resource.data.customerRequiredQty is float) && request.resource.data.customerRequiredQty >= 0
+        && (!('plannedProductionQty' in request.resource.data) || ((request.resource.data.plannedProductionQty is int || request.resource.data.plannedProductionQty is float) && request.resource.data.plannedProductionQty >= 0))
+        && (!('plannedTangerToMadridQty' in request.resource.data) || ((request.resource.data.plannedTangerToMadridQty is int || request.resource.data.plannedTangerToMadridQty is float) && request.resource.data.plannedTangerToMadridQty >= 0))
+        && (request.resource.data.deliveredQty is int || request.resource.data.deliveredQty is float) && request.resource.data.deliveredQty >= 0
+        && (request.resource.data.pendingQty is int || request.resource.data.pendingQty is float) && request.resource.data.pendingQty >= 0
+        && request.resource.data.updatedAt is string
+        && request.resource.data.updatedBy is string;
+      allow delete: if demandId is string && demandId.size() <= 128;
+    }
+
+    // Phase 1: Spain Truck Shipments Collection (Planned -> Dispatched -> In Transit -> Received in Madrid)
+    match /spain_truck_shipments/{shipmentId} {
+      allow read: if true;
+      allow create, update: if isValidId(shipmentId)
+        && request.resource.data.id == shipmentId
+        && request.resource.data.truckCode is string && request.resource.data.truckCode.size() <= 100
+        && (request.resource.data.status == 'planned'
+          || request.resource.data.status == 'dispatched'
+          || request.resource.data.status == 'in_transit'
+          || request.resource.data.status == 'received_in_madrid'
+          || request.resource.data.status == 'cancelled')
+        && (request.resource.data.totalPlannedQty is int || request.resource.data.totalPlannedQty is float) && request.resource.data.totalPlannedQty >= 0
+        && (request.resource.data.totalDispatchedQty is int || request.resource.data.totalDispatchedQty is float) && request.resource.data.totalDispatchedQty >= 0
+        && (request.resource.data.totalReceivedQty is int || request.resource.data.totalReceivedQty is float) && request.resource.data.totalReceivedQty >= 0
+        && request.resource.data.createdBy is string
+        && request.resource.data.createdAt is string;
+      allow delete: if false; // Never silently delete truck shipment records
+    }
+
+    // Madrid Stock Movements Audit Ledger (Baseline imports, physical corrections, receipts from Tanger & customer deliveries)
+    match /madrid_stock_movements/{movementId} {
+      allow read: if true;
+      allow create, update: if isValidId(movementId)
+        && request.resource.data.id == movementId
+        && request.resource.data.idempotencyKey is string && request.resource.data.idempotencyKey.size() <= 200
+        && request.resource.data.modelId is string && request.resource.data.modelId.size() <= 50
+        && request.resource.data.modelId != 'TETOUAN'
+        && (request.resource.data.movementType == 'BASELINE_SNAPSHOT_IMPORT'
+          || request.resource.data.movementType == 'PHYSICAL_STOCK_CORRECTION'
+          || request.resource.data.movementType == 'TRUCK_RECEIPT_IN_MADRID'
+          || request.resource.data.movementType == 'CUSTOMER_DELIVERY_FROM_MADRID')
+        && (request.resource.data.quantityDelta is int || request.resource.data.quantityDelta is float)
+        && (request.resource.data.physicalStockBefore is int || request.resource.data.physicalStockBefore is float)
+        && (request.resource.data.physicalStockAfter is int || request.resource.data.physicalStockAfter is float)
+        && request.resource.data.baselineSnapshotId is string
+        && request.resource.data.isAppliedToCurrentBaseline is bool
+        && request.resource.data.createdAt is string
+        && request.resource.data.createdBy is string;
+      allow delete: if false; // Immutable audit trail
+    }
+
+    // Phase 1: Confirmed Customer Deliveries Ledger (Spain & Domestic W41..W52 fulfillment records)
+    match /customer_deliveries/{deliveryId} {
+      allow read: if true;
+      allow create, update: if isValidId(deliveryId)
+        && request.resource.data.id == deliveryId
+        && request.resource.data.idempotencyKey is string && request.resource.data.idempotencyKey.size() <= 200
+        && request.resource.data.demandId is string && request.resource.data.demandId.size() <= 128
+        && request.resource.data.modelId is string && request.resource.data.modelId.size() <= 50
+        && (request.resource.data.deliveredQuantity is int || request.resource.data.deliveredQuantity is float) && request.resource.data.deliveredQuantity > 0
+        && request.resource.data.deliveryDate is string
+        && request.resource.data.invoiceOrRef is string && request.resource.data.invoiceOrRef.size() <= 100
+        && request.resource.data.deductedFromMadridStock is bool
+        && request.resource.data.confirmedBy is string
+        && request.resource.data.confirmedAt is string;
+      allow delete: if false; // Permanent customer delivery confirmation log
+    }
   }
 }

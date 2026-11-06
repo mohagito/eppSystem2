@@ -40,9 +40,55 @@ import {
   RollFinancialRecord,
   ExpectedYieldConfig,
   MachineType,
-  RollProductionRecord
+  RollProductionRecord,
+  AirbagModel,
+  MadridStockItem,
+  MadridImportSnapshot,
+  MadridStockMovement,
+  WeeklyProductionPlanEntry,
+  WeeklyDeliveryStatus
 } from './types';
-import { MOCK_PROFILES, INITIAL_STOCK_ENTRIES, INITIAL_PLANS } from './data';
+import { MOCK_PROFILES, INITIAL_STOCK_ENTRIES, INITIAL_PLANS, AIRBAG_MODELS } from './data';
+const MADRID_AIRBAG_MODELS: AirbagModel[] = ['BCB', 'CRAFTER', 'CADDY', 'KUGA LHD', 'KUGA RHD', 'SK216', 'VW217'];
+
+function buildManualWeeklyPlanEntry(params: {
+  modelId: AirbagModel;
+  year: number;
+  weekNumber: number;
+  customerRequiredQty: number;
+  plannedProductionQty: number;
+  plannedTangerToMadridQty: number;
+  status: WeeklyDeliveryStatus;
+  notes?: string;
+  updatedBy: string;
+  nowIso?: string;
+}): WeeklyProductionPlanEntry {
+  const weekStr = String(params.weekNumber).padStart(2, '0');
+  const weekKey = `${params.year}-W${weekStr}`;
+  const weekLabel = `W${weekStr}`;
+  const reqQty = Math.max(0, Number(params.customerRequiredQty || 0));
+  const delQty = params.status === 'Delivered' ? reqQty : 0;
+  return {
+    id: `${params.year}_W${weekStr}_${params.modelId}`,
+    modelId: params.modelId,
+    reference: params.modelId,
+    year: params.year,
+    weekNumber: params.weekNumber,
+    weekLabel,
+    weekKey,
+    destination: params.modelId === 'TETOUAN' ? 'Morocco (Domestic)' : 'Spain (Madrid)',
+    workflowType: params.modelId === 'TETOUAN' ? 'MOROCCO_DOMESTIC' : 'SPAIN_TRANSFER',
+    customerRequiredQty: reqQty,
+    plannedProductionQty: Math.max(0, Number(params.plannedProductionQty || 0)),
+    plannedTangerToMadridQty: params.modelId === 'TETOUAN' ? 0 : Math.max(0, Number(params.plannedTangerToMadridQty || 0)),
+    deliveredQty: delQty,
+    pendingQty: Math.max(0, reqQty - delQty),
+    status: params.status,
+    notes: params.notes,
+    updatedAt: params.nowIso || new Date().toISOString(),
+    updatedBy: params.updatedBy
+  };
+}
 import Swal from 'sweetalert2';
 import 'sweetalert2/dist/sweetalert2.min.css';
 import WorkerDashboard from './components/WorkerDashboard';
@@ -140,6 +186,55 @@ export default function App() {
     try {
       if (typeof window === 'undefined') return [];
       const cached = localStorage.getItem('epp_cached_deliveries');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  // Independent Madrid Stock Storage (never touches Tanger stock_entries)
+  const [madridStock, setMadridStock] = useState<Record<AirbagModel, MadridStockItem | undefined>>(() => {
+    try {
+      if (typeof window === 'undefined') return {} as Record<AirbagModel, MadridStockItem | undefined>;
+      const cached = localStorage.getItem('epp_cached_madrid_stock');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed && typeof parsed === 'object') return parsed;
+      }
+    } catch {}
+    return {} as Record<AirbagModel, MadridStockItem | undefined>;
+  });
+
+  const [madridImportHistory, setMadridImportHistory] = useState<MadridImportSnapshot[]>(() => {
+    try {
+      if (typeof window === 'undefined') return [];
+      const cached = localStorage.getItem('epp_cached_madrid_history');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const [madridMovements, setMadridMovements] = useState<MadridStockMovement[]>(() => {
+    try {
+      if (typeof window === 'undefined') return [];
+      const cached = localStorage.getItem('epp_cached_madrid_movements');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed)) return parsed;
+      }
+    } catch {}
+    return [];
+  });
+
+  const [weeklyPlans, setWeeklyPlans] = useState<WeeklyProductionPlanEntry[]>(() => {
+    try {
+      if (typeof window === 'undefined') return [];
+      const cached = localStorage.getItem('epp_cached_weekly_plans');
       if (cached) {
         const parsed = JSON.parse(cached);
         if (Array.isArray(parsed)) return parsed;
@@ -529,6 +624,10 @@ export default function App() {
     let unsubRolls: (() => void) | null = null;
     let unsubExpectedYields: (() => void) | null = null;
     let unsubPiecePrices: (() => void) | null = null;
+    let unsubMadridStock: (() => void) | null = null;
+    let unsubMadridHistory: (() => void) | null = null;
+    let unsubMadridMovements: (() => void) | null = null;
+    let unsubWeeklyPlans: (() => void) | null = null;
 
     // Safety fallback: ensure UI is never stuck in blank/loading state even on slow connection
     const loadingTimeout = setTimeout(() => {
@@ -816,6 +915,85 @@ export default function App() {
       }, (err) => {
         console.warn('Piece prices subscription notice:', err);
       });
+
+      // 9. Sync Independent Madrid Stock (Excludes TETOUAN which is Morocco-only)
+      unsubMadridStock = onSnapshot(collection(db, 'madrid_stock'), (snapshot) => {
+        const map = {} as Record<AirbagModel, MadridStockItem | undefined>;
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as MadridStockItem;
+          const refKey = (data.reference || docSnap.id) as AirbagModel;
+          if (MADRID_AIRBAG_MODELS.includes(refKey)) {
+            map[refKey] = {
+              ...data,
+              reference: refKey,
+              packagedQuantity: Math.max(0, Number(data.packagedQuantity || 0)),
+              history: Array.isArray(data.history) ? data.history : []
+            };
+          }
+        });
+        setMadridStock(map);
+        try { localStorage.setItem('epp_cached_madrid_stock', JSON.stringify(map)); } catch {}
+      }, (err) => {
+        console.warn('Madrid stock subscription notice:', err);
+      });
+
+      // 10. Sync Madrid Import History
+      unsubMadridHistory = onSnapshot(collection(db, 'madrid_import_history'), (snapshot) => {
+        const list: MadridImportSnapshot[] = [];
+        snapshot.forEach((docSnap) => {
+          list.push(docSnap.data() as MadridImportSnapshot);
+        });
+        list.sort((a, b) => String(b.importedAt || '').localeCompare(String(a.importedAt || '')));
+        setMadridImportHistory(list);
+        try { localStorage.setItem('epp_cached_madrid_history', JSON.stringify(list)); } catch {}
+      }, (err) => {
+        console.warn('Madrid import history subscription notice:', err);
+      });
+
+      // 11. Sync Madrid Stock Movements (Single-execution baseline, receipts, customer deliveries, physical corrections)
+      unsubMadridMovements = onSnapshot(collection(db, 'madrid_stock_movements'), (snapshot) => {
+        const list: MadridStockMovement[] = [];
+        snapshot.forEach((docSnap) => {
+          const data = docSnap.data() as MadridStockMovement;
+          if (data.modelId !== 'TETOUAN') {
+            list.push({ ...data, id: data.id || docSnap.id });
+          }
+        });
+        list.sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')));
+        setMadridMovements(list);
+        try { localStorage.setItem('epp_cached_madrid_movements', JSON.stringify(list)); } catch {}
+      }, (err) => {
+        console.warn('Madrid stock movements subscription notice:', err);
+      });
+
+      // 12. Sync Manual Weekly Production & Delivery Plans (weekly_customer_demands)
+      unsubWeeklyPlans = onSnapshot(collection(db, 'weekly_customer_demands'), (snapshot) => {
+        const list: WeeklyProductionPlanEntry[] = [];
+        snapshot.forEach((docSnap) => {
+          const raw = docSnap.data() as any;
+          const modelId = raw.modelId as AirbagModel;
+          const year = Number(raw.year || 2026);
+          const weekNumber = Number(raw.weekNumber || 41);
+          const entry = buildManualWeeklyPlanEntry({
+            modelId,
+            year,
+            weekNumber,
+            customerRequiredQty: Math.max(0, Number(raw.customerRequiredQty ?? raw.requiredQty ?? 0)),
+            plannedProductionQty: Math.max(0, Number(raw.plannedProductionQty ?? 0)),
+            plannedTangerToMadridQty: modelId === 'TETOUAN' ? 0 : Math.max(0, Number(raw.plannedTangerToMadridQty ?? 0)),
+            status: (raw.status === 'Delivered' || raw.status === 'Partial' || raw.status === 'Pending') ? raw.status : 'Pending',
+            notes: raw.notes,
+            updatedBy: raw.updatedBy || raw.createdBy || 'System',
+            nowIso: raw.updatedAt || new Date().toISOString()
+          });
+          list.push({ ...entry, id: raw.id || docSnap.id });
+        });
+        list.sort((a, b) => a.weekKey.localeCompare(b.weekKey) || a.modelId.localeCompare(b.modelId));
+        setWeeklyPlans(list);
+        try { localStorage.setItem('epp_cached_weekly_plans', JSON.stringify(list)); } catch {}
+      }, (err) => {
+        console.warn('Weekly plans subscription notice:', err);
+      });
     };
 
     const initializeAndSubscribe = async () => {
@@ -873,6 +1051,10 @@ export default function App() {
       if (unsubRolls) unsubRolls();
       if (unsubExpectedYields) unsubExpectedYields();
       if (unsubPiecePrices) unsubPiecePrices();
+      if (unsubMadridStock) unsubMadridStock();
+      if (unsubMadridHistory) unsubMadridHistory();
+      if (unsubMadridMovements) unsubMadridMovements();
+      if (unsubWeeklyPlans) unsubWeeklyPlans();
     };
   }, []);
 
@@ -1298,6 +1480,241 @@ export default function App() {
         handleFirestoreError(err, OperationType.CREATE, `stock_entries/${newEntry.id}`);
         addToast('Failed to save stock entry to Cloud Database.', 'error');
       });
+  };
+
+  // --- INDEPENDENT MADRID STOCK EXCEL IMPORT CONFIRMATION (MANAGER ONLY) ---
+  const handleConfirmMadridImport = async (_parseResult: any) => {
+    // Madrid Excel import modal removed
+  };
+
+  // --- MADRID OPERATION B: RECEIVE FROM TANGER IN MADRID ---
+  const handleReceiveFromTangerInMadrid = async (params: {
+    modelId: AirbagModel;
+    quantity: number;
+    effectiveDate: string;
+    notes?: string;
+  }): Promise<void> => {
+    if (!currentUser) throw new Error('User not authenticated.');
+    const nowIso = new Date().toISOString();
+    const prevQty = Math.max(0, Number(madridStock[params.modelId]?.packagedQuantity || 0));
+    const qty = Math.max(0, Number(params.quantity || 0));
+    const nextQty = prevQty + qty;
+    const updatedStockItem: MadridStockItem = {
+      id: params.modelId,
+      reference: params.modelId,
+      packagedQuantity: nextQty,
+      lastUpdated: nowIso,
+      updatedBy: currentUser.name,
+      sourceColumnHeader: madridStock[params.modelId]?.sourceColumnHeader || 'Manual Receipt',
+      sourceFileName: madridStock[params.modelId]?.sourceFileName || 'Tanger Receipt'
+    };
+    const newMovement: MadridStockMovement = {
+      id: `mad-rec-${Date.now()}`,
+      idempotencyKey: `mad-rec-${params.modelId}-${params.effectiveDate}-${Date.now()}`,
+      modelId: params.modelId,
+      movementType: 'TRUCK_RECEIPT_IN_MADRID',
+      quantityDelta: qty,
+      receivedFromTangerQty: qty,
+      physicalStockBefore: prevQty,
+      physicalStockAfter: nextQty,
+      baselineSnapshotId: madridStock[params.modelId]?.baselineSnapshotId || 'manual',
+      isAppliedToCurrentBaseline: true,
+      effectiveDate: params.effectiveDate,
+      createdAt: nowIso,
+      createdBy: currentUser.name,
+      notes: params.notes || 'Received from Tanger'
+    };
+
+    const nextStock = { ...madridStock, [params.modelId]: updatedStockItem };
+    const nextMovements = [newMovement, ...madridMovements];
+    setMadridStock(nextStock);
+    setMadridMovements(nextMovements);
+    try {
+      localStorage.setItem('epp_cached_madrid_stock', JSON.stringify(nextStock));
+      localStorage.setItem('epp_cached_madrid_movements', JSON.stringify(nextMovements));
+    } catch {}
+
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'madrid_stock', params.modelId), cleanFirestoreData(updatedStockItem));
+    batch.set(doc(db, 'madrid_stock_movements', newMovement.id), cleanFirestoreData(newMovement));
+    await batch.commit();
+
+    addToast(
+      `Madrid receipt recorded: +${params.quantity.toLocaleString()} pcs of ${params.modelId} (New Madrid stock: ${updatedStockItem.packagedQuantity.toLocaleString()} pcs)`,
+      'success'
+    );
+  };
+
+  // --- MADRID OPERATION C: DELIVER FROM MADRID TO CUSTOMER ---
+  const handleDeliverFromMadridToCustomer = async (params: {
+    modelId: AirbagModel;
+    quantity: number;
+    effectiveDate: string;
+    customerInfo?: string;
+    notes?: string;
+  }): Promise<void> => {
+    if (!currentUser) throw new Error('User not authenticated.');
+    const nowIso = new Date().toISOString();
+    const prevQty = Math.max(0, Number(madridStock[params.modelId]?.packagedQuantity || 0));
+    const qty = Math.max(0, Number(params.quantity || 0));
+    const nextQty = Math.max(0, prevQty - qty);
+    const updatedStockItem: MadridStockItem = {
+      id: params.modelId,
+      reference: params.modelId,
+      packagedQuantity: nextQty,
+      lastUpdated: nowIso,
+      updatedBy: currentUser.name,
+      sourceColumnHeader: madridStock[params.modelId]?.sourceColumnHeader || 'Customer Delivery',
+      sourceFileName: madridStock[params.modelId]?.sourceFileName || 'Customer Delivery'
+    };
+    const newMovement: MadridStockMovement = {
+      id: `mad-del-${Date.now()}`,
+      idempotencyKey: `mad-del-${params.modelId}-${params.effectiveDate}-${Date.now()}`,
+      modelId: params.modelId,
+      movementType: 'CUSTOMER_DELIVERY_FROM_MADRID',
+      quantityDelta: -qty,
+      deliveredToCustomerQty: qty,
+      physicalStockBefore: prevQty,
+      physicalStockAfter: nextQty,
+      baselineSnapshotId: madridStock[params.modelId]?.baselineSnapshotId || 'manual',
+      isAppliedToCurrentBaseline: true,
+      effectiveDate: params.effectiveDate,
+      createdAt: nowIso,
+      createdBy: currentUser.name,
+      customerInfo: params.customerInfo,
+      notes: params.notes || 'Delivered to customer'
+    };
+
+    const nextStock = { ...madridStock, [params.modelId]: updatedStockItem };
+    const nextMovements = [newMovement, ...madridMovements];
+    setMadridStock(nextStock);
+    setMadridMovements(nextMovements);
+    try {
+      localStorage.setItem('epp_cached_madrid_stock', JSON.stringify(nextStock));
+      localStorage.setItem('epp_cached_madrid_movements', JSON.stringify(nextMovements));
+    } catch {}
+
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'madrid_stock', params.modelId), cleanFirestoreData(updatedStockItem));
+    batch.set(doc(db, 'madrid_stock_movements', newMovement.id), cleanFirestoreData(newMovement));
+    await batch.commit();
+
+    addToast(
+      `Madrid customer delivery recorded: -${params.quantity.toLocaleString()} pcs of ${params.modelId} (Remaining Madrid stock: ${updatedStockItem.packagedQuantity.toLocaleString()} pcs)`,
+      'success'
+    );
+  };
+
+  // --- MADRID OPERATION D: MANAGER-ONLY PHYSICAL STOCK CORRECTION ---
+  const handlePhysicalCorrectMadridStock = async (params: {
+    modelId: AirbagModel;
+    correctedQuantity: number;
+    effectiveDate: string;
+    reason: string;
+  }): Promise<void> => {
+    if (!currentUser || currentUser.role !== 'manager') {
+      throw new Error('Only managers are authorized to perform Madrid physical stock corrections.');
+    }
+    const nowIso = new Date().toISOString();
+    const prevQty = Math.max(0, Number(madridStock[params.modelId]?.packagedQuantity || 0));
+    const nextQty = Math.max(0, Number(params.correctedQuantity || 0));
+    const updatedStockItem: MadridStockItem = {
+      id: params.modelId,
+      reference: params.modelId,
+      packagedQuantity: nextQty,
+      lastUpdated: nowIso,
+      updatedBy: currentUser.name,
+      sourceColumnHeader: 'Physical Stock Correction',
+      sourceFileName: 'Manager Audit'
+    };
+    const newMovement: MadridStockMovement = {
+      id: `mad-cor-${Date.now()}`,
+      idempotencyKey: `mad-cor-${params.modelId}-${params.effectiveDate}-${Date.now()}`,
+      modelId: params.modelId,
+      movementType: 'PHYSICAL_STOCK_CORRECTION',
+      quantityDelta: nextQty - prevQty,
+      previousQuantity: prevQty,
+      correctedQuantity: nextQty,
+      difference: nextQty - prevQty,
+      physicalStockBefore: prevQty,
+      physicalStockAfter: nextQty,
+      baselineSnapshotId: madridStock[params.modelId]?.baselineSnapshotId || 'manual',
+      isAppliedToCurrentBaseline: true,
+      effectiveDate: params.effectiveDate,
+      createdAt: nowIso,
+      createdBy: currentUser.name,
+      reason: params.reason,
+      notes: params.reason
+    };
+
+    const nextStock = { ...madridStock, [params.modelId]: updatedStockItem };
+    const nextMovements = [newMovement, ...madridMovements];
+
+    setMadridStock(nextStock);
+    setMadridMovements(nextMovements);
+    try {
+      localStorage.setItem('epp_cached_madrid_stock', JSON.stringify(nextStock));
+      localStorage.setItem('epp_cached_madrid_movements', JSON.stringify(nextMovements));
+    } catch {}
+
+    const batch = writeBatch(db);
+    batch.set(doc(db, 'madrid_stock', params.modelId), cleanFirestoreData(updatedStockItem));
+    batch.set(doc(db, 'madrid_stock_movements', newMovement.id), cleanFirestoreData(newMovement));
+    await batch.commit();
+
+    addToast(
+      `Madrid physical correction applied for ${params.modelId}: ${newMovement.previousQuantity?.toLocaleString()} → ${newMovement.correctedQuantity?.toLocaleString()} pcs`,
+      'success'
+    );
+  };
+
+  // --- MANUAL WEEKLY PRODUCTION & DELIVERY PLAN HANDLERS (DECOUPLED FROM PHYSICAL STOCK) ---
+  const handleSaveWeeklyPlan = async (params: {
+    modelId: AirbagModel;
+    year: number;
+    weekNumber: number;
+    customerRequiredQty: number;
+    plannedProductionQty: number;
+    plannedTangerToMadridQty: number;
+    status: WeeklyDeliveryStatus;
+    notes?: string;
+  }): Promise<void> => {
+    if (!currentUser) throw new Error('User not authenticated.');
+    const entry = buildManualWeeklyPlanEntry({
+      ...params,
+      updatedBy: currentUser.name
+    });
+
+    // Save to weekly_customer_demands collection (with requiredQty alias for security rules compatibility)
+    const firestorePayload = cleanFirestoreData({
+      ...entry,
+      requiredQty: entry.customerRequiredQty,
+      deliveredQty: entry.status === 'Delivered' ? entry.customerRequiredQty : 0,
+      createdBy: currentUser.name
+    });
+
+    const nextList = [
+      ...weeklyPlans.filter((p) => p.id !== entry.id),
+      entry
+    ].sort((a, b) => a.weekKey.localeCompare(b.weekKey) || a.modelId.localeCompare(b.modelId));
+
+    setWeeklyPlans(nextList);
+    try {
+      localStorage.setItem('epp_cached_weekly_plans', JSON.stringify(nextList));
+    } catch {}
+
+    await setDoc(doc(db, 'weekly_customer_demands', entry.id), firestorePayload);
+    addToast(`Saved weekly plan for ${entry.modelId} (${entry.weekLabel} ${entry.year})`, 'success');
+  };
+
+  const handleDeleteWeeklyPlan = async (id: string): Promise<void> => {
+    const nextList = weeklyPlans.filter((p) => p.id !== id);
+    setWeeklyPlans(nextList);
+    try {
+      localStorage.setItem('epp_cached_weekly_plans', JSON.stringify(nextList));
+    } catch {}
+    await deleteDoc(doc(db, 'weekly_customer_demands', id));
+    addToast('Weekly plan entry removed.', 'info');
   };
 
   const handleUndoStockEntry = (id: string) => {
@@ -2536,6 +2953,14 @@ export default function App() {
             profiles={profiles}
             rolls={rolls}
             piecePrices={piecePrices}
+            madridStock={madridStock}
+            madridImportHistory={madridImportHistory}
+            madridMovements={madridMovements}
+            weeklyPlans={weeklyPlans}
+            onConfirmMadridImport={handleConfirmMadridImport}
+            onReceiveFromTangerInMadrid={handleReceiveFromTangerInMadrid}
+            onDeliverFromMadridToCustomer={handleDeliverFromMadridToCustomer}
+            onPhysicalCorrectMadridStock={handlePhysicalCorrectMadridStock}
             onAddEntry={handleAddStockEntry}
             onDeleteEntry={handleDeleteStockEntry}
             onEditEntry={handleEditStockEntry}
@@ -2550,8 +2975,14 @@ export default function App() {
             currentUser={currentUser}
             plans={plans}
             entries={stockEntries}
+            deliveries={deliveries}
             dailyTargets={dailyTargets}
             profiles={profiles}
+            weeklyPlans={weeklyPlans}
+            madridStock={madridStock}
+            madridMovements={madridMovements}
+            onSaveWeeklyPlan={handleSaveWeeklyPlan}
+            onDeleteWeeklyPlan={handleDeleteWeeklyPlan}
             onUpdateDailyTarget={handleUpdateDailyTarget}
             onAddPlan={handleAddProductionPlan}
             onUpdatePlanStatus={handleUpdatePlanStatus}

@@ -1,8 +1,20 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import Swal from 'sweetalert2';
-import { UserProfile, ProductionPlan, AirbagModel, MachineType, ShiftType, StockEntry } from '../types';
-import { AIRBAG_MODELS, MOCK_PROFILES } from '../data';
+import {
+  UserProfile,
+  ProductionPlan,
+  AirbagModel,
+  MachineType,
+  ShiftType,
+  StockEntry,
+  WeeklyProductionPlanEntry,
+  WeeklyDeliveryStatus,
+  MadridStockItem,
+  MadridStockMovement,
+  DeliveryEntry
+} from '../types';
+import { AIRBAG_MODELS, MOCK_PROFILES, PACKAGING_SIZES } from '../data';
 import {
   CalendarRange,
   Cpu,
@@ -22,7 +34,12 @@ import {
   Pencil,
   Copy,
   Trash2,
-  Check
+  Check,
+  FileSpreadsheet,
+  Truck,
+  Globe,
+  Flag,
+  Layers
 } from 'lucide-react';
 import {
   getPlanActualProduced,
@@ -36,8 +53,23 @@ interface PlanningProps {
   currentUser: UserProfile;
   plans: ProductionPlan[];
   entries: StockEntry[];
+  deliveries?: DeliveryEntry[];
   dailyTargets: Record<string, number>;
   profiles?: UserProfile[];
+  weeklyPlans?: WeeklyProductionPlanEntry[];
+  madridStock?: Record<AirbagModel, MadridStockItem | undefined>;
+  madridMovements?: MadridStockMovement[];
+  onSaveWeeklyPlan?: (entry: {
+    modelId: AirbagModel;
+    year: number;
+    weekNumber: number;
+    customerRequiredQty: number;
+    plannedProductionQty: number;
+    plannedTangerToMadridQty: number;
+    status: WeeklyDeliveryStatus;
+    notes?: string;
+  }) => Promise<void>;
+  onDeleteWeeklyPlan?: (id: string) => Promise<void>;
   onUpdateDailyTarget: (dateStr: string, targetValue: number) => void;
   onAddPlan: (plan: Omit<ProductionPlan, 'id' | 'createdAt' | 'status'>) => void;
   onUpdatePlanStatus?: (id: string, status: 'Pending' | 'Completed' | 'Delayed') => void;
@@ -51,8 +83,14 @@ export default function PlanningModule({
   currentUser,
   plans,
   entries,
+  deliveries = [],
   dailyTargets,
   profiles = [],
+  weeklyPlans = [],
+  madridStock = {} as Record<AirbagModel, MadridStockItem | undefined>,
+  madridMovements = [],
+  onSaveWeeklyPlan,
+  onDeleteWeeklyPlan,
   onUpdateDailyTarget,
   onAddPlan,
   onUpdatePlanStatus,
@@ -64,6 +102,70 @@ export default function PlanningModule({
   const formatLocalDate = (d?: Date) => {
     return getMoroccoDateStr(d);
   };
+
+  // Planning View Mode: 'daily_shifts' (existing untouched Daily Machine Shift Schedule) | 'weekly_plan' (Manual Weekly Production & Delivery Plan)
+  const [planningViewMode, setPlanningViewMode] = useState<'daily_shifts' | 'weekly_plan'>('daily_shifts');
+  const [eloyExportModalOpen, setEloyExportModalOpen] = useState<boolean>(false);
+
+  // Manual Weekly Plan Form State
+  const [wpModel, setWpModel] = useState<AirbagModel>('CRAFTER');
+  const [wpYear, setWpYear] = useState<number>(2026);
+  const [wpWeekNumber, setWpWeekNumber] = useState<number>(41);
+  const [wpCustomerReqQty, setWpCustomerReqQty] = useState<string>('');
+  const [wpPlannedProdQty, setWpPlannedProdQty] = useState<string>('');
+  const [wpPlannedTangerToMadridQty, setWpPlannedTangerToMadridQty] = useState<string>('');
+  const [wpStatus, setWpStatus] = useState<WeeklyDeliveryStatus>('Pending');
+  const [wpNotes, setWpNotes] = useState<string>('');
+  const [wpError, setWpError] = useState<string>('');
+  const [wpSubmitting, setWpSubmitting] = useState<boolean>(false);
+  const [wpFilterWeek, setWpFilterWeek] = useState<string>('ALL');
+
+  // Compute live Tanger Packaged Stock for the 4-Sheet Excel Export
+  const tangerPackagedStock = useMemo(() => {
+    const packaged = {} as Record<AirbagModel, number>;
+    const entriesByModel = {} as Record<AirbagModel, StockEntry[]>;
+    AIRBAG_MODELS.forEach((m) => {
+      packaged[m] = 0;
+      entriesByModel[m] = [];
+    });
+    entries.forEach((e) => {
+      if (e.notes && e.notes.toLowerCase().includes('closing unpackaged')) return;
+      if (entriesByModel[e.modelId] !== undefined) {
+        entriesByModel[e.modelId].push(e);
+      }
+    });
+    AIRBAG_MODELS.forEach((m) => {
+      const pkgSize = PACKAGING_SIZES[m] || 250;
+      const sorted = [...entriesByModel[m]].sort((a, b) => {
+        const timeA = new Date(a.createdAt || a.date).getTime();
+        const timeB = new Date(b.createdAt || b.date).getTime();
+        return timeA - timeB;
+      });
+      let currentUnpackaged = 0;
+      let currentPackaged = 0;
+      sorted.forEach((e) => {
+        if (e.type === 'production') {
+          const totalAvailable = currentUnpackaged + e.quantity;
+          if (totalAvailable >= 0) {
+            currentPackaged += Math.floor(totalAvailable / pkgSize) * pkgSize;
+            currentUnpackaged = totalAvailable % pkgSize;
+          } else {
+            currentPackaged += Math.floor(totalAvailable / pkgSize) * pkgSize;
+            currentUnpackaged = ((totalAvailable % pkgSize) + pkgSize) % pkgSize;
+          }
+        } else {
+          currentPackaged += e.quantity;
+        }
+      });
+      packaged[m] = currentPackaged;
+    });
+    deliveries.forEach((d) => {
+      if (packaged[d.modelId] !== undefined) {
+        packaged[d.modelId] = Math.max(0, packaged[d.modelId] - d.quantity);
+      }
+    });
+    return packaged;
+  }, [entries, deliveries]);
 
   // Plan Creator Form State
   const [selectedModel, setSelectedModel] = useState<AirbagModel>('BCB');

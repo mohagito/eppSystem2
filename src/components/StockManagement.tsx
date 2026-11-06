@@ -1,7 +1,20 @@
 import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import Swal from 'sweetalert2';
-import { UserProfile, StockEntry, AirbagModel, ProductionPlan, DeliveryEntry, RollEntry, FinishedPiecePrice } from '../types';
+import {
+  UserProfile,
+  StockEntry,
+  AirbagModel,
+  ProductionPlan,
+  DeliveryEntry,
+  RollEntry,
+  FinishedPiecePrice,
+  StockLocationView,
+  MadridStockItem,
+  MadridImportSnapshot,
+  MadridStockMovement,
+  WeeklyProductionPlanEntry
+} from '../types';
 import { AIRBAG_MODELS, MOCK_PROFILES, PACKAGING_SIZES } from '../data';
 import {
   PlusCircle,
@@ -23,7 +36,16 @@ import {
   Undo,
   Boxes,
   Package,
-  Clock
+  Clock,
+  MapPin,
+  Building2,
+  Layers,
+  History,
+  Truck,
+  ArrowDownLeft,
+  ArrowUpRight,
+  ShieldCheck,
+  Sliders
 } from 'lucide-react';
 import { 
   getMoroccoDateStr, 
@@ -33,6 +55,10 @@ import {
 } from '../utils/timeZone';
 import { getPiecePriceForReference } from '../utils/financialCalculations';
 
+const MADRID_AIRBAG_MODELS: AirbagModel[] = ['BCB', 'CRAFTER', 'CADDY', 'KUGA LHD', 'KUGA RHD', 'SK216', 'VW217'];
+const isDomesticMoroccoReference = (model: AirbagModel): boolean => model === 'TETOUAN';
+type MadridImportParseResult = any;
+
 interface StockProps {
   currentUser: UserProfile;
   entries: StockEntry[];
@@ -41,6 +67,30 @@ interface StockProps {
   profiles?: UserProfile[];
   rolls?: RollEntry[];
   piecePrices?: FinishedPiecePrice[];
+  madridStock?: Record<AirbagModel, MadridStockItem | undefined>;
+  madridImportHistory?: MadridImportSnapshot[];
+  madridMovements?: MadridStockMovement[];
+  weeklyPlans?: WeeklyProductionPlanEntry[];
+  onConfirmMadridImport?: (parseResult: MadridImportParseResult) => Promise<void>;
+  onReceiveFromTangerInMadrid?: (params: {
+    modelId: AirbagModel;
+    quantity: number;
+    effectiveDate: string;
+    notes?: string;
+  }) => Promise<void>;
+  onDeliverFromMadridToCustomer?: (params: {
+    modelId: AirbagModel;
+    quantity: number;
+    effectiveDate: string;
+    customerInfo?: string;
+    notes?: string;
+  }) => Promise<void>;
+  onPhysicalCorrectMadridStock?: (params: {
+    modelId: AirbagModel;
+    correctedQuantity: number;
+    effectiveDate: string;
+    reason: string;
+  }) => Promise<void>;
   onAddEntry: (entry: Omit<StockEntry, 'id' | 'createdAt'>) => void;
   onDeleteEntry?: (id: string) => void;
   onEditEntry?: (id: string, updatedEntry: Partial<StockEntry>) => void;
@@ -55,11 +105,51 @@ export default function StockManagement({
   profiles = [],
   rolls = [],
   piecePrices,
+  madridStock = {} as Record<AirbagModel, MadridStockItem | undefined>,
+  madridImportHistory = [],
+  madridMovements = [],
+  weeklyPlans = [],
+  onConfirmMadridImport,
+  onReceiveFromTangerInMadrid,
+  onDeliverFromMadridToCustomer,
+  onPhysicalCorrectMadridStock,
   onAddEntry,
   onDeleteEntry,
   onEditEntry,
   onUndoEntry
 }: StockProps) {
+  // Location View Selector ('tanger' | 'madrid' | 'combined')
+  const [locationView, setLocationView] = useState<StockLocationView>('tanger');
+  const [madridModalOpen, setMadridModalOpen] = useState<boolean>(false);
+  const [madridModalTab, setMadridModalTab] = useState<'import' | 'history'>('import');
+  const [eloyExportModalOpen, setEloyExportModalOpen] = useState<boolean>(false);
+
+  // Madrid Operation Modals State (Receive from Tanger, Deliver to Customer, Physical Correction)
+  const [receiveMadridOpen, setReceiveMadridOpen] = useState<boolean>(false);
+  const [receiveModel, setReceiveModel] = useState<AirbagModel>('CRAFTER');
+  const [receiveQty, setReceiveQty] = useState<string>('');
+  const [receiveDate, setReceiveDate] = useState<string>(() => getMoroccoDateStr());
+  const [receiveNotes, setReceiveNotes] = useState<string>('');
+  const [receiveError, setReceiveError] = useState<string>('');
+  const [receiveSubmitting, setReceiveSubmitting] = useState<boolean>(false);
+
+  const [deliverMadridOpen, setDeliverMadridOpen] = useState<boolean>(false);
+  const [deliverModel, setDeliverModel] = useState<AirbagModel>('CRAFTER');
+  const [deliverQty, setDeliverQty] = useState<string>('');
+  const [deliverDate, setDeliverDate] = useState<string>(() => getMoroccoDateStr());
+  const [deliverCustomer, setDeliverCustomer] = useState<string>('');
+  const [deliverNotes, setDeliverNotes] = useState<string>('');
+  const [deliverError, setDeliverError] = useState<string>('');
+  const [deliverSubmitting, setDeliverSubmitting] = useState<boolean>(false);
+
+  const [correctMadridOpen, setCorrectMadridOpen] = useState<boolean>(false);
+  const [correctMadridModel, setCorrectMadridModel] = useState<AirbagModel>('CRAFTER');
+  const [correctMadridDesiredQty, setCorrectMadridDesiredQty] = useState<string>('');
+  const [correctMadridDate, setCorrectMadridDate] = useState<string>(() => getMoroccoDateStr());
+  const [correctMadridReason, setCorrectMadridReason] = useState<string>('');
+  const [correctMadridError, setCorrectMadridError] = useState<string>('');
+  const [correctMadridSubmitting, setCorrectMadridSubmitting] = useState<boolean>(false);
+
   // Input fields state (Morocco GMT+0)
   const getLocalDateStr = () => {
     return getMoroccoDateStr();
@@ -498,24 +588,82 @@ export default function StockManagement({
     return deliveries.reduce((sum, d) => sum + d.quantity, 0);
   }, [deliveries]);
 
-  // Net packaged units
+  // Net packaged units (Tanger)
   const totalNetAvailable = useMemo(() => {
     return AIRBAG_MODELS.reduce((sum, model) => sum + (packagedStockSums[model] || 0), 0);
   }, [packagedStockSums]);
 
-  // Net unpackaged units
+  // Net unpackaged units (Tanger)
   const totalUnpackagedAvailable = useMemo(() => {
     return AIRBAG_MODELS.reduce((sum, model) => sum + (unpackagedQtySums[model] || 0), 0);
   }, [unpackagedQtySums]);
 
-  // Manager Financial Evaluation of all current available stock
+  // Madrid packaged quantities per reference (independent snapshot storage; TETOUAN is Morocco-only, never in Madrid)
+  const madridPackagedSums = useMemo(() => {
+    const map = {} as Record<AirbagModel, number>;
+    AIRBAG_MODELS.forEach((m) => {
+      map[m] = m === 'TETOUAN' ? 0 : Math.max(0, Number(madridStock[m]?.packagedQuantity || 0));
+    });
+    return map;
+  }, [madridStock]);
+
+  // Total Madrid packaged units (excludes TETOUAN)
+  const totalMadridAvailable = useMemo(() => {
+    return MADRID_AIRBAG_MODELS.reduce((sum, model) => sum + (madridPackagedSums[model] || 0), 0);
+  }, [madridPackagedSums]);
+
+  // Last Madrid update metadata
+  const lastMadridUpdateInfo = useMemo(() => {
+    let latestIso = '';
+    let latestHeader = '';
+    let latestBy = '';
+    MADRID_AIRBAG_MODELS.forEach((m) => {
+      const item = madridStock[m];
+      if (item?.lastUpdated && item.lastUpdated > latestIso) {
+        latestIso = item.lastUpdated;
+        latestHeader = item.sourceColumnHeader || '';
+        latestBy = item.updatedBy || '';
+      }
+    });
+    if (!latestIso && madridImportHistory.length > 0) {
+      const sorted = [...madridImportHistory].sort((a, b) =>
+        String(b.importedAt || '').localeCompare(String(a.importedAt || ''))
+      );
+      if (sorted[0]) {
+        latestIso = sorted[0].importedAt;
+        latestHeader = sorted[0].columnHeader || '';
+        latestBy = sorted[0].importedBy || '';
+      }
+    }
+    return {
+      lastUpdatedIso: latestIso || null,
+      sourceColumnHeader: latestHeader || null,
+      updatedBy: latestBy || null,
+    };
+  }, [madridStock, madridImportHistory]);
+
+  // Displayed packaged stock total based on selected location view
+  const displayedPackagedAvailable = useMemo(() => {
+    if (locationView === 'madrid') return totalMadridAvailable;
+    if (locationView === 'combined') return totalNetAvailable + totalMadridAvailable;
+    return totalNetAvailable;
+  }, [locationView, totalNetAvailable, totalMadridAvailable]);
+
+  // Manager Financial Evaluation of current available stock for active location view
   const totalStockValuation = useMemo(() => {
     return AIRBAG_MODELS.reduce((sum, model) => {
       const price = getPiecePriceForReference(model, piecePrices);
-      const pcs = (packagedStockSums[model] || 0) + (unpackagedQtySums[model] || 0);
+      const tangerPcs = (packagedStockSums[model] || 0) + (unpackagedQtySums[model] || 0);
+      const madridPcs = madridPackagedSums[model] || 0;
+      const pcs =
+        locationView === 'madrid'
+          ? madridPcs
+          : locationView === 'combined'
+          ? tangerPcs + madridPcs
+          : tangerPcs;
       return sum + Math.round(pcs * price * 100) / 100;
     }, 0);
-  }, [packagedStockSums, unpackagedQtySums, piecePrices]);
+  }, [packagedStockSums, unpackagedQtySums, madridPackagedSums, locationView, piecePrices]);
 
   // Aggregate workers for helper filter dropdown
   const uniqueWorkersInHistory = useMemo(() => {
@@ -798,22 +946,207 @@ export default function StockManagement({
     <div className="space-y-8" id="stock-management-view">
       {/* Overview stats per model */}
       <div id="model-aggregates-row">
+        {/* Location Selector & Madrid Stock Controls */}
+        <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 mb-4 bg-white border border-slate-200/90 rounded-2xl p-3 shadow-3xs">
+          <div className="flex flex-wrap items-center gap-3">
+            {/* Location Segmented Selector: Tanger | Madrid | Combined */}
+            <div
+              className="inline-flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/80"
+              role="tablist"
+              aria-label="Stock Location Selector"
+              id="stock-location-selector"
+            >
+              <button
+                type="button"
+                onClick={() => setLocationView('tanger')}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  locationView === 'tanger'
+                    ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                id="location-tab-tanger"
+              >
+                <MapPin size={13} className={locationView === 'tanger' ? 'text-[#ff7700]' : 'text-slate-400'} />
+                <span>Tanger</span>
+                <span className="text-[10px] font-mono font-black px-1.5 py-0.5 rounded bg-slate-100 text-slate-700">
+                  {totalNetAvailable.toLocaleString()}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLocationView('madrid')}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  locationView === 'madrid'
+                    ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                id="location-tab-madrid"
+              >
+                <Building2 size={13} className={locationView === 'madrid' ? 'text-sky-600' : 'text-slate-400'} />
+                <span>Madrid</span>
+                <span className="text-[10px] font-mono font-black px-1.5 py-0.5 rounded bg-sky-50 text-sky-700">
+                  {totalMadridAvailable.toLocaleString()}
+                </span>
+              </button>
+
+              <button
+                type="button"
+                onClick={() => setLocationView('combined')}
+                className={`inline-flex items-center gap-1.5 px-3.5 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                  locationView === 'combined'
+                    ? 'bg-white text-slate-900 shadow-2xs border border-slate-200/60'
+                    : 'text-slate-600 hover:text-slate-900'
+                }`}
+                id="location-tab-combined"
+              >
+                <Layers size={13} className={locationView === 'combined' ? 'text-emerald-600' : 'text-slate-400'} />
+                <span>Combined</span>
+                <span className="text-[10px] font-mono font-black px-1.5 py-0.5 rounded bg-emerald-50 text-emerald-700">
+                  {(totalNetAvailable + totalMadridAvailable).toLocaleString()}
+                </span>
+              </button>
+            </div>
+
+            {/* Last Madrid Update Indicator */}
+            <div
+              className="inline-flex items-center gap-2 text-[11px] text-slate-600 bg-slate-50 border border-slate-200/80 px-3 py-1.5 rounded-xl"
+              id="madrid-last-update-badge"
+            >
+              <Clock size={12} className="text-sky-600 shrink-0" />
+              <span className="font-semibold text-slate-500">Last Madrid Update:</span>
+              {lastMadridUpdateInfo.lastUpdatedIso ? (
+                <span className="font-mono font-bold text-slate-800">
+                  {formatMoroccoDateTime(lastMadridUpdateInfo.lastUpdatedIso)}
+                  {lastMadridUpdateInfo.sourceColumnHeader ? (
+                    <span className="ml-1.5 text-[10px] font-semibold text-sky-700 bg-sky-50 border border-sky-200 px-1.5 py-0.5 rounded">
+                      {lastMadridUpdateInfo.sourceColumnHeader}
+                    </span>
+                  ) : null}
+                </span>
+              ) : (
+                <span className="font-mono text-slate-400 italic">No snapshot imported yet</span>
+              )}
+            </div>
+          </div>
+
+          {/* Madrid Operations, Excel Import & 4-Sheet Export Actions */}
+          <div className="flex flex-wrap items-center gap-2">
+            {onReceiveFromTangerInMadrid && (
+              <button
+                type="button"
+                onClick={() => {
+                  setReceiveModel('CRAFTER');
+                  setReceiveQty('');
+                  setReceiveDate(getLocalDateStr());
+                  setReceiveNotes('');
+                  setReceiveError('');
+                  setReceiveMadridOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-emerald-800 bg-emerald-50 hover:bg-emerald-100 border border-emerald-200 px-3 py-2 rounded-xl transition-colors cursor-pointer"
+                id="open-madrid-receive-btn"
+                title="Record quantities received in Madrid from Tanger"
+              >
+                <ArrowDownLeft size={14} className="text-emerald-600" />
+                <span>Receive from Tanger</span>
+              </button>
+            )}
+
+            {onDeliverFromMadridToCustomer && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDeliverModel('CRAFTER');
+                  setDeliverQty('');
+                  setDeliverDate(getLocalDateStr());
+                  setDeliverCustomer('');
+                  setDeliverNotes('');
+                  setDeliverError('');
+                  setDeliverMadridOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-sky-800 bg-sky-50 hover:bg-sky-100 border border-sky-200 px-3 py-2 rounded-xl transition-colors cursor-pointer"
+                id="open-madrid-deliver-btn"
+                title="Record customer delivery from Madrid warehouse"
+              >
+                <ArrowUpRight size={14} className="text-sky-600" />
+                <span>Deliver from Madrid</span>
+              </button>
+            )}
+
+            {currentUser.role === 'manager' && onPhysicalCorrectMadridStock && (
+              <button
+                type="button"
+                onClick={() => {
+                  const defaultModel: AirbagModel = 'CRAFTER';
+                  setCorrectMadridModel(defaultModel);
+                  setCorrectMadridDesiredQty(String(madridPackagedSums[defaultModel] || 0));
+                  setCorrectMadridDate(getLocalDateStr());
+                  setCorrectMadridReason('');
+                  setCorrectMadridError('');
+                  setCorrectMadridOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-amber-800 bg-amber-50 hover:bg-amber-100 border border-amber-200 px-3 py-2 rounded-xl transition-colors cursor-pointer"
+                id="open-madrid-correction-btn"
+                title="Manager-only physical Madrid stock correction"
+              >
+                <SlidersHorizontal size={14} className="text-amber-600" />
+                <span>Madrid Correction</span>
+              </button>
+            )}
+
+            {madridImportHistory.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMadridModalTab('history');
+                  setMadridModalOpen(true);
+                }}
+                className="inline-flex items-center gap-1.5 text-xs font-bold text-slate-600 hover:text-slate-900 bg-slate-50 hover:bg-slate-100 border border-slate-200 px-3 py-2 rounded-xl transition-colors cursor-pointer"
+                id="open-madrid-history-btn"
+              >
+                <History size={14} className="text-slate-500" />
+                <span>Snapshots ({madridImportHistory.length})</span>
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="flex flex-col sm:flex-row sm:items-center justify-between mb-5 gap-3">
           <div className="flex items-center gap-2">
             <div className="p-1.5 bg-slate-100 text-slate-700 rounded-lg">
               <Boxes size={18} />
             </div>
-            <h3 className="text-sm font-bold tracking-wider uppercase text-slate-700 font-sans">Available Stock Per Model</h3>
+            <h3 className="text-sm font-bold tracking-wider uppercase text-slate-700 font-sans">
+              {locationView === 'tanger'
+                ? 'Available Stock Per Model — Tanger'
+                : locationView === 'madrid'
+                ? 'Available Stock Per Model — Madrid'
+                : 'Available Stock Per Model — Combined (Tanger + Madrid)'}
+            </h3>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            <span className="text-[10px] font-mono text-slate-500 tracking-wider font-extrabold uppercase bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg">
-              Total Prod: {totalProduced} | Shipped: {totalDelivered}
-            </span>
-            <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-lg font-mono font-bold shadow-3xs" title="Total produced pieces awaiting packaging">
-              {totalUnpackagedAvailable} Unpackaged Units
-            </span>
-            <span className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg font-mono font-bold shadow-3xs" title="Total packaged stock available for delivery">
-              {totalNetAvailable} Packaged Stock Available
+            {locationView !== 'madrid' && (
+              <>
+                <span className="text-[10px] font-mono text-slate-500 tracking-wider font-extrabold uppercase bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg">
+                  Tanger Prod: {totalProduced} | Shipped: {totalDelivered}
+                </span>
+                <span className="text-[11px] text-amber-700 bg-amber-50 border border-amber-100 px-2.5 py-1 rounded-lg font-mono font-bold shadow-3xs" title="Total produced pieces awaiting packaging in Tanger">
+                  {totalUnpackagedAvailable} Unpackaged Units
+                </span>
+              </>
+            )}
+            {locationView === 'madrid' && (
+              <span className="text-[11px] text-slate-600 bg-slate-100 border border-slate-200 px-2.5 py-1 rounded-lg font-mono font-bold shadow-3xs" title="TETOUAN is delivered exclusively inside Morocco and is not shipped to Madrid">
+                TETOUAN excluded (Morocco-only)
+              </span>
+            )}
+            {locationView === 'combined' && (
+              <span className="text-[11px] text-sky-700 bg-sky-50 border border-sky-100 px-2.5 py-1 rounded-lg font-mono font-bold shadow-3xs">
+                Tanger: {totalNetAvailable.toLocaleString()} + Madrid: {totalMadridAvailable.toLocaleString()}
+              </span>
+            )}
+            <span className="text-[11px] text-emerald-700 bg-emerald-50 border border-emerald-100 px-2.5 py-1 rounded-lg font-mono font-bold shadow-3xs" title="Total packaged stock available for selected location view">
+              {displayedPackagedAvailable.toLocaleString()} Packaged Stock Available
             </span>
             {currentUser.role === 'manager' && (
               <span className="text-[11px] text-emerald-800 bg-emerald-100/90 border border-emerald-300 px-2.5 py-1 rounded-lg font-mono font-black shadow-3xs" title="Total Financial Value of Available Warehouse Stock">
@@ -823,13 +1156,24 @@ export default function StockManagement({
           </div>
         </div>
         <div className="grid grid-cols-1 min-[450px]:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
-          {AIRBAG_MODELS.map((model) => {
-            const packagedStock = packagedStockSums[model] || 0;
+          {(locationView === 'madrid' ? MADRID_AIRBAG_MODELS : AIRBAG_MODELS).map((model) => {
+            const tangerPackaged = packagedStockSums[model] || 0;
             const unpackagedQty = unpackagedQtySums[model] || 0;
-            const totalProd = packagedStock; // Inventory counts only packaged pieces
+            const madridPackaged = madridPackagedSums[model] || 0;
+            const madridItem = madridStock[model];
+
+            // Dynamic calculation per selected location view without modifying underlying records
+            const displayedPackaged =
+              locationView === 'madrid'
+                ? madridPackaged
+                : locationView === 'combined'
+                ? tangerPackaged + madridPackaged
+                : tangerPackaged;
+
+            const displayedUnpackaged = locationView === 'madrid' ? 0 : unpackagedQty;
             const isCaddy = model === 'CADDY';
             const pricePerPiece = getPiecePriceForReference(model, piecePrices);
-            const totalPieces = packagedStock + unpackagedQty;
+            const totalPieces = displayedPackaged + displayedUnpackaged;
             const modelValuation = Math.round(totalPieces * pricePerPiece * 100) / 100;
 
             return (
@@ -882,15 +1226,33 @@ export default function StockManagement({
                     <div className="flex items-center justify-between py-3 px-5 rounded-full bg-emerald-50/40 border border-emerald-100/80 hover:bg-emerald-50/60 transition-all">
                       <div className="flex items-center gap-2.5">
                         <div className="w-2.5 h-2.5 rounded-full bg-emerald-500" />
-                        <span className="text-[11px] text-slate-500 font-extrabold uppercase tracking-wider font-sans" title="Packaged stock ready for delivery">Packaged</span>
+                        <span className="text-[11px] text-slate-500 font-extrabold uppercase tracking-wider font-sans" title="Packaged stock ready for delivery">
+                          {locationView === 'madrid' ? 'Madrid Packaged' : locationView === 'combined' ? 'Combined Packaged' : 'Packaged'}
+                        </span>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <span className="text-sm font-black font-mono text-emerald-600 select-all">{packagedStock}</span>
-                        {currentUser.role === 'manager' && (
+                        <span className="text-sm font-black font-mono text-emerald-600 select-all">{displayedPackaged}</span>
+                        {currentUser.role === 'manager' && locationView === 'tanger' && (
                           <button
-                            onClick={() => handleStartGeneralStockCorrection(model, packagedStock, 'packaging')}
+                            onClick={() => handleStartGeneralStockCorrection(model, tangerPackaged, 'packaging')}
                             className="text-slate-400 hover:text-emerald-600 hover:bg-emerald-100/50 p-1 rounded-full transition-colors cursor-pointer"
                             title={`Correct packaged stock for ${model}`}
+                          >
+                            <Pencil size={11} />
+                          </button>
+                        )}
+                        {currentUser.role === 'manager' && locationView === 'madrid' && model !== 'TETOUAN' && onPhysicalCorrectMadridStock && (
+                          <button
+                            onClick={() => {
+                              setCorrectMadridModel(model);
+                              setCorrectMadridDesiredQty(String(madridPackaged));
+                              setCorrectMadridDate(getLocalDateStr());
+                              setCorrectMadridReason('');
+                              setCorrectMadridError('');
+                              setCorrectMadridOpen(true);
+                            }}
+                            className="text-slate-400 hover:text-amber-600 hover:bg-amber-100/50 p-1 rounded-full transition-colors cursor-pointer"
+                            title={`Physical stock correction in Madrid for ${model}`}
                           >
                             <Pencil size={11} />
                           </button>
@@ -898,16 +1260,45 @@ export default function StockManagement({
                       </div>
                     </div>
 
-                    {/* Unpackaged Quantity Row (Only shown if non-zero) */}
-                    {unpackagedQty > 0 && (
+                    {/* Combined Breakdown Pill */}
+                    {locationView === 'combined' && (
+                      <div className="flex items-center justify-between py-2 px-4 rounded-full bg-slate-50 border border-slate-200/80 text-[11px] font-mono">
+                        <span className="text-slate-600 font-bold">
+                          Tanger: <strong className="text-slate-900">{tangerPackaged}</strong>
+                        </span>
+                        <span className="text-slate-300">•</span>
+                        {model === 'TETOUAN' ? (
+                          <span className="text-amber-700 font-bold" title="TETOUAN is delivered inside Morocco only (never shipped to Madrid)">
+                            Morocco Only
+                          </span>
+                        ) : (
+                          <span className="text-sky-700 font-bold">
+                            Madrid: <strong className="text-sky-900">{madridPackaged}</strong>
+                          </span>
+                        )}
+                      </div>
+                    )}
+
+                    {/* Madrid Last Updated Info per Reference */}
+                    {locationView === 'madrid' && (
+                      <div className="flex items-center justify-between py-2 px-4 rounded-full bg-sky-50/50 border border-sky-100 text-[10px]">
+                        <span className="text-slate-500 font-bold uppercase tracking-wider">Updated</span>
+                        <span className="font-mono font-semibold text-sky-800">
+                          {madridItem?.lastUpdated ? formatMoroccoDateTime(madridItem.lastUpdated) : 'Not imported'}
+                        </span>
+                      </div>
+                    )}
+
+                    {/* Unpackaged Quantity Row (Only shown in Tanger or Combined if non-zero) */}
+                    {displayedUnpackaged > 0 && (
                       <div className="flex items-center justify-between py-3 px-5 rounded-full bg-amber-50/40 border border-amber-100/80 hover:bg-amber-50/60 transition-all">
                         <div className="flex items-center gap-2.5">
                           <div className="w-2.5 h-2.5 rounded-full bg-amber-500" />
                           <span className="text-[11px] text-slate-500 font-extrabold uppercase tracking-wider font-sans" title="Produced pieces awaiting packaging">Unpackaged</span>
                         </div>
                         <div className="flex items-center gap-1.5">
-                          <span className="text-sm font-black font-mono text-amber-600 select-all">{unpackagedQty}</span>
-                          {currentUser.role === 'manager' && (
+                          <span className="text-sm font-black font-mono text-amber-600 select-all">{displayedUnpackaged}</span>
+                          {currentUser.role === 'manager' && locationView === 'tanger' && (
                             <button
                               onClick={() => handleStartGeneralStockCorrection(model, unpackagedQty, 'production')}
                               className="text-slate-400 hover:text-amber-600 hover:bg-amber-100/50 p-1 rounded-full transition-colors cursor-pointer"
@@ -926,12 +1317,12 @@ export default function StockManagement({
                 <div className="flex items-center justify-between py-3 px-5 mt-5 rounded-full bg-[#ea580c] border border-[#ea580c] shadow-xs hover:bg-[#d97706] transition-all">
                   <span className="text-[11px] text-orange-100 font-black uppercase tracking-widest font-sans" title="Counted finished stock (Packaged pieces ready for shipment)">Total</span>
                   <div className="flex items-center gap-2">
-                    <span className="text-base font-black font-mono text-white select-all">{packagedStock}</span>
+                    <span className="text-base font-black font-mono text-white select-all">{displayedPackaged}</span>
                   </div>
                 </div>
 
                 {/* Source Rolls Traceability (Section 10) */}
-                {rollsByModel[model]?.length > 0 && (
+                {locationView !== 'madrid' && rollsByModel[model]?.length > 0 && (
                   <div className="mt-3 pt-2.5 border-t border-slate-100 flex items-center justify-between text-[10px]">
                     <span className="text-slate-400 font-bold uppercase tracking-wider">Source Rolls:</span>
                     <span 
@@ -945,6 +1336,212 @@ export default function StockManagement({
               </motion.div>
             );
           })}
+        </div>
+
+        {/* STOCK OVERVIEW TABLE & MADRID MOVEMENTS LEDGER */}
+        <div className="mt-6 grid grid-cols-1 xl:grid-cols-12 gap-6" id="stock-overview-and-madrid-ledger">
+          {/* Stock Overview Table (Tanger + Madrid + Combined Dynamically Calculated) */}
+          <div className="xl:col-span-5 bg-white border border-slate-200 rounded-2xl p-5 shadow-3xs flex flex-col justify-between">
+            <div>
+              <div className="flex items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-slate-900 text-white rounded-xl">
+                    <Layers size={15} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                      Stock Overview (Tanger + Madrid)
+                    </h4>
+                    <p className="text-[10px] text-slate-500 font-semibold">
+                      Combined stock calculated dynamically • TETOUAN domestic only
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border border-slate-200 rounded-xl overflow-hidden">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead>
+                    <tr className="bg-slate-900 text-white text-[10px] font-bold uppercase tracking-wider">
+                      <th className="py-2.5 px-3">Reference</th>
+                      <th className="py-2.5 px-3 text-right">Tanger</th>
+                      <th className="py-2.5 px-3 text-right">Madrid</th>
+                      <th className="py-2.5 px-3 text-right">Combined</th>
+                      <th className="py-2.5 px-3 text-right">Last Madrid Update</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {AIRBAG_MODELS.map((model) => {
+                      const isDomestic = isDomesticMoroccoReference(model);
+                      const tangerQty = packagedStockSums[model] || 0;
+                      const madridQty = isDomestic ? 0 : madridPackagedSums[model] || 0;
+                      const combinedQty = tangerQty + madridQty;
+                      const madridItem = madridStock[model];
+
+                      return (
+                        <tr key={model} className="hover:bg-slate-50/80">
+                          <td className="py-2.5 px-3 font-bold text-slate-900 flex items-center gap-1.5">
+                            <span>{model}</span>
+                            {isDomestic && (
+                              <span className="text-[9px] font-extrabold uppercase bg-amber-50 text-amber-800 border border-amber-200 px-1.5 py-0.5 rounded">
+                                Domestic (MA)
+                              </span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold text-slate-700">
+                            {tangerQty.toLocaleString()}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-bold">
+                            {isDomestic ? (
+                              <span className="text-[10px] text-slate-400 italic">Excluded</span>
+                            ) : (
+                              <span className="text-sky-700">{madridQty.toLocaleString()}</span>
+                            )}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono font-black text-emerald-700 bg-emerald-50/30">
+                            {combinedQty.toLocaleString()}
+                          </td>
+                          <td className="py-2.5 px-3 text-right font-mono text-[10px] text-slate-500">
+                            {isDomestic
+                              ? 'Morocco Only'
+                              : madridItem?.lastUpdated
+                              ? formatMoroccoDateTime(madridItem.lastUpdated)
+                              : '—'}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-100 border-t-2 border-slate-300 font-black text-slate-900">
+                      <td className="py-2.5 px-3 text-[11px] uppercase">Total Stock</td>
+                      <td className="py-2.5 px-3 text-right font-mono">
+                        {totalNetAvailable.toLocaleString()}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-sky-800">
+                        {totalMadridAvailable.toLocaleString()}
+                      </td>
+                      <td className="py-2.5 px-3 text-right font-mono text-emerald-800">
+                        {(totalNetAvailable + totalMadridAvailable).toLocaleString()}
+                      </td>
+                      <td className="py-2.5 px-3 text-right text-[10px] text-slate-500 font-semibold">
+                        Spain + Domestic
+                      </td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+
+            <div className="mt-3 p-3 bg-slate-50 border border-slate-200/80 rounded-xl text-[11px] text-slate-600 flex items-center justify-between">
+              <span className="font-semibold">
+                Madrid Formula: <strong className="text-slate-800">Initial Baseline + Received from Tanger − Delivered to Customers</strong>
+              </span>
+            </div>
+          </div>
+
+          {/* Madrid Stock Movements Ledger */}
+          <div className="xl:col-span-7 bg-white border border-slate-200 rounded-2xl p-5 shadow-3xs flex flex-col justify-between">
+            <div>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 mb-3">
+                <div className="flex items-center gap-2">
+                  <div className="p-2 bg-sky-50 text-sky-700 border border-sky-200 rounded-xl">
+                    <Building2 size={15} />
+                  </div>
+                  <div>
+                    <h4 className="text-xs font-black uppercase tracking-wider text-slate-900">
+                      Madrid Stock Movements History ({madridMovements.length})
+                    </h4>
+                    <p className="text-[10px] text-slate-500 font-semibold">
+                      Every baseline import, physical correction, Tanger receipt & customer delivery recorded once
+                    </p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="border border-slate-200 rounded-xl overflow-hidden max-h-[340px] overflow-y-auto">
+                <table className="w-full text-left border-collapse text-xs">
+                  <thead className="sticky top-0 z-10">
+                    <tr className="bg-slate-900 text-white text-[10px] font-bold uppercase tracking-wider">
+                      <th className="py-2.5 px-3">Date</th>
+                      <th className="py-2.5 px-3">Reference</th>
+                      <th className="py-2.5 px-3">Movement Type</th>
+                      <th className="py-2.5 px-3 text-right">+ From Tanger</th>
+                      <th className="py-2.5 px-3 text-right">- To Customer</th>
+                      <th className="py-2.5 px-3 text-right">Madrid Balance</th>
+                      <th className="py-2.5 px-3">Notes / Reason / User</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-100">
+                    {madridMovements.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="p-6 text-center text-xs text-slate-400">
+                          No Madrid stock movements recorded yet. Use "Import Madrid Excel", "Receive from Tanger", or "Deliver from Madrid".
+                        </td>
+                      </tr>
+                    ) : (
+                      madridMovements.slice(0, 60).map((mov) => {
+                        const isReceipt = mov.movementType === 'TRUCK_RECEIPT_IN_MADRID';
+                        const isDelivery = mov.movementType === 'CUSTOMER_DELIVERY_FROM_MADRID';
+                        const isCorrection = mov.movementType === 'PHYSICAL_STOCK_CORRECTION';
+                        const receivedQty = isReceipt
+                          ? Math.max(0, Number(mov.receivedFromTangerQty ?? mov.quantityDelta ?? 0))
+                          : 0;
+                        const deliveredQty = isDelivery
+                          ? Math.max(0, Number(mov.deliveredToCustomerQty ?? Math.abs(mov.quantityDelta || 0)))
+                          : 0;
+
+                        return (
+                          <tr key={mov.id} className="hover:bg-slate-50/80">
+                            <td className="py-2 px-3 font-mono text-[11px] text-slate-600 whitespace-nowrap">
+                              {mov.effectiveDate || (mov.createdAt ? mov.createdAt.slice(0, 10) : '—')}
+                            </td>
+                            <td className="py-2 px-3 font-bold text-slate-900 whitespace-nowrap">
+                              {mov.modelId}
+                            </td>
+                            <td className="py-2 px-3 whitespace-nowrap">
+                              <span
+                                className={`inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  isReceipt
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200'
+                                    : isDelivery
+                                    ? 'bg-rose-50 text-rose-700 border border-rose-200'
+                                    : isCorrection
+                                    ? 'bg-amber-50 text-amber-800 border border-amber-200'
+                                    : 'bg-sky-50 text-sky-700 border border-sky-200'
+                                }`}
+                              >
+                                {isReceipt
+                                  ? 'Receive from Tanger'
+                                  : isDelivery
+                                  ? 'Deliver to Customer'
+                                  : isCorrection
+                                  ? 'Physical Correction'
+                                  : 'Initial / Excel Baseline'}
+                              </span>
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-emerald-600">
+                              {receivedQty > 0 ? `+${receivedQty.toLocaleString()}` : '—'}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-bold text-rose-600">
+                              {deliveredQty > 0 ? `-${deliveredQty.toLocaleString()}` : '—'}
+                            </td>
+                            <td className="py-2 px-3 text-right font-mono font-black text-slate-900 bg-slate-50/60">
+                              {Number(mov.physicalStockAfter || 0).toLocaleString()}
+                            </td>
+                            <td className="py-2 px-3 text-[11px] text-slate-600 max-w-[240px] truncate" title={mov.notes || mov.reason || ''}>
+                              <span className="font-medium">{mov.notes || mov.reason || '—'}</span>
+                              <span className="text-[10px] text-slate-400 ml-1.5">({mov.createdBy})</span>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -1724,6 +2321,501 @@ export default function StockManagement({
         )}
       </AnimatePresence>
 
+      {/* Receive from Tanger in Madrid Modal */}
+      <AnimatePresence>
+        {receiveMadridOpen && onReceiveFromTangerInMadrid && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4" id="receive-madrid-modal">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xl w-full max-w-md space-y-5"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-emerald-50 rounded-xl text-emerald-600 border border-emerald-100">
+                    <Truck size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Receive from Tanger (Madrid)</h3>
+                    <p className="text-xs text-slate-500 font-semibold">Add received truck quantity to Madrid stock</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setReceiveMadridOpen(false)}
+                  className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded-lg transition-all cursor-pointer"
+                >
+                  <Plus size={16} className="rotate-45" strokeWidth={2.5} />
+                </button>
+              </div>
+
+              {receiveError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-semibold">
+                  {receiveError}
+                </div>
+              )}
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setReceiveError('');
+                  const qty = parseInt(receiveQty, 10);
+                  if (!qty || qty <= 0) {
+                    setReceiveError('Please enter a valid received quantity greater than 0.');
+                    return;
+                  }
+                  if (receiveModel === 'TETOUAN') {
+                    setReceiveError('TETOUAN is a domestic Moroccan reference and cannot be received in Madrid.');
+                    return;
+                  }
+                  setReceiveSubmitting(true);
+                  try {
+                    await onReceiveFromTangerInMadrid({
+                      modelId: receiveModel,
+                      quantity: qty,
+                      effectiveDate: receiveDate,
+                      notes: receiveNotes.trim() || undefined
+                    });
+                    setReceiveMadridOpen(false);
+                    setReceiveQty('');
+                    setReceiveNotes('');
+                  } catch (err: any) {
+                    setReceiveError(err?.message || 'Failed to record receipt in Madrid.');
+                  } finally {
+                    setReceiveSubmitting(false);
+                  }
+                }}
+                className="space-y-4"
+              >
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Spain Reference (Excludes TETOUAN)</label>
+                  <select
+                    value={receiveModel}
+                    onChange={(e) => setReceiveModel(e.target.value as AirbagModel)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold focus:outline-hidden focus:bg-white focus:border-emerald-500"
+                  >
+                    {MADRID_AIRBAG_MODELS.map((m) => (
+                      <option key={m} value={m}>
+                        {m} (Current Madrid: {(madridStock[m]?.packagedQuantity ?? 0).toLocaleString()} pcs)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Quantity Received (pcs)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={receiveQty}
+                      onChange={(e) => setReceiveQty(e.target.value)}
+                      placeholder="e.g. 5400"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-hidden focus:bg-white focus:border-emerald-500"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Receipt Date</label>
+                    <input
+                      type="date"
+                      required
+                      value={receiveDate}
+                      onChange={(e) => setReceiveDate(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-hidden focus:bg-white focus:border-emerald-500"
+                    />
+                  </div>
+                </div>
+
+                {receiveQty && !isNaN(parseInt(receiveQty, 10)) && parseInt(receiveQty, 10) > 0 && (
+                  <div className="p-3 bg-emerald-50/70 border border-emerald-200 rounded-xl text-xs flex items-center justify-between">
+                    <span className="text-emerald-800 font-semibold">Resulting Madrid Stock ({receiveModel}):</span>
+                    <span className="font-mono font-extrabold text-emerald-700">
+                      {((madridStock[receiveModel]?.packagedQuantity ?? 0) + parseInt(receiveQty, 10)).toLocaleString()} pcs
+                    </span>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Notes / Truck Reference (Optional)</label>
+                  <input
+                    type="text"
+                    value={receiveNotes}
+                    onChange={(e) => setReceiveNotes(e.target.value)}
+                    placeholder="e.g. Camión 6 Oct - Tanger shipment"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-hidden focus:bg-white focus:border-emerald-500"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setReceiveMadridOpen(false)}
+                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={receiveSubmitting}
+                    className="flex-1 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                  >
+                    {receiveSubmitting ? 'Saving...' : 'Confirm Receipt'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Deliver from Madrid to Customer Modal */}
+      <AnimatePresence>
+        {deliverMadridOpen && onDeliverFromMadridToCustomer && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4" id="deliver-madrid-modal">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xl w-full max-w-md space-y-5"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-rose-50 rounded-xl text-rose-600 border border-rose-100">
+                    <Package size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Deliver from Madrid to Customer</h3>
+                    <p className="text-xs text-slate-500 font-semibold">Deduct confirmed customer delivery from Madrid stock</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setDeliverMadridOpen(false)}
+                  className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded-lg transition-all cursor-pointer"
+                >
+                  <Plus size={16} className="rotate-45" strokeWidth={2.5} />
+                </button>
+              </div>
+
+              {deliverError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-semibold">
+                  {deliverError}
+                </div>
+              )}
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setDeliverError('');
+                  const qty = parseInt(deliverQty, 10);
+                  const currentAvail = madridStock[deliverModel]?.packagedQuantity ?? 0;
+                  if (!qty || qty <= 0) {
+                    setDeliverError('Please enter a valid delivery quantity greater than 0.');
+                    return;
+                  }
+                  if (qty > currentAvail) {
+                    setDeliverError(`Insufficient Madrid stock for ${deliverModel}: available ${currentAvail.toLocaleString()} pcs, requested ${qty.toLocaleString()} pcs.`);
+                    return;
+                  }
+                  setDeliverSubmitting(true);
+                  try {
+                    await onDeliverFromMadridToCustomer({
+                      modelId: deliverModel,
+                      quantity: qty,
+                      effectiveDate: deliverDate,
+                      customerInfo: deliverCustomer.trim() || undefined,
+                      notes: deliverNotes.trim() || undefined
+                    });
+                    setDeliverMadridOpen(false);
+                    setDeliverQty('');
+                    setDeliverCustomer('');
+                    setDeliverNotes('');
+                  } catch (err: any) {
+                    setDeliverError(err?.message || 'Failed to record customer delivery from Madrid.');
+                  } finally {
+                    setDeliverSubmitting(false);
+                  }
+                }}
+                className="space-y-4"
+              >
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Spain Reference (Excludes TETOUAN)</label>
+                  <select
+                    value={deliverModel}
+                    onChange={(e) => setDeliverModel(e.target.value as AirbagModel)}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold focus:outline-hidden focus:bg-white focus:border-rose-500"
+                  >
+                    {MADRID_AIRBAG_MODELS.map((m) => (
+                      <option key={m} value={m}>
+                        {m} (Available in Madrid: {(madridStock[m]?.packagedQuantity ?? 0).toLocaleString()} pcs)
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Delivered Quantity (pcs)</label>
+                    <input
+                      type="number"
+                      min="1"
+                      required
+                      value={deliverQty}
+                      onChange={(e) => setDeliverQty(e.target.value)}
+                      placeholder="e.g. 8400"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-hidden focus:bg-white focus:border-rose-500"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Delivery Date</label>
+                    <input
+                      type="date"
+                      required
+                      value={deliverDate}
+                      onChange={(e) => setDeliverDate(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-hidden focus:bg-white focus:border-rose-500"
+                    />
+                  </div>
+                </div>
+
+                {deliverQty && !isNaN(parseInt(deliverQty, 10)) && parseInt(deliverQty, 10) > 0 && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs flex items-center justify-between">
+                    <span className="text-slate-700 font-semibold">Remaining Madrid Stock ({deliverModel}):</span>
+                    <span className="font-mono font-extrabold text-indigo-700">
+                      {Math.max(0, (madridStock[deliverModel]?.packagedQuantity ?? 0) - parseInt(deliverQty, 10)).toLocaleString()} pcs
+                    </span>
+                  </div>
+                )}
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Customer / Destination (Optional)</label>
+                  <input
+                    type="text"
+                    value={deliverCustomer}
+                    onChange={(e) => setDeliverCustomer(e.target.value)}
+                    placeholder="e.g. Customer Spain W41 delivery"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-hidden focus:bg-white focus:border-rose-500"
+                  />
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Delivery Notes (Optional)</label>
+                  <input
+                    type="text"
+                    value={deliverNotes}
+                    onChange={(e) => setDeliverNotes(e.target.value)}
+                    placeholder="Delivery note / Albarán reference"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-hidden focus:bg-white focus:border-rose-500"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setDeliverMadridOpen(false)}
+                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={deliverSubmitting}
+                    className="flex-1 bg-rose-600 hover:bg-rose-700 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                  >
+                    {deliverSubmitting ? 'Recording...' : 'Confirm Customer Delivery'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
+
+      {/* Manager-Only Madrid Physical Stock Correction Modal */}
+      <AnimatePresence>
+        {correctMadridOpen && currentUser.role === 'manager' && onPhysicalCorrectMadridStock && (
+          <div className="fixed inset-0 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center z-50 p-4" id="correct-madrid-modal">
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              className="bg-white border border-slate-200 rounded-2xl p-6 shadow-xl w-full max-w-md space-y-5"
+            >
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2.5">
+                  <div className="p-2 bg-amber-50 rounded-xl text-amber-600 border border-amber-100">
+                    <Sliders size={18} />
+                  </div>
+                  <div>
+                    <h3 className="text-sm font-bold text-slate-900">Madrid Physical Stock Correction</h3>
+                    <p className="text-xs text-slate-500 font-semibold">Manager-only physical count adjustment (sets new baseline)</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCorrectMadridOpen(false)}
+                  className="text-slate-400 hover:text-slate-700 hover:bg-slate-100 p-1.5 rounded-lg transition-all cursor-pointer"
+                >
+                  <Plus size={16} className="rotate-45" strokeWidth={2.5} />
+                </button>
+              </div>
+
+              {correctMadridError && (
+                <div className="p-3 bg-rose-50 border border-rose-200 text-rose-700 rounded-xl text-xs font-semibold">
+                  {correctMadridError}
+                </div>
+              )}
+
+              <form
+                onSubmit={async (e) => {
+                  e.preventDefault();
+                  setCorrectMadridError('');
+                  const desired = parseInt(correctMadridDesiredQty, 10);
+                  if (isNaN(desired) || desired < 0) {
+                    setCorrectMadridError('Please enter a valid non-negative physical stock quantity.');
+                    return;
+                  }
+                  if (!correctMadridReason.trim()) {
+                    setCorrectMadridError('A reason is required for physical stock correction.');
+                    return;
+                  }
+                  setCorrectMadridSubmitting(true);
+                  try {
+                    await onPhysicalCorrectMadridStock({
+                      modelId: correctMadridModel,
+                      correctedQuantity: desired,
+                      effectiveDate: correctMadridDate,
+                      reason: correctMadridReason.trim()
+                    });
+                    setCorrectMadridOpen(false);
+                    setCorrectMadridDesiredQty('');
+                    setCorrectMadridReason('');
+                  } catch (err: any) {
+                    setCorrectMadridError(err?.message || 'Failed to apply physical stock correction.');
+                  } finally {
+                    setCorrectMadridSubmitting(false);
+                  }
+                }}
+                className="space-y-4"
+              >
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Reference</label>
+                  <select
+                    value={correctMadridModel}
+                    onChange={(e) => {
+                      const nextModel = e.target.value as AirbagModel;
+                      setCorrectMadridModel(nextModel);
+                      setCorrectMadridDesiredQty(String(madridStock[nextModel]?.packagedQuantity ?? 0));
+                    }}
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2.5 text-xs text-slate-800 font-bold focus:outline-hidden focus:bg-white focus:border-amber-500"
+                  >
+                    {MADRID_AIRBAG_MODELS.map((m) => (
+                      <option key={m} value={m}>
+                        {m}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Previous Quantity</label>
+                    <input
+                      type="text"
+                      disabled
+                      readOnly
+                      value={`${(madridStock[correctMadridModel]?.packagedQuantity ?? 0).toLocaleString()} pcs`}
+                      className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-600 font-mono font-bold cursor-not-allowed"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Corrected Quantity (pcs)</label>
+                    <input
+                      type="number"
+                      min="0"
+                      required
+                      value={correctMadridDesiredQty}
+                      onChange={(e) => setCorrectMadridDesiredQty(e.target.value)}
+                      placeholder="New physical count"
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-hidden focus:bg-white focus:border-amber-500"
+                    />
+                  </div>
+                </div>
+
+                {correctMadridDesiredQty !== '' && !isNaN(parseInt(correctMadridDesiredQty, 10)) && (
+                  <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-xs flex items-center justify-between">
+                    <span className="text-slate-600 font-semibold">Calculated Difference:</span>
+                    {(() => {
+                      const prev = madridStock[correctMadridModel]?.packagedQuantity ?? 0;
+                      const diff = parseInt(correctMadridDesiredQty, 10) - prev;
+                      return (
+                        <span className={`font-mono font-extrabold px-2 py-0.5 rounded ${
+                          diff >= 0 ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'
+                        }`}>
+                          {diff >= 0 ? `+${diff.toLocaleString()}` : diff.toLocaleString()} pcs
+                        </span>
+                      );
+                    })()}
+                  </div>
+                )}
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Correction Date</label>
+                    <input
+                      type="date"
+                      required
+                      value={correctMadridDate}
+                      onChange={(e) => setCorrectMadridDate(e.target.value)}
+                      className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 font-mono focus:outline-hidden focus:bg-white focus:border-amber-500"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Responsible User</label>
+                    <input
+                      type="text"
+                      disabled
+                      readOnly
+                      value={currentUser.name}
+                      className="w-full bg-slate-100 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-600 font-bold cursor-not-allowed"
+                    />
+                  </div>
+                </div>
+
+                <div className="space-y-1.5">
+                  <label className="text-[10px] font-bold text-slate-500 tracking-wider uppercase">Reason for Correction (Required)</label>
+                  <textarea
+                    required
+                    value={correctMadridReason}
+                    onChange={(e) => setCorrectMadridReason(e.target.value)}
+                    placeholder="e.g. Physical warehouse audit in Madrid, recount verification"
+                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3.5 py-2 text-xs text-slate-800 focus:outline-hidden focus:bg-white focus:border-amber-500 min-h-[75px] resize-none"
+                  />
+                </div>
+
+                <div className="flex gap-3 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setCorrectMadridOpen(false)}
+                    className="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={correctMadridSubmitting}
+                    className="flex-1 bg-amber-500 hover:bg-amber-600 disabled:opacity-50 text-white font-bold py-2.5 rounded-xl text-xs transition-colors cursor-pointer"
+                  >
+                    {correctMadridSubmitting ? 'Applying...' : 'Save Correction'}
+                  </button>
+                </div>
+              </form>
+            </motion.div>
+          </div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

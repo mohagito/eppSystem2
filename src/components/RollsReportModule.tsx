@@ -58,6 +58,27 @@ export const FACTORY_HISTORICAL_NOK_ROLLS = [
   { labelNumber: '43966803', quantity: 15, widthCm: 70, heightCm: 90, totalAreaCm2: 94500, material: 'Delcotex India', reference: 'SK216 / VW217', status: 'Consumed', date: '2026-10-18' },
 ];
 
+const formatNokMaterialLabel = (material: string, reference?: string, widthCm?: number): string => {
+  const lower = (material || '').toLowerCase();
+  const refLower = (reference || '').toLowerCase();
+  if (lower.includes('india') || lower.includes('delcotex') || refLower.includes('sk216') || refLower.includes('vw217')) {
+    return 'India';
+  }
+  if (lower.includes('kuga') || lower.includes('sage') || refLower.includes('kuga')) {
+    return 'Kuga';
+  }
+  if (lower.includes('yellow') || lower.includes('22') || refLower.includes('bcb') || refLower.includes('tetouan') || refLower.includes('xjx')) {
+    return 'Huesker 22';
+  }
+  if (lower.includes('white') || lower.includes('82') || refLower.includes('crafter') || refLower.includes('caddy')) {
+    return 'Huesker 82';
+  }
+  if (lower.includes('huesker')) {
+    return widthCm === 80 ? 'Huesker 22' : 'Huesker 82';
+  }
+  return material || 'Huesker 82';
+};
+
 export default function RollsReportModule({
   currentUser,
   rolls = [],
@@ -181,15 +202,19 @@ export default function RollsReportModule({
       // Search Query
       if (searchQuery.trim()) {
         const q = searchQuery.toLowerCase().trim();
+        const formattedMat = formatNokMaterialLabel(item.material, item.reference, item.nokWidthCm).toLowerCase();
         const matchLabel = item.labelNumber.toLowerCase().includes(q);
-        const matchMat = item.material.toLowerCase().includes(q);
+        const matchMat = item.material.toLowerCase().includes(q) || formattedMat.includes(q);
         const matchRef = item.reference.toLowerCase().includes(q);
         if (!matchLabel && !matchMat && !matchRef) return false;
       }
 
       // Material Filter
       if (materialFilter !== 'ALL') {
-        if (!item.material.toLowerCase().includes(materialFilter.toLowerCase())) {
+        const formattedMat = formatNokMaterialLabel(item.material, item.reference, item.nokWidthCm).toLowerCase();
+        const rawMat = item.material.toLowerCase();
+        const filterLower = materialFilter.toLowerCase();
+        if (!formattedMat.includes(filterLower) && !rawMat.includes(filterLower)) {
           return false;
         }
       }
@@ -294,23 +319,23 @@ export default function RollsReportModule({
         ws.getRow(5).height = 12; // spacer
         ws.getRow(6).height = 28; // table header
 
-        // Company & Report Title Block (Cols C to E)
-        ws.mergeCells('C1:E1');
+        // Company & Report Title Block (Cols C to F)
+        ws.mergeCells('C1:F1');
         ws.getCell('C1').value = 'E.P.P. NATUR S.L.';
         ws.getCell('C1').font = { name: 'Arial', size: 12, bold: true, color: { argb: 'FF64748B' } };
         ws.getCell('C1').alignment = { vertical: 'middle', horizontal: 'left' };
 
-        ws.mergeCells('C2:E2');
-        ws.getCell('C2').value = `NOK PARTS QUALITY REPORT ${materialFilter === 'ALL' || materialFilter === 'India' ? '(INDIA)' : `(${materialFilter.toUpperCase()})`}`;
+        ws.mergeCells('C2:F2');
+        ws.getCell('C2').value = `NOK PARTS QUALITY REPORT ${materialFilter === 'ALL' ? '(HUESKER 82 / 22 - INDIA - KUGA)' : `(${materialFilter.toUpperCase()})`}`;
         ws.getCell('C2').font = { name: 'Arial', size: 15, bold: true, color: { argb: 'FFFF6B00' } }; // EPP Orange
         ws.getCell('C2').alignment = { vertical: 'middle', horizontal: 'left' };
 
-        ws.mergeCells('C3:E3');
-        ws.getCell('C3').value = `Line: Delcotex India (SK216 / VW217)  |  Audit Date: ${todayStr}  |  Evaluated Rolls: ${stats.totalRolls}`;
+        ws.mergeCells('C3:F3');
+        ws.getCell('C3').value = `Materials: Huesker 82 - Huesker 22 - India - Kuga  |  Audit Date: ${todayStr}  |  Evaluated Rolls: ${stats.totalRolls}`;
         ws.getCell('C3').font = { name: 'Arial', size: 9.5, italic: true, color: { argb: 'FF334155' } };
         ws.getCell('C3').alignment = { vertical: 'middle', horizontal: 'left' };
 
-        ws.mergeCells('C4:E4');
+        ws.mergeCells('C4:F4');
         ws.getCell('C4').value = `Formula: Width (cm) × Height (cm) × Quantity = Total Defective Area (cm²)`;
         ws.getCell('C4').font = { name: 'Arial', size: 8.5, italic: true, color: { argb: 'FF94A3B8' } };
         ws.getCell('C4').alignment = { vertical: 'middle', horizontal: 'left' };
@@ -318,6 +343,7 @@ export default function RollsReportModule({
         // Column widths
         ws.columns = [
           { key: 'label', width: 22 },
+          { key: 'material', width: 22 },
           { key: 'qty', width: 26 },
           { key: 'width', width: 16 },
           { key: 'height', width: 16 },
@@ -328,6 +354,7 @@ export default function RollsReportModule({
         const headerRow = ws.getRow(6);
         headerRow.values = [
           'Label Number',
+          'Material',
           'Quantity (NOK Parts)',
           'Width (cm)',
           'Height (cm)',
@@ -354,6 +381,7 @@ export default function RollsReportModule({
         filteredData.forEach((row, idx) => {
           const r = ws.addRow([
             row.labelNumber,
+            formatNokMaterialLabel(row.material, row.reference, row.nokWidthCm),
             row.nokFormats,
             row.nokWidthCm,
             row.nokHeightCm,
@@ -368,17 +396,20 @@ export default function RollsReportModule({
           r.getCell(1).font = { name: 'Consolas', size: 11, bold: true, color: { argb: 'FF0D1726' } };
 
           r.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
-          r.getCell(2).font = { name: 'Consolas', size: 11, bold: true, color: { argb: 'FFFF6B00' } }; // Orange count
+          r.getCell(2).font = { name: 'Arial', size: 10.5, bold: true, color: { argb: 'FF0D1726' } };
 
           r.getCell(3).alignment = { vertical: 'middle', horizontal: 'center' };
-          r.getCell(3).font = { name: 'Consolas', size: 10, color: { argb: 'FF334155' } };
+          r.getCell(3).font = { name: 'Consolas', size: 11, bold: true, color: { argb: 'FFFF6B00' } }; // Orange count
 
           r.getCell(4).alignment = { vertical: 'middle', horizontal: 'center' };
           r.getCell(4).font = { name: 'Consolas', size: 10, color: { argb: 'FF334155' } };
 
-          r.getCell(5).alignment = { vertical: 'middle', horizontal: 'right' };
-          r.getCell(5).font = { name: 'Consolas', size: 11, bold: true, color: { argb: 'FF0D1726' } };
-          r.getCell(5).numFmt = '#,##0';
+          r.getCell(5).alignment = { vertical: 'middle', horizontal: 'center' };
+          r.getCell(5).font = { name: 'Consolas', size: 10, color: { argb: 'FF334155' } };
+
+          r.getCell(6).alignment = { vertical: 'middle', horizontal: 'right' };
+          r.getCell(6).font = { name: 'Consolas', size: 11, bold: true, color: { argb: 'FF0D1726' } };
+          r.getCell(6).numFmt = '#,##0';
 
           r.eachCell((cell) => {
             cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: bgFill } };
@@ -394,6 +425,7 @@ export default function RollsReportModule({
         // Summary Total Row
         const totalRow = ws.addRow([
           `TOTAL (${filteredData.length} ROLLS)`,
+          materialFilter === 'ALL' ? 'Huesker 82 / 22 - India - Kuga' : formatNokMaterialLabel(materialFilter),
           stats.totalNokFormats,
           '-',
           '-',
@@ -405,17 +437,20 @@ export default function RollsReportModule({
         totalRow.getCell(1).font = { name: 'Arial', size: 11, bold: true, color: { argb: 'FF0D1726' } };
 
         totalRow.getCell(2).alignment = { vertical: 'middle', horizontal: 'center' };
-        totalRow.getCell(2).font = { name: 'Consolas', size: 12, bold: true, color: { argb: 'FFFF6B00' } };
+        totalRow.getCell(2).font = { name: 'Arial', size: 10, bold: true, color: { argb: 'FF64748B' } };
 
         totalRow.getCell(3).alignment = { vertical: 'middle', horizontal: 'center' };
-        totalRow.getCell(3).font = { name: 'Consolas', size: 10, color: { argb: 'FF64748B' } };
+        totalRow.getCell(3).font = { name: 'Consolas', size: 12, bold: true, color: { argb: 'FFFF6B00' } };
 
         totalRow.getCell(4).alignment = { vertical: 'middle', horizontal: 'center' };
         totalRow.getCell(4).font = { name: 'Consolas', size: 10, color: { argb: 'FF64748B' } };
 
-        totalRow.getCell(5).alignment = { vertical: 'middle', horizontal: 'right' };
-        totalRow.getCell(5).font = { name: 'Consolas', size: 12, bold: true, color: { argb: 'FF0D1726' } };
-        totalRow.getCell(5).numFmt = '#,##0';
+        totalRow.getCell(5).alignment = { vertical: 'middle', horizontal: 'center' };
+        totalRow.getCell(5).font = { name: 'Consolas', size: 10, color: { argb: 'FF64748B' } };
+
+        totalRow.getCell(6).alignment = { vertical: 'middle', horizontal: 'right' };
+        totalRow.getCell(6).font = { name: 'Consolas', size: 12, bold: true, color: { argb: 'FF0D1726' } };
+        totalRow.getCell(6).numFmt = '#,##0';
 
         totalRow.eachCell((cell) => {
           cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF1F5F9' } };
@@ -818,10 +853,10 @@ export default function RollsReportModule({
             onChange={(e) => setMaterialFilter(e.target.value)}
             className="bg-slate-50 border border-slate-200 text-slate-700 text-xs font-bold px-3 py-2 rounded-xl focus:outline-hidden cursor-pointer"
           >
-            <option value="ALL">All Materials</option>
-            <option value="India">Delcotex India</option>
-            <option value="White">White Huesker</option>
-            <option value="Yellow">Yellow Huesker</option>
+            <option value="ALL">All Materials (Huesker 82 / 22 - India - Kuga)</option>
+            <option value="Huesker 82">Huesker 82 (White)</option>
+            <option value="Huesker 22">Huesker 22 (Yellow)</option>
+            <option value="India">India (Delcotex)</option>
             <option value="Kuga">Kuga</option>
           </select>
 
@@ -876,7 +911,7 @@ export default function RollsReportModule({
                 />
                 <div className="border-l border-slate-700 pl-3">
                   <span className="text-xs sm:text-sm font-black text-white tracking-wider uppercase font-mono block">
-                    NOK PARTS REPORT {materialFilter === 'ALL' || materialFilter === 'India' ? '(INDIA)' : `(${materialFilter.toUpperCase()})`}
+                    NOK PARTS REPORT {materialFilter === 'ALL' ? '(HUESKER 82 / 22 - INDIA - KUGA)' : `(${materialFilter.toUpperCase()})`}
                   </span>
                   <span className="text-[10px] font-semibold text-slate-400 block">
                     Quality scrap & defective formats audit
@@ -895,6 +930,9 @@ export default function RollsReportModule({
                     Label Number
                   </th>
                   <th className="py-3.5 px-4 border border-slate-800 text-center font-bold">
+                    Material
+                  </th>
+                  <th className="py-3.5 px-4 border border-slate-800 text-center font-bold">
                     Quantity (NOK Parts)
                   </th>
                   <th className="py-3.5 px-4 border border-slate-800 text-center font-bold">
@@ -911,7 +949,7 @@ export default function RollsReportModule({
               <tbody className="divide-y divide-slate-200 text-xs sm:text-sm font-sans font-medium">
                 {filteredData.length === 0 ? (
                   <tr>
-                    <td colSpan={5} className="py-12 text-center text-slate-400 font-medium">
+                    <td colSpan={6} className="py-12 text-center text-slate-400 font-medium">
                       No roll records matching criteria with NOK parts.
                     </td>
                   </tr>
@@ -924,6 +962,11 @@ export default function RollsReportModule({
                       {/* Label Number */}
                       <td className="py-2.5 px-4 border border-slate-200 font-mono font-bold text-[#0D1726] text-center">
                         {row.labelNumber}
+                      </td>
+
+                      {/* Material (Huesker 82 / Huesker 22 / India / Kuga) */}
+                      <td className="py-2.5 px-4 border border-slate-200 font-sans font-bold text-[#0D1726] text-center">
+                        {formatNokMaterialLabel(row.material, row.reference, row.nokWidthCm)}
                       </td>
 
                       {/* Quantity (NOK Parts) in E.P.P. Orange */}
@@ -956,6 +999,9 @@ export default function RollsReportModule({
                   <tr className="bg-slate-100/90 font-mono font-black text-xs sm:text-sm border-t-2 border-[#FF6B00]">
                     <td className="py-3.5 px-4 border border-slate-200 text-center text-[#0D1726] uppercase">
                       TOTAL ({filteredData.length} ROLLS)
+                    </td>
+                    <td className="py-3.5 px-4 border border-slate-200 text-center text-slate-600 font-sans font-bold">
+                      {materialFilter === 'ALL' ? 'Huesker 82 / 22 - India - Kuga' : formatNokMaterialLabel(materialFilter)}
                     </td>
                     <td className="py-3.5 px-4 border border-slate-200 text-center text-[#FF6B00] font-black text-base">
                       {stats.totalNokFormats}

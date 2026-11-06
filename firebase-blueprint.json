@@ -259,6 +259,170 @@
         "updatedAt": { "type": "string" }
       },
       "required": ["id", "rollId", "rollBarcode", "materialName", "rollLength", "rollCost", "items", "totalPieces", "totalProductionValue", "grossProfit", "profitPercentage", "evaluatedAt", "evaluatedBy"]
+    },
+    "MadridStockItem": {
+      "title": "MadridStockItem",
+      "description": "Independent Madrid packaged stock snapshot for a single AirbagModel reference",
+      "type": "object",
+      "properties": {
+        "reference": { "type": "string" },
+        "packagedQuantity": { "type": "number" },
+        "lastUpdated": { "type": "string" },
+        "updatedBy": { "type": "string" },
+        "sourceFileName": { "type": "string" },
+        "sourceColumnHeader": { "type": "string" },
+        "snapshotHash": { "type": "string" },
+        "history": { "type": "array" }
+      },
+      "required": ["reference", "packagedQuantity", "lastUpdated", "updatedBy"]
+    },
+    "MadridImportSnapshot": {
+      "title": "MadridImportSnapshot",
+      "description": "Immutable snapshot record of a confirmed Madrid Excel import",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "importedAt": { "type": "string" },
+        "importedBy": { "type": "string" },
+        "sourceFileName": { "type": "string" },
+        "sourceColumnHeader": { "type": "string" },
+        "snapshotHash": { "type": "string" },
+        "totalQuantity": { "type": "number" },
+        "quantities": { "type": "object" },
+        "previousQuantities": { "type": "object" },
+        "unmatchedRows": { "type": "array" },
+        "missingReferences": { "type": "array" },
+        "reconciledMovementIds": { "type": "array" }
+      },
+      "required": ["id", "importedAt", "importedBy", "totalQuantity", "quantities"]
+    },
+    "CatalogReference": {
+      "title": "CatalogReference",
+      "description": "Master reference catalog preserving active and inactive ELOY.xlsx references and lead times",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string" },
+        "programPrefix": { "type": "string" },
+        "displayName": { "type": "string" },
+        "activeModelId": { "type": "string" },
+        "isActive": { "type": "boolean" },
+        "workflowType": { "type": "string", "enum": ["SPAIN_TRANSFER", "MOROCCO_DOMESTIC"] },
+        "leadTimeWeeks": { "type": "number" },
+        "packagingSize": { "type": "number" },
+        "preservedExcelStock": { "type": "object" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["id", "code", "displayName", "isActive", "workflowType", "leadTimeWeeks", "updatedAt", "updatedBy"]
+    },
+    "WeeklyCustomerDemand": {
+      "title": "WeeklyCustomerDemand",
+      "description": "Weekly customer demand vs. confirmed deliveries and reserved pending quantities",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "year": { "type": "integer" },
+        "weekNumber": { "type": "integer" },
+        "weekLabel": { "type": "string" },
+        "modelId": { "type": "string" },
+        "workflowType": { "type": "string", "enum": ["SPAIN_TRANSFER", "MOROCCO_DOMESTIC"] },
+        "leadTimeWeeks": { "type": "integer" },
+        "plannedTangerDispatchWeek": { "type": "integer" },
+        "plannedTangerDispatchWeekLabel": { "type": "string" },
+        "plannedTangerDispatchDate": { "type": "string" },
+        "customerRequiredQty": { "type": "number" },
+        "deliveredQty": { "type": "number" },
+        "pendingQty": { "type": "number" },
+        "fulfillmentStatus": { "type": "string", "enum": ["pending", "partial", "delivered"] },
+        "excelCellHighlight": { "type": "string" },
+        "sourceSnapshotHash": { "type": "string" },
+        "notes": { "type": "string" },
+        "updatedAt": { "type": "string" },
+        "updatedBy": { "type": "string" }
+      },
+      "required": ["id", "year", "weekNumber", "modelId", "workflowType", "customerRequiredQty", "deliveredQty", "pendingQty", "updatedAt", "updatedBy"]
+    },
+    "SpainTruckShipment": {
+      "title": "SpainTruckShipment",
+      "description": "Tanger to Madrid truck shipment tracking from Planned -> Dispatched -> In Transit -> Received in Madrid",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "truckCode": { "type": "string" },
+        "status": { "type": "string", "enum": ["planned", "dispatched", "in_transit", "received_in_madrid", "cancelled"] },
+        "dispatchWeekNumber": { "type": "integer" },
+        "dispatchWeekLabel": { "type": "string" },
+        "targetCustomerWeekNumber": { "type": "integer" },
+        "targetCustomerWeekLabel": { "type": "string" },
+        "plannedDispatchDate": { "type": "string" },
+        "actualDispatchDate": { "type": "string" },
+        "receivedInMadridAt": { "type": "string" },
+        "receivedInMadridBy": { "type": "string" },
+        "items": { "type": "array" },
+        "totalPlannedQty": { "type": "number" },
+        "totalDispatchedQty": { "type": "number" },
+        "totalReceivedQty": { "type": "number" },
+        "linkedTangerDeliveryIds": { "type": "array" },
+        "madridReceiptMovementIds": { "type": "array" },
+        "reconciledBySnapshotId": { "type": "string" },
+        "isHistoricalExcelRecord": { "type": "boolean" },
+        "notes": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "updatedAt": { "type": "string" }
+      },
+      "required": ["id", "truckCode", "status", "totalPlannedQty", "totalDispatchedQty", "totalReceivedQty", "createdBy", "createdAt"]
+    },
+    "MadridStockMovement": {
+      "title": "MadridStockMovement",
+      "description": "Audit ledger distinguishing physical baseline snapshots from post-baseline receipts and deliveries",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idempotencyKey": { "type": "string" },
+        "modelId": { "type": "string" },
+        "movementType": { "type": "string", "enum": ["BASELINE_SNAPSHOT_IMPORT", "TRUCK_RECEIPT_IN_MADRID", "CUSTOMER_DELIVERY_FROM_MADRID"] },
+        "quantityDelta": { "type": "number" },
+        "physicalStockBefore": { "type": "number" },
+        "physicalStockAfter": { "type": "number" },
+        "baselineSnapshotId": { "type": "string" },
+        "reconciledBySnapshotId": { "type": "string" },
+        "isAppliedToCurrentBaseline": { "type": "boolean" },
+        "relatedShipmentId": { "type": "string" },
+        "relatedCustomerDeliveryId": { "type": "string" },
+        "relatedDemandId": { "type": "string" },
+        "effectiveDate": { "type": "string" },
+        "createdAt": { "type": "string" },
+        "createdBy": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "idempotencyKey", "modelId", "movementType", "quantityDelta", "physicalStockBefore", "physicalStockAfter", "baselineSnapshotId", "isAppliedToCurrentBaseline", "createdAt", "createdBy"]
+    },
+    "ConfirmedCustomerDelivery": {
+      "title": "ConfirmedCustomerDelivery",
+      "description": "Confirmed customer delivery record with idempotency protection",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "idempotencyKey": { "type": "string" },
+        "demandId": { "type": "string" },
+        "year": { "type": "integer" },
+        "weekNumber": { "type": "integer" },
+        "weekLabel": { "type": "string" },
+        "modelId": { "type": "string" },
+        "workflowType": { "type": "string", "enum": ["SPAIN_TRANSFER", "MOROCCO_DOMESTIC"] },
+        "deliveredQuantity": { "type": "number" },
+        "deliveryDate": { "type": "string" },
+        "invoiceOrRef": { "type": "string" },
+        "deductedFromMadridStock": { "type": "boolean" },
+        "madridMovementId": { "type": "string" },
+        "linkedTangerDeliveryId": { "type": "string" },
+        "confirmedBy": { "type": "string" },
+        "confirmedAt": { "type": "string" },
+        "notes": { "type": "string" }
+      },
+      "required": ["id", "idempotencyKey", "demandId", "modelId", "deliveredQuantity", "deliveryDate", "invoiceOrRef", "deductedFromMadridStock", "confirmedBy", "confirmedAt"]
     }
   },
   "firestore": {
@@ -313,6 +477,34 @@
     "expected_yields/{yieldId}": {
       "schema": "ExpectedYieldConfig",
       "description": "Configurable expected piece yield per roll reference"
+    },
+    "madrid_stock/{modelId}": {
+      "schema": "MadridStockItem",
+      "description": "Independent Madrid packaged stock storage per reference"
+    },
+    "madrid_import_history/{importId}": {
+      "schema": "MadridImportSnapshot",
+      "description": "Audit log of confirmed Madrid Excel stock imports"
+    },
+    "catalog_references/{refId}": {
+      "schema": "CatalogReference",
+      "description": "Reference catalog with active and inactive ELOY.xlsx references"
+    },
+    "weekly_customer_demands/{demandId}": {
+      "schema": "WeeklyCustomerDemand",
+      "description": "Weekly customer demand and pending/delivered status"
+    },
+    "spain_truck_shipments/{shipmentId}": {
+      "schema": "SpainTruckShipment",
+      "description": "Tanger to Spain truck transit and receipt tracking"
+    },
+    "madrid_stock_movements/{movementId}": {
+      "schema": "MadridStockMovement",
+      "description": "Audit ledger of Madrid baseline snapshots and post-baseline movements"
+    },
+    "customer_deliveries/{deliveryId}": {
+      "schema": "ConfirmedCustomerDelivery",
+      "description": "Confirmed customer deliveries against weekly demand"
     }
   }
 }
