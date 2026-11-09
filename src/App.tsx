@@ -820,11 +820,13 @@ export default function App() {
             raw.barcode === '2600056310' || 
             String(raw.barcode || '').startsWith('2600056310');
 
-          const expectedPieces = (isRoll43968015 || (materialName === 'Delcotex India' && (metersTotal === 90 || !raw.metersTotal) && rawExpected === 4286))
+          const expectedPieces = (isRoll43968015 || (materialName === 'Delcotex India' && metersTotal === 90 && rawExpected === 4286))
             ? 3857
-            : (isCrafterRoll && (rawExpected === 2600 || rawExpected === 1800 || !raw.expectedPieces || rawExpected < 5000))
-              ? 8675
-              : (raw.expectedPieces !== undefined && rawExpected > 0 ? rawExpected : undefined);
+            : (materialName === 'Delcotex India' && metersTotal === 100 && (rawExpected === 3857 || !rawExpected))
+              ? 4286
+              : (isCrafterRoll && (rawExpected === 2600 || rawExpected === 1800 || !raw.expectedPieces || rawExpected < 5000))
+                ? 8675
+                : (raw.expectedPieces !== undefined && rawExpected > 0 ? rawExpected : undefined);
 
           const producedPieces = raw.producedPieces !== undefined ? Number(raw.producedPieces) : (isRoll43968015 ? 1500 : 0);
           const matEfficiency = raw.materialEfficiency !== undefined
@@ -889,9 +891,12 @@ export default function App() {
           const list: ExpectedYieldConfig[] = [];
           snapshot.forEach((docSnap) => {
             const data = docSnap.data() as ExpectedYieldConfig;
-            // Enforce CRAFTER is 8675
+            // Enforce CRAFTER is 8675 and standard 100m SK216/VW217 is 4286
             if (data.id === 'CRAFTER' || data.reference === 'CRAFTER') {
               data.expectedPieces = 8675;
+            }
+            if ((data.id === 'SK216' || data.reference === 'SK216' || data.id === 'VW217' || data.reference === 'VW217') && data.expectedPieces === 3857) {
+              data.expectedPieces = 4286;
             }
             list.push(data);
           });
@@ -2141,7 +2146,10 @@ export default function App() {
     const mat = normalizeRollMaterial(roll.materialName);
     const ref = referenceId || roll.referenceId || getDefaultReferenceForMaterial(mat);
     const length = actualLength || roll.metersTotal || (roll.materialName === 'Kuga' ? 50 : 100);
-    let expPieces = expectedPieces || getExpectedYieldForReference(ref, expectedYields);
+    let expPieces = expectedPieces || getExpectedYieldForReference(ref, expectedYields, length);
+    if (mat === 'Delcotex India' && length === 100 && expPieces === 3857) {
+      expPieces = 4286;
+    }
     if ((ref.toUpperCase().includes('CRAFTER') || mat === 'White Huesker' || barcode.includes('2600056310')) && (expPieces === 2600 || expPieces === 1800 || expPieces < 5000)) {
       expPieces = 8675;
     }
@@ -2215,11 +2223,13 @@ export default function App() {
     const costInfo = calculateRealRollCost(roll);
     const rollCost = isRoll43968015 ? 1615.50 : (roll.rollCost !== undefined && roll.rollCost > 0 ? roll.rollCost : costInfo.cost);
     const lockedPrice = (isRoll43968015 || mat === 'Delcotex India') ? 0.7500 : (roll.pricePerPiece !== undefined && roll.pricePerPiece > 0 ? roll.pricePerPiece : getPiecePriceForReference(ref, piecePrices));
-    const effectiveExpPieces = (mat === 'Delcotex India' && (roll.metersTotal === 90 || !roll.metersTotal || roll.expectedPieces === 4286))
+    const effectiveExpPieces = (isRoll43968015 || (mat === 'Delcotex India' && roll.metersTotal === 90))
       ? 3857
-      : ((mat === 'White Huesker' || ref.toUpperCase().includes('CRAFTER') || roll.barcode === '2600056310' || roll.barcode?.startsWith('2600056310')) && (roll.expectedPieces === 2600 || roll.expectedPieces === 1800 || !roll.expectedPieces || roll.expectedPieces < 5000))
-        ? 8675
-        : (roll.expectedPieces || getExpectedYieldForReference(ref, expectedYields));
+      : (mat === 'Delcotex India' && (!roll.metersTotal || roll.metersTotal === 100) && (roll.expectedPieces === 3857 || !roll.expectedPieces))
+        ? 4286
+        : ((mat === 'White Huesker' || ref.toUpperCase().includes('CRAFTER') || roll.barcode === '2600056310' || roll.barcode?.startsWith('2600056310')) && (roll.expectedPieces === 2600 || roll.expectedPieces === 1800 || !roll.expectedPieces || roll.expectedPieces < 5000))
+          ? 8675
+          : (roll.expectedPieces || getExpectedYieldForReference(ref, expectedYields, roll.metersTotal));
 
     const newRec: RollProductionRecord = {
       id: `rec-${Date.now()}-${Math.floor(Math.random() * 1000)}`,

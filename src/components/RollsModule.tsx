@@ -296,7 +296,7 @@ export default function RollsModule({
     }
 
     const todayStr = getMoroccoDateStr();
-    const expPieces = getExpectedYieldForReference(referenceId, expectedYields);
+    const expPieces = getExpectedYieldForReference(referenceId, expectedYields, Number(metersTotal) || 100);
     const costInfo = calculateRealRollCost({
       materialName,
       metersTotal: Number(metersTotal)
@@ -407,7 +407,7 @@ export default function RollsModule({
     const activeRefs = rel ? rel.activeReferences : ['BCB-FRA'];
     const defaultRef = roll.referenceId || activeRefs[0] || 'BCB-FRA';
     const defaultLength = roll.metersTotal ?? (normMat === 'Kuga' ? 50 : 100);
-    const initialExpected = getExpectedYieldForReference(defaultRef, expectedYields);
+    const initialExpected = getExpectedYieldForReference(defaultRef, expectedYields, defaultLength);
 
     Swal.fire({
       title: 'Open Fabric Roll & Link Production',
@@ -474,6 +474,7 @@ export default function RollsModule({
         const genBtn = document.getElementById('swal-gen-btn');
         const barcodeInput = document.getElementById('swal-open-barcode') as HTMLInputElement;
         const refSelect = document.getElementById('swal-open-ref') as HTMLSelectElement;
+        const lengthInput = document.getElementById('swal-open-length') as HTMLInputElement;
         const yieldText = document.getElementById('swal-expected-yield-text');
 
         if (genBtn && barcodeInput) {
@@ -489,12 +490,21 @@ export default function RollsModule({
           });
         }
 
-        if (refSelect && yieldText) {
-          refSelect.addEventListener('change', () => {
-            const chosen = refSelect.value;
-            const exp = getExpectedYieldForReference(chosen, expectedYields);
-            yieldText.textContent = `${exp} pcs`;
-          });
+        const updateLiveExpectedYield = () => {
+          if (!refSelect || !yieldText) return;
+          const chosen = refSelect.value;
+          const lenVal = parseFloat(lengthInput?.value || String(defaultLength));
+          const validLen = !isNaN(lenVal) && lenVal > 0 ? lenVal : defaultLength;
+          const exp = getExpectedYieldForReference(chosen, expectedYields, validLen);
+          yieldText.textContent = `${exp} pcs`;
+        };
+
+        if (refSelect) {
+          refSelect.addEventListener('change', updateLiveExpectedYield);
+        }
+        if (lengthInput) {
+          lengthInput.addEventListener('input', updateLiveExpectedYield);
+          lengthInput.addEventListener('change', updateLiveExpectedYield);
         }
       },
       preConfirm: () => {
@@ -519,7 +529,7 @@ export default function RollsModule({
           return false;
         }
 
-        const exp = getExpectedYieldForReference(rValue, expectedYields);
+        const exp = getExpectedYieldForReference(rValue, expectedYields, lValue);
 
         return {
           barcode: bValue,
@@ -938,7 +948,7 @@ export default function RollsModule({
                     >
                       {(MATERIAL_FAMILY_RELATIONSHIPS[normalizeRollMaterial(materialName)]?.activeReferences || ['BCB-FRA']).map((ref) => (
                         <option key={ref} value={ref}>
-                          {ref} (~{getExpectedYieldForReference(ref, expectedYields)} pcs)
+                          {ref} (~{getExpectedYieldForReference(ref, expectedYields, Number(metersTotal) || (materialName === 'Kuga' ? 50 : 100))} pcs)
                         </option>
                       ))}
                     </select>

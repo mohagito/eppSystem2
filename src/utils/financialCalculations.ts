@@ -147,14 +147,14 @@ export const DEFAULT_EXPECTED_YIELDS: ExpectedYieldConfig[] = [
     reference: 'SK216',
     material: 'Delcotex India',
     materialFamily: 'INDIA / DELCOTEX',
-    expectedPieces: 3857
+    expectedPieces: 4286
   },
   {
     id: 'VW217',
     reference: 'VW217',
     material: 'Delcotex India',
     materialFamily: 'INDIA / DELCOTEX',
-    expectedPieces: 3857
+    expectedPieces: 4286
   },
   {
     id: 'KUGA-LHD',
@@ -576,32 +576,53 @@ export function getDefaultReferenceForMaterial(material: RollMaterial): string {
 }
 
 /**
- * Gets expected yield for a reference from configuration or defaults
+ * Gets expected yield for a reference from configuration or defaults.
+ * Scales proportionally when rollLengthMeters is provided (100m = 4286 pcs for SK216/VW217; 90m = 3857 pcs).
  */
 export function getExpectedYieldForReference(
   ref: string,
-  customYields?: ExpectedYieldConfig[]
+  customYields?: ExpectedYieldConfig[],
+  rollLengthMeters?: number
 ): number {
+  let baseYield = 250;
+  let foundCustom = false;
+
   if (customYields && customYields.length > 0) {
     const found = customYields.find(y => matchReference(y.reference, ref) || y.id === ref);
     if (found && found.expectedPieces > 0) {
-      if ((matchReference(ref, 'SK216') || matchReference(ref, 'VW217')) && found.expectedPieces === 4286) {
-        return 3857;
+      foundCustom = true;
+      if ((matchReference(ref, 'SK216') || matchReference(ref, 'VW217')) && found.expectedPieces === 3857) {
+        baseYield = 4286;
+      } else if (matchReference(ref, 'CRAFTER') && (found.expectedPieces === 2600 || found.expectedPieces === 1800)) {
+        baseYield = 8675;
+      } else {
+        baseYield = found.expectedPieces;
       }
-      if (matchReference(ref, 'CRAFTER') && (found.expectedPieces === 2600 || found.expectedPieces === 1800)) {
-        return 8675;
-      }
-      return found.expectedPieces;
     }
   }
-  const defaultFound = DEFAULT_EXPECTED_YIELDS.find(y => matchReference(y.reference, ref) || y.id === ref);
-  if (defaultFound) {
-    if (matchReference(ref, 'CRAFTER') && (defaultFound.expectedPieces === 2600 || defaultFound.expectedPieces === 1800)) {
-      return 8675;
+
+  if (!foundCustom) {
+    const defaultFound = DEFAULT_EXPECTED_YIELDS.find(y => matchReference(y.reference, ref) || y.id === ref);
+    if (defaultFound) {
+      if (matchReference(ref, 'CRAFTER') && (defaultFound.expectedPieces === 2600 || defaultFound.expectedPieces === 1800)) {
+        baseYield = 8675;
+      } else {
+        baseYield = defaultFound.expectedPieces;
+      }
+    } else {
+      baseYield = matchReference(ref, 'CRAFTER') ? 8675 : 250;
     }
-    return defaultFound.expectedPieces;
   }
-  return matchReference(ref, 'CRAFTER') ? 8675 : 250;
+
+  if (rollLengthMeters !== undefined && rollLengthMeters > 0) {
+    const isKuga = ref.toUpperCase().includes('KUGA');
+    const stdLength = isKuga ? 50 : 100;
+    if (rollLengthMeters !== stdLength) {
+      return Math.round((rollLengthMeters / stdLength) * baseYield);
+    }
+  }
+
+  return baseYield;
 }
 
 /**
@@ -935,8 +956,12 @@ export function calculateRollProductionMetrics(
     });
 
     let recExp = roll.expectedPieces || rec.totalActualPieces;
-    if (material === 'Delcotex India' && (actualLength === 90 || roll.metersTotal === 90 || !roll.metersTotal) && recExp === 4286) {
-      recExp = 3857;
+    if (material === 'Delcotex India') {
+      if ((actualLength === 90 || roll.metersTotal === 90 || isRoll43968015) && recExp === 4286) {
+        recExp = 3857;
+      } else if ((actualLength === 100 || roll.metersTotal === 100) && recExp === 3857) {
+        recExp = 4286;
+      }
     }
     const isCrafterRoll = material === 'White Huesker' || 
       refId.toUpperCase().includes('CRAFTER') || 
@@ -997,11 +1022,14 @@ export function calculateRollProductionMetrics(
 
   let expectedPieces = roll.expectedPieces !== undefined && roll.expectedPieces > 0
     ? roll.expectedPieces
-    : ((isRoll43968015 || material === 'Delcotex India') ? 3857 : getExpectedYieldForReference(referenceId, customYields));
+    : (isRoll43968015 ? 3857 : getExpectedYieldForReference(referenceId, customYields, actualLength));
 
-  // If Delcotex India roll is 90m (or unrecorded length) and has legacy 4286, expected is 3857
-  if (material === 'Delcotex India' && (actualLength === 90 || roll.metersTotal === 90 || !roll.metersTotal) && expectedPieces === 4286) {
-    expectedPieces = 3857;
+  if (material === 'Delcotex India') {
+    if ((actualLength === 90 || roll.metersTotal === 90 || isRoll43968015) && expectedPieces === 4286) {
+      expectedPieces = 3857;
+    } else if ((actualLength === 100 || roll.metersTotal === 100) && expectedPieces === 3857) {
+      expectedPieces = 4286;
+    }
   }
 
   // If White Huesker / CRAFTER roll has legacy 2600 or 1800 or unconfigured yield, expected yield is 8675
